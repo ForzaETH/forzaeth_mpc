@@ -153,6 +153,7 @@ class FrenetConverter:
         psi = np.arctan2(psi[1], psi[0])
         x += d * np.cos(psi + np.pi / 2)
         y += d * np.sin(psi + np.pi / 2)
+        
         return np.array([x, y])
     
 
