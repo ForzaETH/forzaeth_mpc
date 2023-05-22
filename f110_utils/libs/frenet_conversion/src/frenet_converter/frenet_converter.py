@@ -35,13 +35,20 @@ class FrenetConverter:
         else:
             s, d = self.get_frenet_coord(x, y, s)
 
+        # print(f"OG s and d {s, d}")
+
         return np.array([s, d])
 
     def get_approx_s(self, x, y) -> float:
         """
         Finds the s-coordinate of the given point by finding the nearest waypoint.
         """
-        return np.argmin(np.linalg.norm([self.waypoints_x-x, self.waypoints_y-y], axis=0))*self.waypoints_distance_m
+        # get distance with broadcasting multiple arrays
+        lenx = len(x)
+        dist_x = x - np.tile(self.waypoints_x, (lenx, 1)).T
+        dist_y = y - np.tile(self.waypoints_y, (lenx, 1)).T
+        # print(dist_x.shape, dist_x)
+        return np.argmin(np.linalg.norm([dist_x.T, dist_y.T], axis=0), axis=1)*self.waypoints_distance_m
 
     def get_frenet_coord(self, x, y, s, eps_m=0.01) -> float:
         """
@@ -58,32 +65,58 @@ class FrenetConverter:
             The s-coordinate of the point on the track.
         """
         # Check if point is on the estimated s perpendicular to the track
+
         is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
-        while not is_perpendicular:
-            s = s + projection
+        # print(f"projection {projection}")
+        # if np.abs(projection) > eps_m:
+        is_perpendicular = True
+        for i in range(3):
+            s = (s + projection)%self.raceline_length
             is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
-        
+
         return s, d
 
     def check_perpendicular(self, x, y, s, eps_m=0.01) -> Union[bool, float]:
         # obtain unit vector parallel to the track
         dx_ds, dy_ds = self.get_derivative(s)
         tangent = np.array([dx_ds, dy_ds])
-        tangent /= np.linalg.norm(tangent)
+        if np.any(np.isnan(s)):
+            raise ValueError("BUB FRENET CONVERTER: S is nan")
+        tangent /= np.linalg.norm(tangent, axis=0)
+        # print(f"tangents {tangent[:, :5]}")
 
         # obtain vector from the track to the point
-        point_to_track = np.array([x - self.spline_x(s), y - self.spline_y(s)])
+        x_vec = x - self.spline_x(s)
+        y_vec = y - self.spline_y(s)
+        point_to_track = np.array([x_vec, y_vec])
+        # print("PTT", point_to_track.shape, point_to_track[:, :5])
+        # print(f"shape xvec{x_vec.shape}, yvec{y_vec.shape}, sshape{s.shape}")
+        # print(f"tang, {tangent}, dx_s {dx_ds}, dys {dy_ds}, sx{self.spline_x(s)}, sy {self.spline_y(s)}")
         
         # check if the vectors are perpendicular
         # the dot product computes the projected component of point_to_track onto tangent in meters
-        proj = np.dot(tangent, point_to_track)
-        if (proj > 0 and proj < eps_m) or (proj < 0 and proj > -eps_m):
-            # compute d here, for efficiency
-            d = np.dot([-tangent[1], tangent[0]], point_to_track)
+        # proj = np.dot(tangent, point_to_track)
+        # print(tangent.shape, point_to_track.shape)
+        # print(tangent)
+        # print(x,y)
+        # print(self.spline_x(s), self.spline_y(s))
+        # print(point_to_track)
+        proj = np.einsum('ij,ij->j', tangent, point_to_track)
+        # print(f"proj {proj[:5]}")
+        perps = np.array([-tangent[1, :], tangent[0, :]])
+        # print(f"perps: {perps[:, :5]}")
+        d = np.einsum('ij,ij->j', perps, point_to_track)
+        # print(f"d {d[:5]}")
+        return None, proj, d
 
-            return True, proj, d
-        else:
-            return False, proj, None
+        # if (proj > 0 and proj < eps_m) or (proj < 0 and proj > -eps_m):
+        #     # compute d here, for efficiency
+        #     d = np.dot([-tangent[1], tangent[0]], point_to_track)
+
+        #     return True, proj, d
+        # else:
+        #     d = np.dot([-tangent[1], tangent[0]], point_to_track)
+        #     return False, proj, d
     
     def get_derivative(self, s) -> np.array:
         """
