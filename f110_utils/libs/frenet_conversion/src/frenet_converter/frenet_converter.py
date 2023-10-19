@@ -11,6 +11,7 @@ class FrenetConverter:
         self.spline_y = None
         self.raceline_length = None
         self.waypoints_distance_m = 0.1 # [m]
+        self.iter_max = 3
 
         self.build_raceline()
 
@@ -67,12 +68,17 @@ class FrenetConverter:
         # Check if point is on the estimated s perpendicular to the track
 
         is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
-        # print(f"projection {projection}")
+        print(f"projection {projection}, the d {d}, the s {s}")
         # if np.abs(projection) > eps_m:
         is_perpendicular = True
-        for i in range(3):
-            s = (s + projection)%self.raceline_length
-            is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
+        for i in range(self.iter_max):
+            cand_s = (s + projection)%self.raceline_length
+            is_perpendicular, cand_projection, cand_d = self.check_perpendicular(x, y, cand_s, eps_m)
+            cand_projection = np.clip(cand_projection, -self.waypoints_distance_m/(2*self.iter_max), self.waypoints_distance_m/(2*self.iter_max))
+            updated_idxs = np.abs(cand_projection) < np.abs(projection)
+            d[updated_idxs] = cand_d[updated_idxs]
+            s[updated_idxs] = cand_s[updated_idxs]
+            projection[updated_idxs] = cand_projection[updated_idxs]
 
         return s, d
 
