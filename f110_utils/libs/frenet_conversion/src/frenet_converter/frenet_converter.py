@@ -68,7 +68,7 @@ class FrenetConverter:
         # Check if point is on the estimated s perpendicular to the track
 
         is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
-        print(f"projection {projection}, the d {d}, the s {s}")
+        #print(f"projection {projection}, the d {d}, the s {s}")
         # if np.abs(projection) > eps_m:
         is_perpendicular = True
         for i in range(self.iter_max):
