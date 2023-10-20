@@ -36,8 +36,6 @@ class FrenetConverter:
         else:
             s, d = self.get_frenet_coord(x, y, s)
 
-        # print(f"OG s and d {s, d}")
-
         return np.array([s, d])
 
     def get_approx_s(self, x, y) -> float:
@@ -48,7 +46,6 @@ class FrenetConverter:
         lenx = len(x)
         dist_x = x - np.tile(self.waypoints_x, (lenx, 1)).T
         dist_y = y - np.tile(self.waypoints_y, (lenx, 1)).T
-        # print(dist_x.shape, dist_x)
         return np.argmin(np.linalg.norm([dist_x.T, dist_y.T], axis=0), axis=1)*self.waypoints_distance_m
 
     def get_frenet_coord(self, x, y, s, eps_m=0.01) -> float:
@@ -67,15 +64,13 @@ class FrenetConverter:
         """
         # Check if point is on the estimated s perpendicular to the track
 
-        is_perpendicular, projection, d = self.check_perpendicular(x, y, s, eps_m)
-        #print(f"projection {projection}, the d {d}, the s {s}")
-        # if np.abs(projection) > eps_m:
-        is_perpendicular = True
+        _, projection, d = self.check_perpendicular(x, y, s, eps_m)
         for i in range(self.iter_max):
             cand_s = (s + projection)%self.raceline_length
-            is_perpendicular, cand_projection, cand_d = self.check_perpendicular(x, y, cand_s, eps_m)
+            _, cand_projection, cand_d = self.check_perpendicular(x, y, cand_s, eps_m)
+            print(f"candidate projection: {cand_projection}; projection: {projection}; d: {d} cand_d: {cand_d}")
             cand_projection = np.clip(cand_projection, -self.waypoints_distance_m/(2*self.iter_max), self.waypoints_distance_m/(2*self.iter_max))
-            updated_idxs = np.abs(cand_projection) < np.abs(projection)
+            updated_idxs = np.abs(cand_projection) <= np.abs(projection)
             d[updated_idxs] = cand_d[updated_idxs]
             s[updated_idxs] = cand_s[updated_idxs]
             projection[updated_idxs] = cand_projection[updated_idxs]
@@ -89,40 +84,27 @@ class FrenetConverter:
         if np.any(np.isnan(s)):
             raise ValueError("BUB FRENET CONVERTER: S is nan")
         tangent /= np.linalg.norm(tangent, axis=0)
-        # print(f"tangents {tangent[:, :5]}")
 
         # obtain vector from the track to the point
         x_vec = x - self.spline_x(s)
         y_vec = y - self.spline_y(s)
         point_to_track = np.array([x_vec, y_vec])
-        # print("PTT", point_to_track.shape, point_to_track[:, :5])
-        # print(f"shape xvec{x_vec.shape}, yvec{y_vec.shape}, sshape{s.shape}")
-        # print(f"tang, {tangent}, dx_s {dx_ds}, dys {dy_ds}, sx{self.spline_x(s)}, sy {self.spline_y(s)}")
         
         # check if the vectors are perpendicular
-        # the dot product computes the projected component of point_to_track onto tangent in meters
-        # proj = np.dot(tangent, point_to_track)
-        # print(tangent.shape, point_to_track.shape)
-        # print(tangent)
-        # print(x,y)
-        # print(self.spline_x(s), self.spline_y(s))
-        # print(point_to_track)
+        # computes the projection of point_to_track on tangent
         proj = np.einsum('ij,ij->j', tangent, point_to_track)
-        # print(f"proj {proj[:5]}")
         perps = np.array([-tangent[1, :], tangent[0, :]])
-        # print(f"perps: {perps[:, :5]}")
         d = np.einsum('ij,ij->j', perps, point_to_track)
-        # print(f"d {d[:5]}")
-        return None, proj, d
 
-        # if (proj > 0 and proj < eps_m) or (proj < 0 and proj > -eps_m):
-        #     # compute d here, for efficiency
-        #     d = np.dot([-tangent[1], tangent[0]], point_to_track)
+        # TODO commented out because of computational efficiency
+        # eps_m * point_to_track_norm is needed to make it scale invariant 
+        # check_perpendicular becomes effectively cos(angle) <= eps_m
 
-        #     return True, proj, d
-        # else:
-        #     d = np.dot([-tangent[1], tangent[0]], point_to_track)
-        #     return False, proj, d
+        # point_to_track_norm = np.linalg.norm(point_to_track, axis=0)
+        # check_perpendicular = np.abs(proj) <= eps_m * point_to_track_norm
+        check_perpendicular = None
+
+        return check_perpendicular, proj, d
     
     def get_derivative(self, s) -> np.array:
         """
