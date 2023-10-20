@@ -68,7 +68,7 @@ class FrenetConverter:
         for i in range(self.iter_max):
             cand_s = (s + projection)%self.raceline_length
             _, cand_projection, cand_d = self.check_perpendicular(x, y, cand_s, eps_m)
-            print(f"candidate projection: {cand_projection}; projection: {projection}; d: {d} cand_d: {cand_d}")
+            #print(f"candidate projection: {cand_projection}; projection: {projection}; d: {d} cand_d: {cand_d}")
             cand_projection = np.clip(cand_projection, -self.waypoints_distance_m/(2*self.iter_max), self.waypoints_distance_m/(2*self.iter_max))
             updated_idxs = np.abs(cand_projection) <= np.abs(projection)
             d[updated_idxs] = cand_d[updated_idxs]
