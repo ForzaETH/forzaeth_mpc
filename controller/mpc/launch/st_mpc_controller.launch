@@ -1,0 +1,11 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+  <arg name="mpc_config_filename" default="mpc_params.yaml"/>
+  <arg name="LU_table" default="SIM_linear"/>
+  
+  <param name="mpc_config_filename" value="$(arg mpc_config_filename)"/>
+  <param name="LU_table" value="$(arg LU_table)"/>
+
+  <!-- Launch Acados MPC controller -->
+  <node pkg="controller" type="st_mpc_controller.py" name="mpc_ros_simulator" output="screen"/>
+</launch>
