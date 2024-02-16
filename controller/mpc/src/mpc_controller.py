@@ -10,6 +10,7 @@ import rospy
 import yaml
 from ackermann_msgs.msg import AckermannDriveStamped
 from f110_msgs.msg import WpntArray
+from f110_msgs.msg import kinematic_mpc_param      
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
@@ -24,8 +25,6 @@ from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 
 from frenet_converter.frenet_converter import FrenetConverter
-
-
 
 class MPCNode:
     def __init__(self,) -> None:
@@ -51,7 +50,10 @@ class MPCNode:
         rospy.Subscriber("/car_state/pose", PoseStamped, self._pose_cb)
         rospy.Subscriber("/vesc/high_level/ackermann_cmd_mux/input/nav_1", AckermannDriveStamped, self._input_cb)
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
-
+        
+        self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
+        self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
+        self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
         self.target_pos_pub = rospy.Publisher("/mpc_controller/target_position", MarkerArray, queue_size=10)
         self.drive_pub = rospy.Publisher('/mpc_controller/input_stream', AckermannDriveStamped, queue_size=10)
@@ -70,6 +72,8 @@ class MPCNode:
         self._initialize_solver()
 
     def _init_params(self,) -> None:
+
+        # load the yaml of mpc
         dir_path = rospkg.RosPack().get_path("stack_master")
         self.racecar_version = rospy.get_param("/racecar_version")
         file_path = rospy.get_param("/mpc_config_filename")
@@ -77,7 +81,7 @@ class MPCNode:
         with open(self.conf_file, "r") as conf_file:
             self.conf_params = yaml.safe_load(conf_file)
         
-        
+        # N:prediction horizon
         self.N = self.conf_params['N']
         self.R = self.conf_params['R']
         
@@ -103,16 +107,61 @@ class MPCNode:
         
         d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts) # on f track trajectory is 81.803 m long.
         
+        # create a spline class
         self.spline = SplineTrack(coords_direct=coords_path)
         
         self.nr_laps = 0
-
+      
         kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
+        vx_ref =[x.vx_mps for x in shortest_path.wpnts]
+        # spline.params: an array of each length in the track
         s0 = self.spline.params
         
-        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef, d_left, d_right, self.conf_params)
+        #substitute parameters into the acados
+        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef,vx_ref, d_left, d_right, self.conf_params)
 
         self.kappa = self.model.kappa
+
+        # Waiting for 'start' command to start the controller
+
+        # visualize the boundaries of the map
+        map_boundaries = np.zeros((len(self.spline.params),2,2))
+        for stage in range(len(self.spline.params)):
+            map_boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage], -self.model.outer_bound_s(self.spline.params[stage])]))
+            map_boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage],  self.model.inner_bound_s(self.spline.params[stage])]))  
+        
+        # visualize the params of the mpc
+        mpc_param=kinematic_mpc_param()
+        mpc_param.N= self.N
+        mpc_param.track_safety_margin= self.track_safety_margin
+        mpc_param.delta_min= self.conf_params["delta_min"]
+        mpc_param.delta_max= self.conf_params["delta_max"]
+        mpc_param.v_x_min= self.conf_params["v_min"]
+        mpc_param.v_x_max= self.conf_params["v_max"]
+        mpc_param.alat_min= self.conf_params["alat_min"]
+        mpc_param.alat_max= self.conf_params["alat_max"]
+        mpc_param.along_min= self.conf_params["along_min"]
+        mpc_param.along_max= self.conf_params["along_max"]
+        mpc_param.track_length=self.spline.track_length
+        mpc_param.control_period=1/self.conf_params["MPC_freq"]
+        print("Please open plotjuggler first ")
+        user_input = input("Please input 'yes' after opening the plotjuggler and loging the xml:")
+        while not rospy.is_shutdown():
+           
+            if user_input == 'start':
+                print("Starting controller...")
+                break
+            else:
+                # visualize the boundaries of the map
+                self.publish_waypoint_markers(map_boundaries[:,0,:], "map_b_left")
+                self.publish_waypoint_markers(map_boundaries[:,1,:], "map_b_right")
+                
+                # visualize the params of the mpc
+                self.mpc_param_pub.publish(mpc_param)
+
+                user_input = input("Enter 'start' command to start the controller: ")
+        
+
 
     #############
     # Callbacks #
@@ -240,6 +289,7 @@ class MPCNode:
 
         # Initial condition on the ODE
         x0 = np.concatenate((states,inputs), axis=0)
+        # forward propagation
         solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
 
         solution = [x[-1] for x in solution.y]
@@ -261,6 +311,7 @@ class MPCNode:
         
         
         # Only get the state as solution of where the car will be in t_delay seconds
+        # not including the input
         return np.array(solution)[:-2]
     
     def get_initial_position(self, init: bool = False, prev_x0 = None) -> np.ndarray:
@@ -294,7 +345,8 @@ class MPCNode:
         center_car_s = resp_frenet.s + self.conf_params["lr"]*np.cos(alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
         alpha_center = theta - np.arctan2(deriv_center[1],deriv_center[0])
-
+        
+        # make aplha_center between -pi and pi
         alpha_center = alpha_center % (2*np.pi)
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2*np.pi
@@ -303,12 +355,14 @@ class MPCNode:
         delta = self.steering_angle_buf[-1]
 
         track_length = self.spline.track_length - 0.1 # Needed as values are not exact
-
+        
+        # check if the car has completed a lap
         if resp_frenet.s < 0.2 and prev_x0[State.POS_ON_CENTER_LINE_S] // track_length != self.nr_laps:
+            # update the number of laps
             self.nr_laps = prev_x0[State.POS_ON_CENTER_LINE_S] // track_length
 
         current_pos_s = resp_frenet.s + self.nr_laps * self.spline.track_length
-        
+        print(self.nr_laps)
 
         return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, delta])
     
@@ -334,7 +388,8 @@ class MPCNode:
 
         x0 = self.get_initial_position(init=True)
         propagated_x = self.propagate_time_delay(x0, np.zeros(2))
-
+        
+        # Set the initial state
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
@@ -360,6 +415,7 @@ class MPCNode:
         # For computation time
         tcomp_sum = 0
         tcomp_max = 0
+       
 
         while not rospy.is_shutdown():
             
@@ -415,7 +471,7 @@ class MPCNode:
             # cost_check.append(cost)
             # cost_acados.append(self.acados_solver.get_cost())
 
-            # Publish current state and predicted states
+            # Publish the inputs of the MPC controller
             if status == 0:
                 # print(self.pred_x)
                 self.publish_ackermann_msg(self.pred_x, True)
@@ -425,6 +481,7 @@ class MPCNode:
                     self.publish_ackermann_msg(x, False)
 
             # steering buffer
+            # shift the elements in the buffer to the right and add the predicted steering angle
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
             self.steering_angle_buf[0] = self.pred_x[-1]
             # print(self.steering_angle_buf)
@@ -436,12 +493,12 @@ class MPCNode:
 
             # Creating waypoint array with predicted positions
             mpc_sd = np.array([
-                self.acados_solver.get(j, "x")[:2] for j in range(self.N)
+                self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)
             ])
 
             if status == 0:
                 states = []
-                for node in range(self.N):
+                for node in range(self.N+1):
                     result = self.acados_solver.get(node,"x").tolist()
                     for item in result:
                         states.append(item)
@@ -453,7 +510,10 @@ class MPCNode:
 
 
             # time1 = time.perf_counter()
+
+            # update initial state from sensors
             x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
+
             # time2 =time.perf_counter()
             # self.beta_pub.publish(np.arctan2(lr,lr + lf) * np.tan(x0[State.STEERING_ANGLE_DELTA]))
         
@@ -477,23 +537,24 @@ class MPCNode:
 
             # Print trajectory bounds
             boundaries = np.zeros((self.acados_solver.N + 1, 3, 2))
-
             for stage in range(self.acados_solver.N + 1):
                 x_ = self.acados_solver.get(stage, 'x')
                 s_ = x_[State.POS_ON_CENTER_LINE_S]
                 s_mod = s_ % self.spline.track_length
                 n_ = x_[State.MIN_DIST_TO_CENTER_LINE_N]
+                # check if the position of the car in one step prediction is close to the boundaries
                 if stage == 1:
                     if self.model.outer_bound_s(s_mod) + n_ <= 0.4 or self.model.inner_bound_s(s_mod) - n_ <= 0.4:
                         rospy.logwarn(f"Outer: {self.model.outer_bound_s(s_mod) + n_}, Inner: {self.model.inner_bound_s(s_mod) - n_}")
                 
-                # boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
-                # boundaries[stage,2,:] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
-                # boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
-
-            # self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
-            # self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            # self.publish_waypoint_markers(boundaries[:,2,:], "d_right")
+                boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
+                boundaries[stage,2,:] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
+                boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
+            
+            # visualise the boundaries of the mpc prediction
+            self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
+            self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
+            self.publish_waypoint_markers(boundaries[:,2,:], "d_right")
 
             iter_loop += 1
 
@@ -507,7 +568,7 @@ class MPCNode:
             self.comp_time_pub.publish(elapsed)
             
             # Plotting
-            if iter_loop == 40000:
+            if iter_loop == 4000000000:
                 simX_plot = simX[:iter_loop, :]
                 simU_plot = simU[:iter_loop,:]
                 realX_plot = realX[:iter_loop,:]
@@ -606,6 +667,10 @@ class MPCNode:
 
         if type == "pred":
             self.pred_pos_pub.publish(waypoint_markers)
+        elif type == "map_b_left":
+            self.map_left_bound_pub.publish(waypoint_markers)
+        elif type == "map_b_right":
+            self.map_right_bound_pub.publish(waypoint_markers)
         elif type == "d_left":
             self.d_left_pub.publish(waypoint_markers)
         elif type == "d_mid":
@@ -630,11 +695,15 @@ class MPCNode:
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
         ack_msg.drive.speed = state[State.VELOCITY_V]
+        # ack_msg.drive.acceleration = self.u0[0]/self.t_MPC
+
 
         # Managing of contol actions sent to controller_node.py
         if next_input:
+            # next input
             self.drive_next_pub.publish(ack_msg)
         else:
+            # input line
             self.drive_pub.publish(ack_msg)
 
 if __name__ == "__main__":

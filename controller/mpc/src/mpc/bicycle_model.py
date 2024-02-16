@@ -40,7 +40,7 @@ import numpy as np
 from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
 
 
-def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
+def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: list, cfg_dict: dict):
     # define structs
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
@@ -49,15 +49,20 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     length = len(s0)
     pathlength = s0[-1]
-    # copy loop to beginning and end
-    
+    # copy loop to beginning and end 
+    # Something wrong：s0[1:length]
     s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
     s0 = np.append([s0[:length -1 ] - s0[length - 1]], s0)
+
     kapparef = np.append(kapparef, kapparef[1:length])
     kapparef = np.append([kapparef[:length - 1] - kapparef[length - 1]], kapparef)
 
+    vx_ref = np.append(vx_ref, vx_ref[1:length])
+    vx_ref = np.append([vx_ref[:length - 1] - vx_ref[length - 1]], vx_ref)
+
     d_left = np.append(d_left, d_left[1:length])
     d_left = np.append([d_left[:length -1 ] - d_left[length - 1]], d_left)
+
     d_right = np.append(d_right, d_right[1:length])
     d_right = np.append([d_right[:length -1 ] - d_right[length - 1]], d_right)
 
@@ -69,6 +74,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
+    vx_ref_s = interpolant("vx_ref_s", "bspline", [s0], vx_ref)
     outer_bound_s = interpolant("outer_bound_s", "bspline", [s0], d_left)
     inner_bound_s = interpolant("inner_bound_s", "bspline", [s0], d_right)
 
@@ -131,16 +137,18 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     # parameters
     p = vertcat(m, C1, C2, Cr0, Cr2, Cr3, Iz, lr, lf, Bf, Cf, Df, Br, Cr, Dr, Imax_c, Caccel, Cdecel, qadv, qn, qalpha, qvy, freq, C_S_front, C_S_rear)
-
+    
+    # calculate the index
     s_mod = mod(s, pathlength)
 
     # constraint on forces
     # beta = cs.atan(lr/(lr + lf) * cs.tan(delta))
-    beta = lr/(lr + lf) * (delta) # full formulation above is not relevantly different for [-0.4 - 0.4]
-    a_lat = v * v * cs.tan(delta)/(lr+lf) + der_v * sin(beta)
+    # beta = lr/(lr + lf) * (delta) # full formulation above is not relevantly different for [-0.4 - 0.4]
+    a_lat = v * v * cs.tan(delta)/(lr+lf)
     a_long = der_v
 
-    
+    # left_bound=inner_side, right_bound=outer_side
+    # distance to border
     n_outer_bound = outer_bound_s(s_mod) + n
     n_inner_bound = inner_bound_s(s_mod) - n 
 
@@ -167,8 +175,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     constraint.alat_min = cfg_dict["alat_min"] # maximum lateral force [m/s^2]
     constraint.alat_max = cfg_dict["alat_max"] # maximum lateral force [m/s^1]
 
-    constraint.along_min = cfg_dict["along_min"] # maximum lateral force [m/s^2]
-    constraint.along_max = cfg_dict["along_max"] # maximum lateral force [m/s^2]
+    constraint.along_min = cfg_dict["along_min"] # maximum longitudinal force [m/s^2]
+    constraint.along_max = cfg_dict["along_max"] # maximum longitudinal force [m/s^2]
 
     # Velocity constraint
     constraint.v_min = cfg_dict["v_min"] # minimum velocity [m/s]
@@ -183,26 +191,65 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     constraint.expr = vertcat(a_long, a_lat, n_inner_bound, n_outer_bound)
 
     # dynamics
-    sdota = (v * cos(alpha + beta)) / (1 - kapparef_s(s_mod) * n)
-    ndot = v * sin(alpha + beta) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
-    # state is (s, n, alpha, v, delta)
+    sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
+    ndot = v * sin(alpha) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
+    alphadot= v / (lr + lf) * cs.tan(delta) - kapparef_s(s_mod) * sdota
+    # state is (s, n, alpha, v, delta) 
     f_expl = vertcat(
         sdota,
         ndot,
-        v / lr * sin(beta) - kapparef_s(s_mod) * sdota,
+        alphadot,
         der_v,
         derDelta,
     )
 
     f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
 
+    # discrete dynamics：augmented model
+    # Euler forward simulation
+
+    control_period=1/freq
+    # dis_s_k_1=s+control_period*sdota
+    # dis_n_k_1=n+control_period*ndot
+    # dis_alpha_k_1=alpha+control_period*alphadot
+    # dis_v_k_1=v+der_v
+    # dis_delta_k_1=delta+derDelta
+    # f_disc=vertcat(
+    # dis_s_k_1,
+    # dis_n_k_1,
+    # dis_alpha_k_1,
+    # dis_v_k_1,
+    # dis_delta_k_1,
+    # )
+    # f_disc_func = Function('f_disc_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_disc])
+
+    # runge kutta simulation
+    f_c_runge= vertcat(
+        sdota,
+        ndot,
+        alphadot,
+    )
+    x_runge = vertcat(s,n,alpha)
+    f_c_runge_func = Function('f_c_runge_func', [s,n,alpha,v,delta,p], [f_c_runge])
+    k1 = control_period * f_c_runge_func(s,n,alpha,v,delta,p)
+    x_next_runge= x_runge + 0.5 * k1
+    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    x_next_runge = x_runge + 0.5 * k2
+    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    x_next_runge = x_runge + k3
+    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    x_next_runge=x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
+
+    dis_v_k_1=v+der_v
+    dis_delta_k_1=delta+derDelta
+    f_disc=vertcat(x_next_runge,dis_v_k_1,dis_delta_k_1)
 
     # Definition of external cost function
     R = np.diag(cfg_dict['R'])
     qv = cfg_dict['qv']
     sdota_no_beta = (v * cos(alpha)) / (1 - kapparef_s(s_mod) * n)
-    model.cost_expr_ext_cost = -qadv * sdota / freq - qv * v + qn * n**2 + qalpha * alpha**2 + u.T @ R @ u
-    model.cost_expr_ext_cost_e = -qadv * sdota_no_beta / freq + 5 * qn * n**2 + 5 * qalpha * alpha**2
+    model.cost_expr_ext_cost = -qadv * sdota / freq + qn * n**2 + qalpha * alpha**2 +qv*(v-vx_ref_s(s_mod))**2+u.T @ R @ u
+    model.cost_expr_ext_cost_e = -qadv * sdota_no_beta / freq +  qn * n**2 + qalpha * alpha**2+qv*(v-vx_ref_s(s_mod))
 
     # Define model struct
     params = types.SimpleNamespace()
@@ -212,6 +259,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     params.Cr2 = Cr2
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
+    model.dyn_disc_fun = f_disc
     model.x = x
     model.xdot = xdot
     model.u = u
@@ -224,3 +272,4 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     model.outer_bound_s = outer_bound_s
     model.inner_bound_s = inner_bound_s
     return model, constraint, params
+

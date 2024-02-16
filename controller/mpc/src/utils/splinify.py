@@ -289,6 +289,7 @@ class SplineTrack():
         """
 
         # 1 Obtain points on the track #
+        # params: an array of each length in the track #
         #################################
         if path_to_file is not None:
             coords = read_coords_from_file(path_to_file)
