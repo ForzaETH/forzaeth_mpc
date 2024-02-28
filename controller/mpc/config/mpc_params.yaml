@@ -1,0 +1,5 @@
+qv: !!float 10 # velocity cost (linear, for velocity maximization)
+qn: 20
+qalpha: 7
+
+
