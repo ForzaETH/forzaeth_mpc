@@ -434,7 +434,6 @@ class MPCNode:
         tcomp_sum = 0
         tcomp_max = 0
        
-
         while not rospy.is_shutdown():
             
             start = time.perf_counter()
