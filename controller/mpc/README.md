@@ -1,9 +1,7 @@
 # MPC
 This is how to visualize the MPC with plot_juggler
 
-## MPC-Test
-
-Acados Installation:
+## Acados Installation
 
 ```
 #clone acados
@@ -36,15 +34,9 @@ export ACADOS_SOURCE_DIR="<acados_root>/acados"
 source ~/.bashrc
 ```
 
-MPC Controller Start:
-
-```
-roslaunch catkin_ws/src/race_stack/controller/mpc/launch/mpc_controller.launch 
-```
 
 
-
-## Visualization
+## Visualization-Test
 
 Install plotjuggler:
 
@@ -52,7 +44,7 @@ Install plotjuggler:
 sudo snap install plotjuggler-ros
 ```
 
-Start:
+Start-test:
 
 ```
 plotjuggler-ros
@@ -60,28 +52,56 @@ plotjuggler-ros
 
 
 
-```
-# load xml file to visualization from:
-./config/mpc_plot.xml
-```
-
-
-
-
-
-## Modify the mpc controller
+## MPC Visualization
 
 Step 1: start the simulator
 
 ```
 # define the parameter of the simulator:stack_master/config/NUC5/NUC5_pacejka.yaml
-roslaunch stack_master base_system.launch map_name:=f racecar_version:=NUC5 sim:=true tire_model:=pacejka
+roslaunch stack_master base_system.launch map_name:=f racecar_version:=SIM sim:=true tire_model:=pacejka
 ```
 
 step 2: start the mpc controller
 
 ```
 roslaunch controller mpc_controller.launch
+```
 
+step 3: open plotjuggler 
+
+```
+plotjuggler-ros
+# load xml file to visualization from:
+./config/mpc_plot.xml
+```
+
+step 3: follow the command
+
+## Sector-MPC
+
+If you already selected sector, just skip step 1.
+
+step 1 start simulator:
+
+```
+roslaunch stack_master mapping.launch map_name:=JFR_racingv6 racecar_version:=NUC5 sim:=true
+```
+
+step 2 select sector:
+
+```
+roslaunch stack_master base_system.launch map_name:=JFR_racingv6 sim:=True racecar_version:=NUC5 tire_model:=pacejka
+```
+
+step 3 start controller:
+
+```
+roslaunch controller sec_mpc_controller.launch
+```
+
+step 4 open rqt to turn the parameters online
+
+```
+rqt
 ```
 
