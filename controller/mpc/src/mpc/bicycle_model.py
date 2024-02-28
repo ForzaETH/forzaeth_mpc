@@ -231,18 +231,20 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     )
     x_runge = vertcat(s,n,alpha)
     f_c_runge_func = Function('f_c_runge_func', [s,n,alpha,v,delta,p], [f_c_runge])
-    k1 = control_period * f_c_runge_func(s,n,alpha,v,delta,p)
+    # arg input
+    dis_v_k=v+der_v
+    dis_delta_k=delta+derDelta
+
+    k1 = control_period * f_c_runge_func(s,n,alpha,dis_v_k,dis_delta_k,p)
     x_next_runge= x_runge + 0.5 * k1
-    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
     x_next_runge = x_runge + 0.5 * k2
-    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
     x_next_runge = x_runge + k3
-    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],v,delta,p)
+    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
     x_next_runge=x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
 
-    dis_v_k_1=v+der_v
-    dis_delta_k_1=delta+derDelta
-    f_disc=vertcat(x_next_runge,dis_v_k_1,dis_delta_k_1)
+    f_disc=vertcat(x_next_runge,dis_v_k,dis_delta_k)
 
     # Definition of external cost function
     R = np.diag(cfg_dict['R'])

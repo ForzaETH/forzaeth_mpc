@@ -99,6 +99,12 @@ step 3 start controller:
 roslaunch controller sec_mpc_controller.launch
 ```
 
+step 4 open plotjuggler
+
+```
+plotjuggler-ros
+```
+
 step 4 open rqt to turn the parameters online
 
 ```
