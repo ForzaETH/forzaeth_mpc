@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Define the acados installation path
-ACADOS_ROOT=~/catkin_ws/src/race_stack/f110_utils/libs/acados
+ACADOS_ROOT=~/acados
 
 # Clone acados into the target folder
-#git clone https://github.com/acados/acados.git $ACADOS_ROOT
+git clone https://github.com/acados/acados.git $ACADOS_ROOT
 cd $ACADOS_ROOT
 git submodule update --init --recursive
 
