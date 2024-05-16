@@ -1,4 +1,4 @@
-#
+
 # Copyright 2019 Gianluca Frison, Dimitris Kouzoupis, Robin Verschueren,
 # Andrea Zanelli, Niels van Duijkeren, Jonathan Frey, Tommaso Sartor,
 # Branimir Novoselnik, Rien Quirynen, Rezart Qelibari, Dang Doan,
@@ -93,10 +93,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     derDelta = MX.sym("derDelta")
     u = vertcat(der_v, derDelta)
 
-    # Delta formulation
-    # next_v = v + der_v/N
-    # next_delta = delta + (Tf)*derDelta/N 
-
     # xdot
     sdot = MX.sym("sdot")
     ndot = MX.sym("ndot")
@@ -109,31 +105,16 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     z = vertcat([])
 
     # parameters
-    m = MX.sym("m")
-    C1 = MX.sym("C1")
-    C2 = MX.sym("C2")
-    Cr0 = MX.sym("Cr0")
-    Cr2 = MX.sym("Cr2")
-    Cr3 = MX.sym("Cr3")
-    Iz = MX.sym("Iz")
-    lr = MX.sym("lr")
-    lf = MX.sym("lf")
-    Df = MX.sym("Df")
-    Cf = MX.sym("Cf")
-    Bf = MX.sym("Bf")
-    Dr = MX.sym("Dr")
-    Cr = MX.sym("Cr")
-    Br = MX.sym("Br")
-    Imax_c = MX.sym("Imax_c")
-    Caccel = MX.sym("Caccel")
-    Cdecel = MX.sym("Cdecel")
-    qadv = MX.sym("qadv")
-    qn = MX.sym("qn")
-    qalpha = MX.sym("qalpha")
-    qvy = MX.sym("qvy")
-    freq = MX.sym("freq")
-    C_S_front = MX.sym('C_S_front')
-    C_S_rear = MX.sym('C_S_rear')
+    R = np.diag(cfg_dict['R'])
+    lr = cfg_dict['lr']
+    lf = cfg_dict['lf']
+    
+    qadv = cfg_dict['qadv']
+    qn = cfg_dict['qn']
+    qalpha = cfg_dict['qalpha']
+    freq = cfg_dict['MPC_freq']
+
+    # parameters
     V_target = MX.sym('V_target')
     weight_qn = MX.sym('weight_qn')
     weight_qv = MX.sym('weight_qv')
@@ -144,9 +125,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     cs_delta_steer_max = MX.sym('cs_delta_steer_max')
     cs_delta_v_min = MX.sym('cs_delta_v_min')
     cs_delta_v_max = MX.sym('cs_delta_v_max')
-    # parameters
-    p = vertcat(m, C1, C2, Cr0, Cr2, Cr3, Iz, lr, lf, Bf, Cf, Df, Br, Cr, Dr, Imax_c, Caccel, Cdecel, qadv, qn, qalpha, qvy, freq, C_S_front, C_S_rear,
-                V_target,weight_qv,weight_qn,weight_qalpha, # weights
+    p = vertcat(V_target,weight_qv,weight_qn,weight_qalpha, # weights
                 cs_vx_min,cs_vx_max,    # velocity constraints
                 cs_delta_steer_min,cs_delta_steer_max,  # steering angle constraints
                 cs_delta_v_min,cs_delta_v_max) # velocity change rate constraints
@@ -155,8 +134,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     s_mod = mod(s, pathlength)
 
     # constraint on forces
-    # beta = cs.atan(lr/(lr + lf) * cs.tan(delta))
-    # beta = lr/(lr + lf) * (delta) # full formulation above is not relevantly different for [-0.4 - 0.4]
     a_lat = v * v * cs.tan(delta)/(lr+lf)
     a_long = der_v
 
@@ -181,15 +158,12 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     # input bounds
     model.ddelta_min = cfg_dict["ddelta_min"] # minimum change rate of stering angle [rad/s]
     model.ddelta_max = cfg_dict["ddelta_max"] # maximum change rate of steering angle [rad/s]
-    model.dv_min = cfg_dict["dv_min"] # minimum velocity change rate
-    model.dv_max = cfg_dict["dv_max"] # maximum velocity change rate
+    model.dv_min = cfg_dict["a_min"] # minimum velocity change rate
+    model.dv_max = cfg_dict["a_max"] # maximum velocity change rate
 
     # nonlinear constraint
     constraint.alat_min = cfg_dict["alat_min"] # maximum lateral force [m/s^2]
     constraint.alat_max = cfg_dict["alat_max"] # maximum lateral force [m/s^1]
-
-    constraint.along_min = cfg_dict["along_min"] # maximum longitudinal force [m/s^2]
-    constraint.along_max = cfg_dict["along_max"] # maximum longitudinal force [m/s^2]
 
     # Velocity constraint
     constraint.v_min = cfg_dict["v_min"] # minimum velocity [m/s]
@@ -223,63 +197,16 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
 
-    # discrete dynamics：augmented model
-    # Euler forward simulation
-
-    control_period=1/freq
-    # dis_s_k_1=s+control_period*sdota
-    # dis_n_k_1=n+control_period*ndot
-    # dis_alpha_k_1=alpha+control_period*alphadot
-    # dis_v_k_1=v+der_v
-    # dis_delta_k_1=delta+derDelta
-    # f_disc=vertcat(
-    # dis_s_k_1,
-    # dis_n_k_1,
-    # dis_alpha_k_1,
-    # dis_v_k_1,
-    # dis_delta_k_1,
-    # )
-    # f_disc_func = Function('f_disc_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_disc])
-
-    # runge kutta simulation
-    f_c_runge= vertcat(
-        sdota,
-        ndot,
-        alphadot,
-    )
-    x_runge = vertcat(s,n,alpha)
-    f_c_runge_func = Function('f_c_runge_func', [s,n,alpha,v,delta,p], [f_c_runge])
-    # arg input
-    dis_v_k=v+der_v
-    dis_delta_k=delta+derDelta
-
-    k1 = control_period * f_c_runge_func(s,n,alpha,dis_v_k,dis_delta_k,p)
-    x_next_runge= x_runge + 0.5 * k1
-    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
-    x_next_runge = x_runge + 0.5 * k2
-    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
-    x_next_runge = x_runge + k3
-    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
-    x_next_runge=x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
-
-    f_disc=vertcat(x_next_runge,dis_v_k,dis_delta_k)
-
     # Definition of external cost function
-    R = np.diag(cfg_dict['R'])
-    qv = cfg_dict['qv']
-    sdota_no_beta = (v * cos(alpha)) / (1 - kapparef_s(s_mod) * n)
+
     model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
     model.cost_expr_ext_cost_e =   weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
 
     # Define model struct
     params = types.SimpleNamespace()
-    params.C1 = C1
-    params.C2 = C2
-    params.Cr0 = Cr0
-    params.Cr2 = Cr2
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
-    model.dyn_disc_fun = f_disc
+    model.dyn_disc_fun = 0
     model.x = x
     model.xdot = xdot
     model.u = u

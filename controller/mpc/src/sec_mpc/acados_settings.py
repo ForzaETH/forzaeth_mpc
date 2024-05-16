@@ -51,7 +51,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     model_ac = AcadosModel()
     model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
-    model_ac.disc_dyn_expr = model.dyn_disc_fun
+    # model_ac.disc_dyn_expr = model.dyn_disc_fun
     model_ac.x = model.x
     model_ac.xdot = model.xdot
     model_ac.u = model.u
@@ -129,7 +129,6 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     ocp.constraints.idxbx = np.array([State.VELOCITY_V, State.STEERING_ANGLE_DELTA])
     
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
-    # why the n_min=0.25? 
     ocp.constraints.lh = np.array(
         [
             0,
@@ -167,17 +166,13 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
 
     # set QP solver and integration
     # Prediction time
-    if cfg_dict['fixed_horizon']:
-        ocp.solver_options.tf = cfg_dict['Tf']
-
-    else:
-        ocp.solver_options.tf = cfg_dict['N'] / cfg_dict['MPC_freq']
+    ocp.solver_options.tf = cfg_dict['N'] / cfg_dict['MPC_freq']
 
     # ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.nlp_solver_type = "SQP_RTI" # SQP_RTI
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-    ocp.solver_options.integrator_type = "DISCRETE"
+    # ocp.solver_options.integrator_type = "DISCRETE"
     # continuous time integrator
     # ocp.solver_options.sim_method_num_stages = 4
     # ocp.solver_options.sim_method_num_steps = 3
@@ -196,31 +191,6 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
 def get_parameters(cfg: dict) -> np.ndarray:
     """Get parameters from param_config.yaml"""
     params = np.array([
-        cfg["m"], 
-        cfg["C1"],
-        cfg["C2"],
-        cfg["Cr0"],
-        cfg["Cr2"],
-        cfg["Cr3"],
-        cfg["Iz"],
-        cfg["lr"],
-        cfg["lf"],
-        cfg["Bf"],
-        cfg["Cf"],
-        cfg["Df"],
-        cfg["Br"],
-        cfg["Cr"],
-        cfg["Dr"],
-        cfg["Imax_c"],
-        cfg["Caccel"],
-        cfg["Cdecel"],
-        cfg["qadv"],
-        cfg["qn"],
-        cfg["qalpha"],
-        cfg["qvy"],
-        cfg["MPC_freq"],
-        cfg["C_S_front"],
-        cfg["C_S_rear"],
         cfg["ini_v_traget"],
         cfg["qv"],
         cfg["qn"],
@@ -229,8 +199,8 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["v_max"],
         cfg["ddelta_min"],
         cfg["ddelta_max"],
-        cfg["dv_min"],
-        cfg["dv_max"],
+        cfg["a_min"],
+        cfg["a_max"],
     ]).astype(float)
     
     return params
