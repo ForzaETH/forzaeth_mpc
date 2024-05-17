@@ -1,4 +1,4 @@
-
+#
 # Copyright 2019 Gianluca Frison, Dimitris Kouzoupis, Robin Verschueren,
 # Andrea Zanelli, Niels van Duijkeren, Jonathan Frey, Tommaso Sartor,
 # Branimir Novoselnik, Rien Quirynen, Rezart Qelibari, Dang Doan,
@@ -32,15 +32,15 @@
 #
 
 # author: Daniel Kloeser
-
+from math import sqrt
 import types
-
+from nav_msgs.msg import Odometry
 import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
 
 
-def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: list, cfg_dict: dict):
+def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
     # define structs
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
@@ -49,27 +49,22 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     length = len(s0)
     pathlength = s0[-1]
-    # copy loop to beginning and end 
-    # Something wrong：s0[1:length]
+    # copy loop to beginning and end
+    
     s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
     s0 = np.append([s0[:length -1 ] - s0[length - 1]], s0)
-
     kapparef = np.append(kapparef, kapparef[1:length])
     kapparef = np.append([kapparef[:length - 1] - kapparef[length - 1]], kapparef)
 
-    vx_ref = np.append(vx_ref, vx_ref[1:length])
-    vx_ref = np.append([vx_ref[:length - 1] - vx_ref[length - 1]], vx_ref)
-
     d_left = np.append(d_left, d_left[1:length])
     d_left = np.append([d_left[:length -1 ] - d_left[length - 1]], d_left)
-
     d_right = np.append(d_right, d_right[1:length])
     d_right = np.append([d_right[:length -1 ] - d_right[length - 1]], d_right)
 
 
+
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
-    vx_ref_s = interpolant("vx_ref_s", "bspline", [s0], vx_ref)
     outer_bound_s = interpolant("outer_bound_s", "bspline", [s0], d_left)
     inner_bound_s = interpolant("inner_bound_s", "bspline", [s0], d_right)
 
@@ -77,14 +72,13 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     # set up states & controls
     s = MX.sym("s")
     n = MX.sym("n")
-    alpha = MX.sym("alpha")
+    theta = MX.sym("theta")
     v_x = MX.sym("v_x")
     v_y = MX.sym("v_y")
     delta = MX.sym("delta")
     yaw_rate = MX.sym("yaw_rate")
     accel = MX.sym("accel")
-
-    x = vertcat(s, n, alpha, v_x, v_y, delta, yaw_rate, accel)
+    x = vertcat(s, n, theta, v_x, v_y, delta, yaw_rate, accel)
 
     # controls
     jerk = MX.sym("jerk")
@@ -100,14 +94,15 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     deltadot = MX.sym("deltadot")
     yaw_ratedot = MX.sym("yaw_ratedot")
     accel_dot = MX.sym("accel_dot")
+    
     xdot = vertcat(sdot, ndot, thetadot, v_x_dot, v_y_dot, deltadot, yaw_ratedot, accel_dot)
-
 
     # algebraic variables
     z = vertcat([])
 
     # parameters
     R = np.diag(cfg_dict['R'])
+    qv = cfg_dict['qv']
     lr = cfg_dict['lr']
     lf = cfg_dict['lf']
     freq = cfg_dict['MPC_freq']
@@ -129,7 +124,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     friction_coeff = cfg_dict['friction_coeff']
 
 
-    # parameters
+    # # online parameters
     V_target = MX.sym('V_target')
     weight_adv = MX.sym('weight_adv')
     weight_qn = MX.sym('weight_qn')
@@ -148,7 +143,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
                 cs_delta_steer_min,cs_delta_steer_max,  # steering angle constraints
                 cs_delta_v_min,cs_delta_v_max,   # velocity change rate constraints
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
-    
+
     # calculate the index
     s_mod = mod(s, pathlength)
 
@@ -158,8 +153,8 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     #side slip angle
     v_0 = 1.0
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
-    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),func_v) + delta)
-    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),func_v)) 
+    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+0.1) + delta)
+    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+0.1)) 
     # load transfer
     F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
     F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
@@ -167,86 +162,76 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     F_yf = friction_coeff*Df*F_zf*sin(Cf*cs.atan(Bf*alpha_f - Ef*(Bf*alpha_f - cs.atan(Bf*alpha_f))))
     F_yr = friction_coeff*Dr*F_zr*sin(Cr*cs.atan(Br*alpha_r - Er*(Br*alpha_r - cs.atan(Br*alpha_r))))
 
-    dot_s = ((v_x*cos(alpha)) - (v_y*sin(alpha))) / (1 - kapparef_s(s_mod) * n)
-    dot_n = v_x*sin(alpha) + v_y*cos(alpha) 
-    dot_alpha = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(alpha)) - (v_y*sin(alpha))) / (1 - kapparef_s(s_mod) * n)))
-    dot_yawrate = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
-    dot_vx = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate) 
-    dot_vy = ((1/m)*(F_yr+F_yf*cos(delta))) - (v_x*yaw_rate)
+    # dynamics
+    sdota = ((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)
+    ndot = v_x*sin(theta) + v_y*cos(theta) 
+    der_theta = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)))
+    yaw_ratedot = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
+    der_v_x = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate) 
+    der_v_y = ((1/m)*(F_yr+F_yf*cos(delta))) - (v_x*yaw_rate)
 
     # continuous dynamics 
     f_expl = vertcat(
-        dot_s,
-        dot_n,
-        dot_alpha,
-        dot_vx,
-        dot_vy,
+        sdota,
+        ndot,
+        der_theta,
+        der_v_x,
+        der_v_y,
         derDelta,
-        dot_yawrate,
+        yaw_ratedot,
         jerk
     )
-    f_expl_func = Function('f_expl_func', [s, n, alpha, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, p], [f_expl])
+    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate,accel, jerk, derDelta, p], [f_expl])
 
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost =  -weight_adv*dot_s**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v_x-V_target)**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e = -weight_adv*dot_s**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v_x-V_target)**2
-
-    # constraint on forces
-    a_lat = 0
+    model.cost_expr_ext_cost =  -weight_adv*sdota**2/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2+u.T @ R @ u
+    model.cost_expr_ext_cost_e = -weight_adv*sdota**2/freq + weight_qn * n**2 + weight_qalpha * theta**2+weight_qv*(v_x-V_target)**2
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
     n_inner_bound = inner_bound_s(s_mod) - n 
-
     pos_s = MX.sym('pos_s')
     pos_n = MX.sym('pos_n')
     model.n_outer_bound = Function('outer_bound', [pos_s,pos_n], [outer_bound_s(pos_s) + pos_n])
     model.n_inner_bound = Function('inner_bound', [pos_s,pos_n], [inner_bound_s(pos_s) - pos_n])
 
-    #  nonlinear constraints
-    constraint.alat = Function("a_lat", [x, u], [a_lat])
+    # nonlinear constraints
+    a_lat = v_x * v_x * cs.tan(delta)/(lr+lf)
     constraint.pathlength = pathlength
-    # construct online parameter turning constraints
-    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max
+    # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
+
     dynamic_turn_constraint_min=vertcat(v_x-cs_vx_min,accel-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
     dynamic_turn_constraint_max=vertcat(v_x-cs_vx_max,accel-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
     constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
+
 
     ### read the parameters range from the yaml file
     # Model bounds
     model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
     model.n_max = cfg_dict['track_max_width'] # width of the track [m]
+
     # state bounds
     model.delta_min = cfg_dict["delta_min"] # minimum steering angle [rad]
     model.delta_max = cfg_dict["delta_max"] # maximum steering angle [rad]
-    model.dv_min = cfg_dict["a_min"] # minimum velocity change rate
-    model.dv_max = cfg_dict["a_max"] # maximum velocity change rate
+    constraint.v_x_min = cfg_dict["v_min"] # minimum velocity [m/s]
+    constraint.v_x_max = cfg_dict["v_max"] # maximum velocity [m/s]
+    model.a_min = cfg_dict["a_min"] # minimum velocity change rate
+    model.a_max = cfg_dict["a_max"] # maximum velocity change rate
 
     # input bounds
     model.ddelta_min = cfg_dict["ddelta_min"] # minimum change rate of stering angle [rad/s]
     model.ddelta_max = cfg_dict["ddelta_max"] # maximum change rate of steering angle [rad/s]
-    model.jerk_min = cfg_dict["jerk_min"] # minimum dot velocity change rate
-    model.jerk_max = cfg_dict["jerk_max"] # maximum dot velocity change rate
-
-
-    # nonlinear constraint
-    constraint.alat_min = cfg_dict["alat_min"] # maximum lateral force [m/s^2]
-    constraint.alat_max = cfg_dict["alat_max"] # maximum lateral force [m/s^1]
-
-    # Velocity constraint
-    constraint.v_min = cfg_dict["v_min"] # minimum velocity [m/s]
-    constraint.v_max = cfg_dict["v_max"] # maximum velocity [m/s]
-
+    model.jerk_min = cfg_dict["jerk_min"] # minimum velocity change rate
+    model.jerk_max = cfg_dict["jerk_max"] # maximum velocity change rate
 
 
     # Define model struct
     params = types.SimpleNamespace()
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
-    model.dyn_disc_fun = 0
     model.x = x
     model.xdot = xdot
     model.u = u
@@ -259,4 +244,3 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.outer_bound_s = outer_bound_s
     model.inner_bound_s = inner_bound_s
     return model, constraint, params
-

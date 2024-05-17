@@ -11,7 +11,6 @@ import yaml
 from ackermann_msgs.msg import AckermannDriveStamped
 from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
-from f110_msgs.msg import kinematic_mpc_param      
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
@@ -19,12 +18,15 @@ from single_track_mpc.acados_settings import acados_settings
 from plotting_fnc import *
 from scipy.integrate import solve_ivp
 from sensor_msgs.msg import Imu
-from std_msgs.msg import Float64, Float64MultiArray
+from std_msgs.msg import Float32,Float64, Float64MultiArray
 from tf.transformations import euler_from_quaternion
-from utils.indecies import State
+from utils.indecies import Parameter, State
 from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
+
 from frenet_converter.frenet_converter import FrenetConverter
+
+
 
 class MPCNode:
     def __init__(self,) -> None:
@@ -39,8 +41,10 @@ class MPCNode:
         self._init_params()
 
         self.vel_x = 0
+        self.conp_time=0
         buf_size = 2
         self.steering_angle_buf = np.zeros(buf_size)
+        self.steering_angle_buf[-1]= 0
         
         self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
         self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
@@ -52,11 +56,11 @@ class MPCNode:
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
         rospy.Subscriber("/global_waypoints_scaled", WpntArray, self._global_velocity_scale_cb)
         rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb) #l1 param tuning/updating
-        
-        self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
+
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
         self.target_pos_pub = rospy.Publisher("/mpc_controller/target_position", MarkerArray, queue_size=10)
         self.drive_pub = rospy.Publisher('/mpc_controller/input_stream', AckermannDriveStamped, queue_size=10)
+        self.steering_velocity = rospy.Publisher('/mpc_controller/steering_velocity', AckermannDriveStamped, queue_size=10)
         self.drive_next_pub = rospy.Publisher('/vesc/high_level/ackermann_cmd_mux/input/nav_1', AckermannDriveStamped, queue_size=10)
         self.d_left_pub = rospy.Publisher("/mpc_controller/d_left", MarkerArray, queue_size=10)
         self.d_mid_pub = rospy.Publisher("/mpc_controller/d_mid", MarkerArray, queue_size=10)
@@ -71,8 +75,6 @@ class MPCNode:
         self._initialize_solver()
 
     def _init_params(self,) -> None:
-
-        # load the yaml of mpc
         dir_path = rospkg.RosPack().get_path("stack_master")
         self.racecar_version = rospy.get_param("/racecar_version")
         file_path = rospy.get_param("/mpc_config_filename")
@@ -80,18 +82,13 @@ class MPCNode:
         with open(self.conf_file, "r") as conf_file:
             self.conf_params = yaml.safe_load(conf_file)
         
-        # N:prediction horizon
-        self.N = self.conf_params['N']
         
-        # Just for cost function testing
+        self.N = self.conf_params['N']
         self.track_safety_margin = self.conf_params['track_safety_margin']
         t_delay = self.conf_params['t_delay']
         self.t_MPC = 1 / self.conf_params['MPC_freq']
-        self.conp_time = 0
-
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-
         print(self.conf_params)
 
     def _initialize_solver(self) -> None:
@@ -103,22 +100,17 @@ class MPCNode:
 
         x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
         self.fren_conv = FrenetConverter(x, y)
+        
         d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts) # on f track trajectory is 81.803 m long.
         
-        # create a spline class
         self.spline = SplineTrack(coords_direct=coords_path)
         
         self.nr_laps = 0
-      
         kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
-        vx_ref =[x.vx_mps for x in shortest_path.wpnts]
         self.s_ref = [x.s_m for x in shortest_path.wpnts]
-        # spline.params: an array of each length in the track
         s0 = self.spline.params
         
-        #substitute parameters into the acados
-        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef,vx_ref, d_left, d_right, self.conf_params)
-
+        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef, d_left, d_right, self.conf_params)
         self.kappa = self.model.kappa
 
         # Set the initial value for online parameter tuning
@@ -134,7 +126,7 @@ class MPCNode:
         self.cs_delta_v_max = self.conf_params["a_max"]
         self.cs_alat_min = self.conf_params["alat_min"]
         self.cs_alat_max = self.conf_params["alat_max"]
-        
+
     #############
     # Callbacks #
     #############
@@ -154,7 +146,6 @@ class MPCNode:
         """Position callback"""
         self.pos_x = data.pose.position.x
         self.pos_y = data.pose.position.y
-
         self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
                                     data.pose.orientation.z, data.pose.orientation.w])[2]
     
@@ -165,7 +156,7 @@ class MPCNode:
 
     def _imu_cb(self, data: Imu) -> None:
         """acceleration callback. Normally not used."""
-        self.acceleration = data.linear_acceleration.x 
+        # self.acceleration = data.linear_acceleration.x 
 
     def _global_velocity_scale_cb(self, data: WpntArray) -> None:
         """global_velocity_scale callback. """
@@ -218,7 +209,6 @@ class MPCNode:
         R = np.array(((co, -si), (si, co)))
 
         frenet_coords = np.array(frenet_coords, dtype=np.float32)
-        # print("heyo", frenet_coords, frenet_coords.shape)
 
         if frenet_coords.shape[0] > 2:
             return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)                
@@ -246,9 +236,9 @@ class MPCNode:
 
         jerk = x0[8]
         derDelta = x0[9]
-
         xdot = self.model.f_expl_func(s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
-
+        
+        #print(xdot)
         xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),float(xdot[5]),float(xdot[6]), float(xdot[7]) , jerk, derDelta]  
 
         return xdot
@@ -265,37 +255,31 @@ class MPCNode:
         """
         # Initial condition on the ODE
         x0 = np.concatenate((states,inputs), axis=0)
-        # forward propagation
         solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
-
         solution = [x[-1] for x in solution.y]
 
         # Constraint on max. steering angle
         if abs(solution[State.STEERING_ANGLE_DELTA]) > self.model.delta_max:
             solution[State.STEERING_ANGLE_DELTA] = np.sign(solution[State.STEERING_ANGLE_DELTA]) * self.model.delta_max
-       
+
         # Constraint on max. vel
-        if abs(solution[State.VELOCITY_V_X]) > self.constraint.v_max:
-            solution[State.VELOCITY_V_X] = np.sign(solution[State.VELOCITY_V_X]) * self.constraint.v_max
+        if abs(solution[State.VELOCITY_V_X]) > self.constraint.v_x_max:
+            solution[State.VELOCITY_V_X] = np.sign(solution[State.VELOCITY_V_X]) * self.constraint.v_x_max
 
         # On minimum speed
-        if abs(solution[State.VELOCITY_V_X]) < self.constraint.v_min:
-            solution[State.VELOCITY_V_X] = self.constraint.v_min
+        if abs(solution[State.VELOCITY_V_X]) < self.constraint.v_x_min:
+            solution[State.VELOCITY_V_X] = self.constraint.v_x_min
 
         # Constraint on max. accel
-        if abs(solution[State.ACCEL]) > self.model.dv_max:
-            solution[State.ACCEL] = np.sign(solution[State.ACCEL]) * self.model.dv_max
+        if abs(solution[State.ACCEL]) > self.model.a_max:
+            solution[State.ACCEL] = np.sign(solution[State.ACCEL]) * self.model.a_max
 
-        # On minimum accel
-        if abs(solution[State.ACCEL]) < self.model.dv_min:
-            solution[State.ACCEL] = self.model.dv_min
+        # # On minimum accel
+        # if abs(solution[State.ACCEL]) < self.model.a_min:
+        #     solution[State.ACCEL] = self.model.a_min
 
-        
-        
-        # Only get the state as solution of where the car will be in t_delay seconds
-        # not including the input
         return np.array(solution)[:-2]
-    
+
     def get_initial_position(self, init: bool = False, prev_x0 = None) -> np.ndarray:
         """
         Get updated values for the states from the sensors.
@@ -309,7 +293,7 @@ class MPCNode:
         pos_y = self.pos_y
         resp_frenet = self.glob2frenet(pos_x, pos_y)
         theta = self.theta
-        vel_x = self.vel_x
+        vel_x = self.vel_x 
         vel_y = self.vel_y
 
         if init:
@@ -322,31 +306,22 @@ class MPCNode:
         center_car_s = resp_frenet.s + self.conf_params["lr"]*np.cos(alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
         alpha_center = theta - np.arctan2(deriv_center[1],deriv_center[0])
-        
-        # make aplha_center between -pi and pi
+
         alpha_center = alpha_center % (2*np.pi)
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2*np.pi
-
 
         delta = self.steering_angle_buf[-1]
         accel_init = self.acceleration
 
         track_length = self.spline.track_length - 0.1 # Needed as values are not exact
-        
-        # check if the car has completed a lap
+
         if resp_frenet.s < 0.2 and prev_x0[State.POS_ON_CENTER_LINE_S] // track_length != self.nr_laps:
-            # update the number of laps
             self.nr_laps = prev_x0[State.POS_ON_CENTER_LINE_S] // track_length
 
         current_pos_s = resp_frenet.s + self.nr_laps * self.spline.track_length
-
         return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y, delta, self.r, accel_init])
     
-    
-    def calc_beta(self, x0) -> float:
-        """Calc beta according to the approximation used in the model"""
-        return -np.arctan(self.conf_params['lr']/(self.conf_params['lr'] + self.conf_params['lf']) * np.tan(x0[4]))
     
     #############
     # Main Loop #
@@ -354,10 +329,10 @@ class MPCNode:
     def control_loop(self) -> None:
         """Main loop. The control procedure is implemented here."""
         rate = rospy.Rate(1/self.t_MPC)
-
+        
         x0 = self.get_initial_position(init=True)
         propagated_x = self.propagate_time_delay(x0, np.zeros(2))
-        
+
         # Set the initial state
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
@@ -367,23 +342,21 @@ class MPCNode:
         mpc_sd = np.array([self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)])
 
         # For computation time
+        tcomp_sum = 0
         tcomp_max = 0
 
-       
         while not rospy.is_shutdown():
             
-            # start timer
             start = time.perf_counter()
 
             # update initial state from sensors
             x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
 
             # time delat compensation
-            self.t_delay= self.conp_time+self.t_MPC
+            # self.t_delay= self.conp_time+self.t_MPC
             propagated_x = self.propagate_time_delay(x0, np.zeros(2))
-            
+            # print("propagated", propagated_x)
             self.publish_propagated_states(propagated_x)
-            # visualise the time delay position
             prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
             self.publish_current_pos(prop_x_plot)
 
@@ -412,38 +385,43 @@ class MPCNode:
             # get solution
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
-            self.pred_x = self.acados_solver.get(1, "x")
-
+            self.u1 = self.acados_solver.get(1, "u")
+            self.pred_x = self.acados_solver.get(1, "x") 
+            print(self.pred_x )
             # steering buffer
-            # shift the elements in the buffer to the right and add the predicted steering angle
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
-            self.steering_angle_buf[0] = self.pred_x[-1]
+            self.steering_angle_buf[0] = self.pred_x[5]
+            self.acceleration = self.pred_x[7]
 
-            # Publish the inputs of the MPC controller
+            # Publish current state and predicted states
             if status == 0:
                 # print(self.pred_x)
                 self.publish_ackermann_msg(self.pred_x, True)
 
-                for stage in range(6,1,-1):
-                    x = self.acados_solver.get(stage, "x")
-                    self.publish_ackermann_msg(x, False)
+                # for stage in range(6,1,-1):
+                #     x = self.acados_solver.get(stage, "x")
+                #     self.publish_ackermann_msg(x, False)
 
             ##### visualization #####
             # Creating waypoint array with predicted positions
             mpc_sd = np.array([
-                self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)
+                self.acados_solver.get(j, "x")[:2] for j in range(self.N)
             ])
 
             if status == 0:
                 states = []
-                for node in range(self.N+1):
+                for node in range(self.N):
                     result = self.acados_solver.get(node,"x").tolist()
                     for item in result:
                         states.append(item)
                 self.publish_states(states)
 
+            pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
+            self.publish_waypoint_markers(pred_waypoints, type="pred")
+
             # manage timings
             elapsed = time.perf_counter() - start
+            tcomp_sum += elapsed
             self.conp_time=elapsed
             if elapsed > tcomp_max:
                 tcomp_max = elapsed
@@ -505,7 +483,7 @@ class MPCNode:
             if type == "pred":
                 waypoint_marker.color.r = 1.0
                 waypoint_marker.color.g = 0.0
-                waypoint_marker.color.b = 1.0
+                waypoint_marker.color.b = 1.05
                 waypoint_marker.color.a = 1.0
             elif type == "target":
                 waypoint_marker.color.r = 1.0
@@ -555,13 +533,11 @@ class MPCNode:
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
         ack_msg.drive.speed = state[State.VELOCITY_V_X]
-
+        self.steering_velocity.publish(ack_msg) 
         # Managing of contol actions sent to controller_node.py
         if next_input:
-            # next input
             self.drive_next_pub.publish(ack_msg)
         else:
-            # input line
             self.drive_pub.publish(ack_msg)
 
     def mpc_params_cb(self, params:Config):
@@ -584,8 +560,8 @@ class MPCNode:
         self.cs_v_max = params.doubles[9].value
         self.cs_alat_min = params.doubles[10].value
         self.cs_alat_max = params.doubles[11].value
-           
 
 if __name__ == "__main__":
     controller = MPCNode()
+
     controller.control_loop()
