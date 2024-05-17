@@ -148,7 +148,6 @@ class MPCNode:
         """Odom frenet callback"""
         self.pos_s = data.pose.pose.position.x
         self.pos_n = data.pose.pose.position.y
-
         self.alpha = data.pose.pose.orientation.z
     
     def _pose_cb(self, data: PoseStamped) -> None:
@@ -270,8 +269,6 @@ class MPCNode:
         solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
 
         solution = [x[-1] for x in solution.y]
-        print(solution,"after removing")
-        # print("sol", solution)
 
         # Constraint on max. steering angle
         if abs(solution[State.STEERING_ANGLE_DELTA]) > self.model.delta_max:
@@ -384,6 +381,7 @@ class MPCNode:
             # time delat compensation
             self.t_delay= self.conp_time+self.t_MPC
             propagated_x = self.propagate_time_delay(x0, np.zeros(2))
+            
             self.publish_propagated_states(propagated_x)
             # visualise the time delay position
             prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
@@ -415,13 +413,11 @@ class MPCNode:
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
             self.pred_x = self.acados_solver.get(1, "x")
-            print(self.u0,"input")
 
             # steering buffer
             # shift the elements in the buffer to the right and add the predicted steering angle
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
             self.steering_angle_buf[0] = self.pred_x[-1]
-            self.acceleration=self.pred_x[7]
 
             # Publish the inputs of the MPC controller
             if status == 0:

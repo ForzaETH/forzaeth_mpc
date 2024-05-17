@@ -116,13 +116,13 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     Iz = cfg_dict['Iz']
     lf = cfg_dict['lf']
     lr = cfg_dict['lr']
-    Df = cfg_dict['Df'] #tire parameters
+    Bf = cfg_dict['Bf']#tire parameters
     Cf = cfg_dict['Cf']
-    Bf = cfg_dict['Bf']
-    Dr = cfg_dict['Dr']
-    Cr = cfg_dict['Cr']
+    Df = cfg_dict['Df']
+    Ef = cfg_dict['Ef'] 
     Br = cfg_dict['Br']
-    Ef = cfg_dict['Ef']
+    Cr = cfg_dict['Cr']
+    Dr = cfg_dict['Dr']
     Er = cfg_dict['Er']
     h_cg = cfg_dict['h_cg']
     g=9.81
@@ -156,7 +156,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     ## tire model
     #side slip angle
-    v_0 = 3.0
+    v_0 = 1.0
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
     alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),func_v) + delta)
     alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),func_v)) 
@@ -168,7 +168,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     F_yr = friction_coeff*Dr*F_zr*sin(Cr*cs.atan(Br*alpha_r - Er*(Br*alpha_r - cs.atan(Br*alpha_r))))
 
     dot_s = ((v_x*cos(alpha)) - (v_y*sin(alpha))) / (1 - kapparef_s(s_mod) * n)
-    dot_n = v_x*sin(alpha) + v_y*cos(alpha) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
+    dot_n = v_x*sin(alpha) + v_y*cos(alpha) 
     dot_alpha = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(alpha)) - (v_y*sin(alpha))) / (1 - kapparef_s(s_mod) * n)))
     dot_yawrate = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
     dot_vx = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate) 
@@ -195,7 +195,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.cost_expr_ext_cost_e = -weight_adv*dot_s**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v_x-V_target)**2
 
     # constraint on forces
-    a_lat = v_x * v_x /yaw_rate
+    a_lat = 0
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
