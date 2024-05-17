@@ -160,7 +160,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
 
     # Nonlinear soft constraint
     ocp.constraints.lsh = np.zeros(nsh)
-    ocp.constraints.ush = np.zeros(nsh) + np.array([0, 0, 0, 0, 0, 0, 0, 0,1, 1])
+    ocp.constraints.ush = np.zeros(nsh) + np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 1])
     ocp.constraints.idxsh = np.array([num for num in range(nsh)])
 
     # set intial condition

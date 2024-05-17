@@ -66,12 +66,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     d_right = np.append(d_right, d_right[1:length])
     d_right = np.append([d_right[:length -1 ] - d_right[length - 1]], d_right)
 
-
-
-    # N = cfg_dict['N']
-    # Tf = cfg_dict['Tf']
-
-
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
     vx_ref_s = interpolant("vx_ref_s", "bspline", [s0], vx_ref)
@@ -108,10 +102,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     R = np.diag(cfg_dict['R'])
     lr = cfg_dict['lr']
     lf = cfg_dict['lf']
-    
-    qadv = cfg_dict['qadv']
-    qn = cfg_dict['qn']
-    qalpha = cfg_dict['qalpha']
     freq = cfg_dict['MPC_freq']
 
     # parameters
@@ -137,11 +127,31 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     # calculate the index
     s_mod = mod(s, pathlength)
 
+    # kinematic model
+    sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
+    ndot = v * sin(alpha) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
+    alphadot= v / (lr + lf) * cs.tan(delta) - kapparef_s(s_mod) * sdota
+    # continuous dynamics
+    f_expl = vertcat(
+        sdota,
+        ndot,
+        alphadot,
+        der_v,
+        derDelta,
+    )
+    f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
+
+    # Define initial conditions
+    model.x0 = np.array([-2, 0, 0, 0, 0])
+
+    # Definition of external cost function
+    model.cost_expr_ext_cost =  -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
+    model.cost_expr_ext_cost_e = -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
+
     # constraint on forces
     a_lat = v * v * cs.tan(delta)/(lr+lf)
-    a_long = der_v
 
-    # left_bound=inner_side, right_bound=outer_side
+    # constraint on lateral erros
     # distance to border
     n_outer_bound = outer_bound_s(s_mod) + n
     n_inner_bound = inner_bound_s(s_mod) - n 
@@ -151,6 +161,16 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.n_outer_bound = Function('outer_bound', [pos_s,pos_n], [outer_bound_s(pos_s) + pos_n])
     model.n_inner_bound = Function('inner_bound', [pos_s,pos_n], [inner_bound_s(pos_s) - pos_n])
 
+    # nonlinear constraints
+    constraint.alat = Function("a_lat", [x, u], [a_lat])
+    constraint.pathlength = pathlength
+    # construct online parameter turning constraints
+    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max
+    dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
+    dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
+    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
+
+    ### read the parameters range from the yaml file
     # Model bounds
     model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
     model.n_max = cfg_dict['track_max_width'] # width of the track [m]
@@ -172,39 +192,8 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     # Velocity constraint
     constraint.v_min = cfg_dict["v_min"] # minimum velocity [m/s]
     constraint.v_max = cfg_dict["v_max"] # maximum velocity [m/s]
-    constraint.dy_v_min = cs_vx_min    # dynamic minimum velocity [m/s]
 
-    # Define initial conditions
-    model.x0 = np.array([-2, 0, 0, 0, 0])
 
-    # define constraints struct
-    constraint.alat = Function("a_lat", [x, u], [a_lat])
-    constraint.pathlength = pathlength
-    # construct online parameter turning constraints
-    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max
-    dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
-
-    # dynamics
-    sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
-    ndot = v * sin(alpha) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
-    alphadot= v / (lr + lf) * cs.tan(delta) - kapparef_s(s_mod) * sdota
-    # state is (s, n, alpha, v, delta) 
-    f_expl = vertcat(
-        sdota,
-        ndot,
-        alphadot,
-        der_v,
-        derDelta,
-    )
-
-    f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
-
-    # Definition of external cost function
-
-    model.cost_expr_ext_cost =  -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e = -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
 
     # Define model struct
     params = types.SimpleNamespace()
