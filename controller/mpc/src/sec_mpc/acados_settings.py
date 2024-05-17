@@ -134,10 +134,11 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
             0,
             0,
             0,
+            0,
             -100,
             -100,
             -100,
-            constraint.alat_min,
+            -100,
             model.n_min,
             model.n_min,
         ]
@@ -147,10 +148,11 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
             100,
             100,
             100,
+            100,
             0,
             0,
             0,
-            constraint.alat_max,
+            0,
             model.n_max,
             model.n_max,
         ]
@@ -158,7 +160,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
 
     # Nonlinear soft constraint
     ocp.constraints.lsh = np.zeros(nsh)
-    ocp.constraints.ush = np.zeros(nsh) + np.array([0, 0, 0, 0, 0, 0, 0, 1, 1])
+    ocp.constraints.ush = np.zeros(nsh) + np.array([0, 0, 0, 0, 0, 0, 0, 0,1, 1])
     ocp.constraints.idxsh = np.array([num for num in range(nsh)])
 
     # set intial condition
@@ -192,6 +194,7 @@ def get_parameters(cfg: dict) -> np.ndarray:
     """Get parameters from param_config.yaml"""
     params = np.array([
         cfg["ini_v_traget"],
+        cfg["qadv"],
         cfg["qv"],
         cfg["qn"],
         cfg["qalpha"],
@@ -201,6 +204,8 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["ddelta_max"],
         cfg["a_min"],
         cfg["a_max"],
+        cfg["alat_min"],
+        cfg["alat_max"],
     ]).astype(float)
     
     return params

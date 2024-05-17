@@ -24,7 +24,6 @@ from tf.transformations import euler_from_quaternion
 from utils.indecies_old import Parameter, State
 from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
-
 from frenet_converter.frenet_converter import FrenetConverter
 
 class MPCNode:
@@ -54,8 +53,6 @@ class MPCNode:
         rospy.Subscriber("/global_waypoints_scaled", WpntArray, self._global_velocity_scale_cb)
         rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb) #l1 param tuning/updating
         
-        self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
-        self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
         self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
         self.target_pos_pub = rospy.Publisher("/mpc_controller/target_position", MarkerArray, queue_size=10)
@@ -69,7 +66,6 @@ class MPCNode:
         self.comp_time_pub = rospy.Publisher("/mpc_controller/comp_time", Float64, queue_size=10 )
         self.states_pub = rospy.Publisher("/mpc_controller/states", Float64MultiArray, queue_size=10)
         self.states_propagated_pub = rospy.Publisher("/mpc_controller/states_propagated", Float64MultiArray, queue_size=10)
-        self.beta_pub = rospy.Publisher("/mpc_controller/beta", Float64, queue_size=10 )
 
 
         self._initialize_solver()
@@ -126,6 +122,7 @@ class MPCNode:
         self.kappa = self.model.kappa
 
         # Set the initial value for online parameter tuning
+        self.qadv = self.conf_params["qadv"]
         self.qv = self.conf_params["qv"]
         self.qn = self.conf_params["qn"]   
         self.qalpha = self.conf_params["qalpha"]
@@ -135,49 +132,9 @@ class MPCNode:
         self.cs_delta_steer_max = self.conf_params["ddelta_max"]
         self.cs_delta_v_min = self.conf_params["a_min"]
         self.cs_delta_v_max = self.conf_params["a_max"]
-
-
-        # Waiting for 'start' command to start the controller
-
-        # visualize the boundaries of the map
-        map_boundaries = np.zeros((len(self.spline.params),2,2))
-        for stage in range(len(self.spline.params)):
-            map_boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage], -self.model.outer_bound_s(self.spline.params[stage])]))
-            map_boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage],  self.model.inner_bound_s(self.spline.params[stage])]))  
+        self.cs_alat_min = self.conf_params["alat_min"]
+        self.cs_alat_max = self.conf_params["alat_max"]
         
-        # visualize the params of the mpc
-        mpc_param=kinematic_mpc_param()
-        mpc_param.N= self.N
-        mpc_param.track_safety_margin= self.track_safety_margin
-        mpc_param.delta_min= self.conf_params["delta_min"]
-        mpc_param.delta_max= self.conf_params["delta_max"]
-        mpc_param.v_x_min= self.conf_params["v_min"]
-        mpc_param.v_x_max= self.conf_params["v_max"]
-        mpc_param.alat_min= self.conf_params["alat_min"]
-        mpc_param.alat_max= self.conf_params["alat_max"]
-        mpc_param.along_min= self.conf_params["a_min"]
-        mpc_param.along_max= self.conf_params["a_max"]
-        mpc_param.track_length=self.spline.track_length
-        mpc_param.control_period=1/self.conf_params["MPC_freq"]
-        print("Please open plotjuggler first ")
-        user_input = input("Please input 'yes' after opening the plotjuggler and loging the xml:")
-        while not rospy.is_shutdown():
-           
-            if user_input == 'start':
-                print("Starting controller...")
-                break
-            else:
-                # visualize the boundaries of the map
-                self.publish_waypoint_markers(map_boundaries[:,0,:], "map_b_left")
-                self.publish_waypoint_markers(map_boundaries[:,1,:], "map_b_right")
-                
-                # visualize the params of the mpc
-                self.mpc_param_pub.publish(mpc_param)
-
-                user_input = input("Enter 'start' command to start the controller: ")
-        
-
-
     #############
     # Callbacks #
     #############
@@ -344,10 +301,6 @@ class MPCNode:
         pos_x = self.pos_x
         pos_y = self.pos_y
         resp_frenet = self.glob2frenet(pos_x, pos_y)
-#        my_frenex = self.fren_conv.get_frenet(self.pos_x, self.pos_y)
-#        print(f"My Frenet {my_frenex%self.spline.track_length}")
-        print(f"Service one: {resp_frenet}")
-#        print(f"Error: {resp_frenet.s - (my_frenex[0]%self.spline.track_length)}, {resp_frenet.d - my_frenex[1]}")
         theta = self.theta
         vel_x = self.vel_x
 
@@ -357,8 +310,6 @@ class MPCNode:
             self.acceleration = 0
             prev_x0 = self.pred_x
 
-        # deriv = self.spline.get_derivative(resp_frenet.s)
-        # alpha = theta - np.arctan2(deriv[1],deriv[0])
         alpha = self.alpha
         center_car_s = resp_frenet.s + self.conf_params["lr"]*np.cos(alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
@@ -432,15 +383,16 @@ class MPCNode:
             self.acados_solver.set(0, "ubx", propagated_x)
 
             # dynamically change the target speed, weight parameters and constraints
-            np_array_index_online_turn=np.arange(len(self.model_params.p)-10, len(self.model_params.p))
+            np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
 
             for i in range(self.N):
                 idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
                 traget_v_speed=np.ones(1)*self.glo_v_scale[idx]
-                online_parameters=np.array([traget_v_speed, self.qv, self.qn, self.qalpha,
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
                                             self.cs_v_min,self.cs_v_max,
                                             self.cs_delta_steer_min,self.cs_delta_steer_max,
-                                            self.cs_delta_v_min,self.cs_delta_v_max],dtype=np.float64)
+                                            self.cs_delta_v_min,self.cs_delta_v_max,
+                                            self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
                 self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
                                                        online_parameters)
@@ -481,31 +433,6 @@ class MPCNode:
                     for item in result:
                         states.append(item)
                 self.publish_states(states)
-
-            pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
-            self.publish_waypoint_markers(pred_waypoints, type="pred")
-    
-            # publish trajectory bounds
-            boundaries = np.zeros((self.acados_solver.N + 1, 3, 2))
-            for stage in range(self.acados_solver.N + 1):
-                x_ = self.acados_solver.get(stage, 'x')
-                s_ = x_[State.POS_ON_CENTER_LINE_S]
-                s_mod = s_ % self.spline.track_length
-                n_ = x_[State.MIN_DIST_TO_CENTER_LINE_N]
-                # check if the position of the car in one step prediction is close to the boundaries
-                if stage == 1:
-                    if self.model.outer_bound_s(s_mod) + n_ <= 0.4 or self.model.inner_bound_s(s_mod) - n_ <= 0.4:
-                        rospy.logwarn(f"Outer: {self.model.outer_bound_s(s_mod) + n_}, Inner: {self.model.inner_bound_s(s_mod) - n_}")
-                
-                boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
-                boundaries[stage,2,:] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
-                boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
-            
-            # visualise the boundaries of the mpc prediction
-            self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
-            self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            self.publish_waypoint_markers(boundaries[:,2,:], "d_right")
-
 
             # manage timings
             elapsed = time.perf_counter() - start
@@ -596,10 +523,6 @@ class MPCNode:
 
         if type == "pred":
             self.pred_pos_pub.publish(waypoint_markers)
-        elif type == "map_b_left":
-            self.map_left_bound_pub.publish(waypoint_markers)
-        elif type == "map_b_right":
-            self.map_right_bound_pub.publish(waypoint_markers)
         elif type == "d_left":
             self.d_left_pub.publish(waypoint_markers)
         elif type == "d_mid":
@@ -624,8 +547,6 @@ class MPCNode:
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
         ack_msg.drive.speed = state[State.VELOCITY_V]
-        #ack_msg.drive.acceleration = self.u0[0]/self.t_MPC
-
 
         # Managing of contol actions sent to controller_node.py
         if next_input:
@@ -641,18 +562,20 @@ class MPCNode:
         Values from .yaml file are set in mpc_online_params_server      
         """
         ## mpc Control Parameters
-        # TODO can remove if they are always stored in self.map_controller
-        self.qv = params.doubles[0].value
-        self.qn = params.doubles[1].value   
-        self.qalpha = params.doubles[2].value
+        self.qadv = params.doubles[0].value
+        self.qv = params.doubles[1].value
+        self.qn = params.doubles[2].value   
+        self.qalpha = params.doubles[3].value
         
         # onilne constraints tuning
-        self.cs_delta_steer_min = params.doubles[3].value
-        self.cs_delta_steer_max = params.doubles[4].value
-        self.cs_delta_v_min = params.doubles[5].value
-        self.cs_delta_v_max = params.doubles[6].value
-        self.cs_v_min = params.doubles[7].value
-        self.cs_v_max = params.doubles[8].value
+        self.cs_delta_steer_min = params.doubles[4].value
+        self.cs_delta_steer_max = params.doubles[5].value
+        self.cs_delta_v_min = params.doubles[6].value
+        self.cs_delta_v_max = params.doubles[7].value
+        self.cs_v_min = params.doubles[8].value
+        self.cs_v_max = params.doubles[9].value
+        self.cs_alat_min = params.doubles[10].value
+        self.cs_alat_max = params.doubles[11].value
            
 
 if __name__ == "__main__":

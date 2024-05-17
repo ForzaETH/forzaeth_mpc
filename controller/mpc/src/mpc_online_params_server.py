@@ -21,6 +21,7 @@ def get_yaml_values():
 def callback(config, level):
     rospy.loginfo("L1 Parameter Updated")
     # Ensuring nice rounding by 0.05
+    config.qadv = round(config.qadv * 200) / 200 # round to 0.005
     config.qv = round(config.qv * 200) / 200 # round to 0.005
     config.qn = round(config.qn * 200) / 200 # round to 0.005
     config.qalpha = round(config.qalpha * 200) / 200 # round to 0.005
@@ -32,6 +33,8 @@ def callback(config, level):
     config.dv_max = round(config.dv_max * 200) / 200 # round to 0.005
     config.v_min = round(config.v_min * 200) / 200 # round to 0.005
     config.v_max = round(config.v_max * 200) / 200 # round to 0.005
+    config.alat_min = round(config.alat_min * 200) / 200 # round to 0.005
+    config.alat_max = round(config.alat_max * 200) / 200 # round to 0.005
 
 
     
@@ -47,6 +50,7 @@ if __name__ == "__main__":
     # float() is need as we want to ensure its type to access it in L1_controller with "params.doubles[idx].value"
     default_config = {
         ## mpc Controller Parameters
+        "qadv": float(yaml_data["qadv"]),
         "qv": float(yaml_data["qv"]),
         "qn": float(yaml_data["qn"]),
         "qalpha": float(yaml_data["qalpha"]),
@@ -56,7 +60,9 @@ if __name__ == "__main__":
         "dv_min": float(yaml_data["dv_min"]),
         "dv_max": float(yaml_data["dv_max"]),
         "v_min": float(yaml_data["v_min"]),
-        "v_max": float(yaml_data["v_max"])
+        "v_max": float(yaml_data["v_max"]),
+        "alat_min": float(yaml_data["alat_min"]),
+        "alat_max": float(yaml_data["alat_max"])
     }
 
     server.update_configuration(default_config)

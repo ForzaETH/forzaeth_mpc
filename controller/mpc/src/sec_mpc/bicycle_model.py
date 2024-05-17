@@ -116,6 +116,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     # parameters
     V_target = MX.sym('V_target')
+    weight_adv = MX.sym('weight_adv')
     weight_qn = MX.sym('weight_qn')
     weight_qv = MX.sym('weight_qv')
     weight_qalpha = MX.sym('weight_qalpha')
@@ -125,10 +126,13 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     cs_delta_steer_max = MX.sym('cs_delta_steer_max')
     cs_delta_v_min = MX.sym('cs_delta_v_min')
     cs_delta_v_max = MX.sym('cs_delta_v_max')
-    p = vertcat(V_target,weight_qv,weight_qn,weight_qalpha, # weights
+    cs_a_lat_min = MX.sym('cs_a_lat_min')
+    cs_a_lat_max = MX.sym('cs_a_lat_max')
+    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha, # weights
                 cs_vx_min,cs_vx_max,    # velocity constraints
                 cs_delta_steer_min,cs_delta_steer_max,  # steering angle constraints
-                cs_delta_v_min,cs_delta_v_max) # velocity change rate constraints
+                cs_delta_v_min,cs_delta_v_max,   # velocity change rate constraints
+                cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
     
     # calculate the index
     s_mod = mod(s, pathlength)
@@ -178,9 +182,9 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
     # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max
-    dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v-cs_delta_v_min,derDelta-cs_delta_steer_min)
-    dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-cs_delta_v_max,derDelta-cs_delta_steer_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min,dynamic_turn_constraint_max,a_lat, n_inner_bound, n_outer_bound)
+    dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
+    dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
+    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
 
     # dynamics
     sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
@@ -199,8 +203,8 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     # Definition of external cost function
 
-    model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e =   weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
+    model.cost_expr_ext_cost =  -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
+    model.cost_expr_ext_cost_e = -weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
 
     # Define model struct
     params = types.SimpleNamespace()
