@@ -165,10 +165,11 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     constraint.alat = Function("a_lat", [x, u], [a_lat])
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
-    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max
+    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max 
+    diamond_acceleration_constraint=(a_lat/cs_a_lat_max)**2+(der_v/cs_delta_v_max)**2
     dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
     dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
+    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
 
     ### read the parameters range from the yaml file
     # Model bounds

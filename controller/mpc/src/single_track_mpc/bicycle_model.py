@@ -202,10 +202,10 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     a_lat = v_x * v_x * cs.tan(delta)/(lr+lf)
     constraint.pathlength = pathlength
     # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
-
+    diamond_acceleration_constraint=(a_lat/cs_a_lat_max)**2+(accel/cs_delta_v_max)**2
     dynamic_turn_constraint_min=vertcat(v_x-cs_vx_min,accel-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
     dynamic_turn_constraint_max=vertcat(v_x-cs_vx_max,accel-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound)
+    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound, diamond_acceleration_constraint)
 
 
     ### read the parameters range from the yaml file
