@@ -15,7 +15,7 @@ from f110_msgs.msg import kinematic_mpc_param
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
-from sec_mpc.acados_settings import acados_settings
+from kinematic_mpc.acados_settings import acados_settings
 from plotting_fnc import *
 from scipy.integrate import solve_ivp
 from sensor_msgs.msg import Imu

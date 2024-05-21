@@ -34,7 +34,7 @@
 # author: Daniel Kloeser
 
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from sec_mpc.bicycle_model import bicycle_model
+from kinematic_mpc.bicycle_model import bicycle_model
 from utils.indecies_old import State
 import numpy as np
 from utils.indecies_old import State, Input
