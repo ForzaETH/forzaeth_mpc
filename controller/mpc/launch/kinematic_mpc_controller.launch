@@ -10,7 +10,7 @@
   <node pkg="controller" name="mpc_param_tuner" type="mpc_online_params_server.py" output="screen"/>
 
     <!-- Launch the viz for the MPC-->
-  <node pkg="controller" type="mpc_viz.py" name="mpc_viz" output="screen"/> 
+  <node pkg="controller" type="kinematic_mpc_viz.py" name="kinematic_mpc_viz" output="screen"/> 
 
 
 </launch>

@@ -34,10 +34,8 @@
 # author: Daniel Kloeser
 
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from kinematic_mpc.bicycle_model import bicycle_model
-from utils.indecies_old import State
+from .bicycle_model import bicycle_model
 import numpy as np
-from utils.indecies_old import State, Input
 
 
 def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
@@ -105,7 +103,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     # Input hard constraint
     ocp.constraints.lbu = np.array([model.dv_min, model.ddelta_min])
     ocp.constraints.ubu = np.array([model.dv_max, model.ddelta_max])
-    ocp.constraints.idxbu = np.array([Input.D_VELOCITY, Input.D_STEERING_ANGLE])
+    ocp.constraints.idxbu = np.array([0, 1])
 
     # State soft constraint
     ocp.constraints.lsbx = np.zeros([nsbx])
@@ -126,7 +124,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
         ]
     )
     # State index
-    ocp.constraints.idxbx = np.array([State.VELOCITY_V, State.STEERING_ANGLE_DELTA])
+    ocp.constraints.idxbx = np.array([3, 4])
     
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
     ocp.constraints.lh = np.array(

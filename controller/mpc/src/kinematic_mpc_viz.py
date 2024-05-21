@@ -20,7 +20,7 @@ from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 
 from frenet_converter.frenet_converter import FrenetConverter
-from sec_mpc.bicycle_model import bicycle_model
+from kinematic_mpc.bicycle_model import bicycle_model
 
 
 class tireNode:
