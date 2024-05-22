@@ -66,7 +66,7 @@ class tireNode:
     def _init_params(self,) -> None:
         dir_path = rospkg.RosPack().get_path("stack_master")
         self.racecar_version = rospy.get_param("/racecar_version")
-        file_path = rospy.get_param("/mpc_config_filename")
+        file_path = 'mpc_params.yaml'
         self.conf_file = os.path.join(dir_path, "config", self.racecar_version, file_path)
         with open(self.conf_file, "r") as conf_file:
             self.conf_params = yaml.safe_load(conf_file)

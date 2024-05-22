@@ -49,6 +49,7 @@ class Kinematic_MPC_Controller:
         # Init the online parameters
         mpc_init_online_params = kwargs['mpc_online_param']
         self.qadv = mpc_init_online_params[0]
+        print(self.qadv)
         self.qv = mpc_init_online_params[1]
         self.qn = mpc_init_online_params[2]
         self.qalpha = mpc_init_online_params[3]
@@ -97,7 +98,7 @@ class Kinematic_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.acc_now = acc_now
         self.track_length = track_length
-
+        self.conp_time=compute_time
         # update initial state from sensors
         track_length = self.spline.track_length - 0.1 # Needed as values are not exact
         center_car_s = self.position_in_map_frenet[0] + self.conf_params["lr"]*np.cos(self.position_in_map_frenet[2])
