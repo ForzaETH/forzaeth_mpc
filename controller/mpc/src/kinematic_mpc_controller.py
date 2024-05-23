@@ -546,8 +546,8 @@ class MPCNode:
         ack_msg.header.frame_id = "base_link"
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
-        ack_msg.drive.speed = state[State.VELOCITY_V]
-
+        ack_msg.drive.speed = 0*state[State.VELOCITY_V]
+        ack_msg.drive.acceleration = self.u0[0]
         # Managing of contol actions sent to controller_node.py
         if next_input:
             # next input

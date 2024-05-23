@@ -37,7 +37,7 @@ import types
 from nav_msgs.msg import Odometry
 import casadi as cs
 import numpy as np
-from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
+from casadi import MX, Function, cos, interpolant, mod, sin, vertcat, if_else
 
 
 def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
@@ -187,8 +187,12 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost =  -weight_adv*sdota**2/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e = -weight_adv*sdota**2/freq + weight_qn * n**2 + weight_qalpha * theta**2+weight_qv*(v_x-V_target)**2
+    cost_w_v = -weight_adv*sdota + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
+    cost_wo_v = -weight_adv*sdota + weight_qn * n**2 + weight_qalpha * theta**2 
+    cost_function = if_else(weight_qv < 0.1, cost_wo_v, cost_w_v)
+
+    model.cost_expr_ext_cost =  cost_function + u.T @ R @ u
+    model.cost_expr_ext_cost_e = cost_wo_v
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n

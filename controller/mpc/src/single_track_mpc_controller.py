@@ -156,7 +156,7 @@ class MPCNode:
 
     def _imu_cb(self, data: Imu) -> None:
         """acceleration callback. Normally not used."""
-        # self.acceleration = data.linear_acceleration.x 
+        self.acceleration = data.linear_acceleration.x 
 
     def _global_velocity_scale_cb(self, data: WpntArray) -> None:
         """global_velocity_scale callback. """
@@ -379,6 +379,7 @@ class MPCNode:
                 self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
                                                        online_parameters)
 
+
             # Solve OCP
             status = self.acados_solver.solve()
 
@@ -387,11 +388,10 @@ class MPCNode:
             self.u0 = self.acados_solver.get(0, "u")
             self.u1 = self.acados_solver.get(1, "u")
             self.pred_x = self.acados_solver.get(1, "x") 
-            print(self.pred_x )
             # steering buffer
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
             self.steering_angle_buf[0] = self.pred_x[5]
-            self.acceleration = self.pred_x[7]
+            # self.acceleration = self.pred_x[7]
 
             # Publish current state and predicted states
             if status == 0:
@@ -532,7 +532,8 @@ class MPCNode:
         ack_msg.header.frame_id = "base_link"
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
-        ack_msg.drive.speed = state[State.VELOCITY_V_X]
+        ack_msg.drive.speed = 0*state[State.VELOCITY_V_X]
+        ack_msg.drive.acceleration = state[State.ACCEL]
         self.steering_velocity.publish(ack_msg) 
         # Managing of contol actions sent to controller_node.py
         if next_input:

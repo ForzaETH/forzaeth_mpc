@@ -12,13 +12,13 @@ qalpha: 7
 # input bounds
 ddelta_min: !!float -0.2 # minimum change rate of stering angle [rad/s]
 ddelta_max: !!float 0.2 # maximum change rate of steering angle [rad/s]
-dv_min: !!float -20  # minimum velocity change rate
-dv_max: !!float 20  # maximum velocity change rate
+dv_min: !!float -8  # minimum velocity change rate
+dv_max: !!float 8  # maximum velocity change rate
 
 # Velocity constraint
 v_min: !!float 2 # minimum velocity [m/s]
-v_max: !!float 12 # maximum velocity [m/s]
+v_max: !!float 4 # maximum velocity [m/s]
 
 # lateral acceleration constraint
-alat_min: !!float -12 # minimum velocity [m/s]
-alat_max: !!float 12 # maximum velocity [m/s]
+alat_min: !!float -5 # minimum velocity [m/s]
+alat_max: !!float 5 # maximum velocity [m/s]
