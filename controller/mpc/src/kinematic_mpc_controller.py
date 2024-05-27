@@ -268,7 +268,6 @@ class MPCNode:
         solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
 
         solution = [x[-1] for x in solution.y]
-        print(solution,"after removing")
         # print("sol", solution)
 
         # Constraint on max. steering angle
@@ -331,7 +330,6 @@ class MPCNode:
             self.nr_laps = prev_x0[State.POS_ON_CENTER_LINE_S] // track_length
 
         current_pos_s = resp_frenet.s + self.nr_laps * self.spline.track_length
-        print(self.nr_laps)
 
         return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, delta])
     
@@ -361,7 +359,6 @@ class MPCNode:
         # For computation time
         tcomp_max = 0
 
-       
         while not rospy.is_shutdown():
             
             # start timer
@@ -385,17 +382,20 @@ class MPCNode:
             # dynamically change the target speed, weight parameters and constraints
             np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
 
-            for i in range(self.N):
+            for i in range(self.N+1):
                 idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
-                traget_v_speed=np.ones(1)*self.glo_v_scale[idx]
+                traget_v_speed=np.ones(1)*self.glo_v_scale[idx]               
                 online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
                                             self.cs_v_min,self.cs_v_max,
                                             self.cs_delta_steer_min,self.cs_delta_steer_max,
                                             self.cs_delta_v_min,self.cs_delta_v_max,
                                             self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
-                self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
-                                                       online_parameters)
+                # self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
+                #                                        online_parameters)
+                self.acados_solver.set(i,"p",online_parameters)
+
+
 
             # Solve OCP
             status = self.acados_solver.solve()
@@ -404,8 +404,6 @@ class MPCNode:
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
             self.pred_x = self.acados_solver.get(1, "x")
-            print(self.u0,"input")
-
             # steering buffer
             # shift the elements in the buffer to the right and add the predicted steering angle
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
@@ -546,8 +544,8 @@ class MPCNode:
         ack_msg.header.frame_id = "base_link"
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
-        ack_msg.drive.speed = 0*state[State.VELOCITY_V]
-        ack_msg.drive.acceleration = self.u0[0]
+        ack_msg.drive.speed = state[State.VELOCITY_V]
+        ack_msg.drive.acceleration = 0*self.u0[0]
         # Managing of contol actions sent to controller_node.py
         if next_input:
             # next input

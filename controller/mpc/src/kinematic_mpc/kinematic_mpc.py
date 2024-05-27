@@ -132,7 +132,7 @@ class Kinematic_MPC_Controller:
         # dynamically change the target speed, weight parameters and constraints
         np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
 
-        for i in range(self.N):
+        for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4] - self.mpc_sd[i,0]%self.spline.track_length).argmin()
             traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
             online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
@@ -152,9 +152,8 @@ class Kinematic_MPC_Controller:
         self.pred_x = self.acados_solver.get(1, "x")
         steering_angle = self.pred_x[4]
         speed = self.pred_x[3]
-        acceleration=self.u0[0]
+        acceleration=0*self.u0[0]
         jerk=0
-
         # steering buffer
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
