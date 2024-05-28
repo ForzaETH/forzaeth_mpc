@@ -126,6 +126,8 @@ class MPCNode:
         self.qv = self.conf_params["qv"]
         self.qn = self.conf_params["qn"]   
         self.qalpha = self.conf_params["qalpha"]
+        self.qac = self.conf_params["qac"]
+        self.qddelta = self.conf_params["qddelta"]
         self.cs_v_min = self.conf_params["v_min"]
         self.cs_v_max = self.conf_params["v_max"]
         self.cs_delta_steer_min = self.conf_params["ddelta_min"]
@@ -385,17 +387,16 @@ class MPCNode:
             for i in range(self.N+1):
                 idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
                 traget_v_speed=np.ones(1)*self.glo_v_scale[idx]               
-                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
-                                            self.cs_v_min,self.cs_v_max,
-                                            self.cs_delta_steer_min,self.cs_delta_steer_max,
-                                            self.cs_delta_v_min,self.cs_delta_v_max,
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
                                             self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
-                # self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
-                #                                        online_parameters)
                 self.acados_solver.set(i,"p",online_parameters)
 
-
+                if i < self.N:
+                    self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
+                    self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                    self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
+                    self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
 
             # Solve OCP
             status = self.acados_solver.solve()
@@ -403,6 +404,7 @@ class MPCNode:
             # get solution
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
+            print(self.u0)
             self.pred_x = self.acados_solver.get(1, "x")
             # steering buffer
             # shift the elements in the buffer to the right and add the predicted steering angle
@@ -437,7 +439,7 @@ class MPCNode:
             self.conp_time=elapsed
             if elapsed > tcomp_max:
                 tcomp_max = elapsed
-            self.comp_time_pub.publish(elapsed)
+            self.comp_time_pub.publish(self.u0[0])
             
             rate.sleep()
     
@@ -564,16 +566,18 @@ class MPCNode:
         self.qv = params.doubles[1].value
         self.qn = params.doubles[2].value   
         self.qalpha = params.doubles[3].value
+        self.qac = params.doubles[4].value
+        self.qddelta = params.doubles[5].value
         
         # onilne constraints tuning
-        self.cs_delta_steer_min = params.doubles[4].value
-        self.cs_delta_steer_max = params.doubles[5].value
-        self.cs_delta_v_min = params.doubles[6].value
-        self.cs_delta_v_max = params.doubles[7].value
-        self.cs_v_min = params.doubles[8].value
-        self.cs_v_max = params.doubles[9].value
-        self.cs_alat_min = params.doubles[10].value
-        self.cs_alat_max = params.doubles[11].value
+        self.cs_delta_steer_min = params.doubles[6].value
+        self.cs_delta_steer_max = params.doubles[7].value
+        self.cs_delta_v_min = params.doubles[8].value
+        self.cs_delta_v_max = params.doubles[9].value
+        self.cs_v_min = params.doubles[10].value
+        self.cs_v_max = params.doubles[11].value
+        self.cs_alat_min = params.doubles[12].value
+        self.cs_alat_max = params.doubles[13].value
            
 
 if __name__ == "__main__":

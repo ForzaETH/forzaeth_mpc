@@ -29,6 +29,8 @@ def callback(config, level):
     config.qv = round(config.qv * 200) / 200 # round to 0.005
     config.qn = round(config.qn * 200) / 200 # round to 0.005
     config.qalpha = round(config.qalpha * 200) / 200 # round to 0.005
+    config.qac = round(config.qac * 200000) / 200000 # round to 0.005
+    config.qddelta = round(config.qddelta * 200000) / 200000 # round to 0.005
 
     # constraints
     config.ddelta_min = round(config.ddelta_min * 200) / 200 # round to 0.005
@@ -58,6 +60,8 @@ if __name__ == "__main__":
         "qv": float(yaml_data["qv"]),
         "qn": float(yaml_data["qn"]),
         "qalpha": float(yaml_data["qalpha"]),
+        "qac": float(yaml_data["qac"]),
+        "qddelta": float(yaml_data["qddelta"]),
         ## mpc constraints
         "ddelta_min": float(yaml_data["ddelta_min"]),
         "ddelta_max": float(yaml_data["ddelta_max"]),

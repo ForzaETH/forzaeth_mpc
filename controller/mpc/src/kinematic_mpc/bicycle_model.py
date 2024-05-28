@@ -110,18 +110,11 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     weight_qn = MX.sym('weight_qn')
     weight_qv = MX.sym('weight_qv')
     weight_qalpha = MX.sym('weight_qalpha')
-    cs_vx_min = MX.sym('cs_vx_min')
-    cs_vx_max = MX.sym('cs_vx_max')
-    cs_delta_steer_min = MX.sym('cs_delta_steer_min')
-    cs_delta_steer_max = MX.sym('cs_delta_steer_max')
-    cs_delta_v_min = MX.sym('cs_delta_v_min')
-    cs_delta_v_max = MX.sym('cs_delta_v_max')
+    weight_qac=MX.sym('weight_qac')
+    weight_ddelta=MX.sym('weight_ddelta')
     cs_a_lat_min = MX.sym('cs_a_lat_min')
     cs_a_lat_max = MX.sym('cs_a_lat_max')
-    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha, # weights
-                cs_vx_min,cs_vx_max,    # velocity constraints
-                cs_delta_steer_min,cs_delta_steer_max,  # steering angle constraints
-                cs_delta_v_min,cs_delta_v_max,   # velocity change rate constraints
+    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta,# weights
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
     
     # calculate the index
@@ -145,8 +138,8 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.x0 = np.array([-2, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost =  -0*weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e = -0*weight_adv*sdota**2/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
+    model.cost_expr_ext_cost =  -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+0*u.T @ R @ u+weight_qac*der_v**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
 
     # constraint on forces
     a_lat = v * v * cs.tan(delta)/(lr+lf)
@@ -166,11 +159,11 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
     # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max 
-    diamond_acceleration_constraint=0*(a_lat/cs_a_lat_max)**2+0*(der_v/cs_delta_v_max)**2
-    dynamic_turn_constraint_min=vertcat(v-cs_vx_min,der_v+10,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(v-cs_vx_max,der_v-10,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
+    diamond_acceleration_constraint=0 # not used now
+    dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
+    dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
     constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
-
+    constraint.expr_e =vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
     ### read the parameters range from the yaml file
     # Model bounds
     model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
@@ -184,7 +177,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.ddelta_min = cfg_dict["ddelta_min"] # minimum change rate of stering angle [rad/s]
     model.ddelta_max = cfg_dict["ddelta_max"] # maximum change rate of steering angle [rad/s]
     model.dv_min = cfg_dict["a_min"] # minimum velocity change rate
-    model.dv_max = cfg_dict["a_max"] # maximum velocity change rate
+    model.dv_max = cfg_dict["a_max"]# maximum velocity change rate
 
     # nonlinear constraint
     constraint.alat_min = cfg_dict["alat_min"] # maximum lateral force [m/s^2]

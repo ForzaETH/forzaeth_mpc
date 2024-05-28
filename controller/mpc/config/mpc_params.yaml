@@ -2,8 +2,8 @@
 
 qadv: !!float 0 # velocity cost (linear, for velocity maximization)
 qv: !!float 10 # velocity cost (linear, for velocity maximization)
-qn: 20
-qalpha: 7
+qn: 40
+qalpha: 50
 
 #####################
 # Model constraints #
@@ -13,12 +13,12 @@ qalpha: 7
 ddelta_min: !!float -0.2 # minimum change rate of stering angle [rad/s]
 ddelta_max: !!float 0.2 # maximum change rate of steering angle [rad/s]
 dv_min: !!float -8  # minimum velocity change rate
-dv_max: !!float 8  # maximum velocity change rate
+dv_max: !!float 7  # maximum velocity change rate
 
 # Velocity constraint
 v_min: !!float 2 # minimum velocity [m/s]
-v_max: !!float 4 # maximum velocity [m/s]
+v_max: !!float 12 # maximum velocity [m/s]
 
 # lateral acceleration constraint
-alat_min: !!float -5 # minimum velocity [m/s]
-alat_max: !!float 5 # maximum velocity [m/s]
+alat_min: !!float -12 # minimum velocity [m/s]
+alat_max: !!float 12 # maximum velocity [m/s]
