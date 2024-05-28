@@ -357,6 +357,7 @@ class MPCNode:
         # Initinal Solve OCP
         status = self.acados_solver.solve()
         mpc_sd = np.array([self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)])
+        self.u0 = self.acados_solver.get(0, "u")
 
         # For computation time
         tcomp_max = 0
@@ -370,8 +371,9 @@ class MPCNode:
             x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
 
             # time delat compensation
-            self.t_delay= self.conp_time+self.t_MPC
-            propagated_x = self.propagate_time_delay(x0, np.zeros(2))
+            self.t_delay= self.conp_time
+            print(self.t_delay)
+            propagated_x = self.propagate_time_delay(x0, self.u0)
             self.publish_propagated_states(propagated_x)
             # visualise the time delay position
             prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
@@ -382,7 +384,6 @@ class MPCNode:
             self.acados_solver.set(0, "ubx", propagated_x)
 
             # dynamically change the target speed, weight parameters and constraints
-            np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
 
             for i in range(self.N+1):
                 idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
@@ -404,7 +405,6 @@ class MPCNode:
             # get solution
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
-            print(self.u0)
             self.pred_x = self.acados_solver.get(1, "x")
             # steering buffer
             # shift the elements in the buffer to the right and add the predicted steering angle
