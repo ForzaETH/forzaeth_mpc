@@ -439,7 +439,7 @@ class MPCNode:
             self.conp_time=elapsed
             if elapsed > tcomp_max:
                 tcomp_max = elapsed
-            self.comp_time_pub.publish(self.u0[0])
+            self.comp_time_pub.publish(elapsed)
             
             rate.sleep()
     

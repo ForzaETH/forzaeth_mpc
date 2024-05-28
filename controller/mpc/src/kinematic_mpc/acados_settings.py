@@ -50,6 +50,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
     # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
+    model_ac.con_h_expr_0 = constraint.expr
     model_ac.con_h_expr = constraint.expr
     model_ac.con_h_expr_e = constraint.expr_e
     # model_ac.disc_dyn_expr = model.dyn_disc_fun
@@ -97,10 +98,15 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     # maximum slack varibales: su
 
     # Slack penalty function is Z_l*s_l**2 + Z_u*s_u**2
+    # at stage 0
+    ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl_0 = 0 * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zu_0 = 0 * np.ones((ns,))
     # from 1 to N-1
     ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
     ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl = 0 * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zl = 0 * np.ones((ns,))  
     ocp.cost.zu = 0 * np.ones((ns,)) 
     # at stage N
     ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((ns,)) 
@@ -161,8 +167,14 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     )
     Nonlinear_constraint_index=np.array([num for num in range(nsh)])
     Nonlinear_soft_min_value=np.zeros(nsh)
-    Nonlinear_soft_max_value=np.zeros(nsh) + np.array([0, 0, 10, 10,0])
+    Nonlinear_soft_max_value=np.zeros(nsh) + np.array([0, 0, 0.1, 0.1,0])
 
+    # at stage 0
+    ocp.constraints.lh_0 = Nonlinear_constraint_min
+    ocp.constraints.uh_0 = Nonlinear_constraint_max
+    ocp.constraints.lsh_0 = Nonlinear_soft_min_value
+    ocp.constraints.ush_0 = Nonlinear_soft_max_value
+    ocp.constraints.idxsh_0 = Nonlinear_constraint_index
     # from stage 1 to N-1
     ocp.constraints.lh = Nonlinear_constraint_min
     ocp.constraints.uh = Nonlinear_constraint_max

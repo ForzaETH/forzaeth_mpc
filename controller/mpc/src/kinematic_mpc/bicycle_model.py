@@ -138,7 +138,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.x0 = np.array([-2, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost =  -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+0*u.T @ R @ u+weight_qac*der_v**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost =  -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+weight_qac*der_v**2+weight_ddelta*derDelta**2
     model.cost_expr_ext_cost_e = -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
 
     # constraint on forces
@@ -158,12 +158,11 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     constraint.alat = Function("a_lat", [x, u], [a_lat])
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
-    # e.g. 0<v-cs_vx_min<inf, -inf<v-cs_vx_max<0 equivalent to v>cs_vx_min, v<cs_vx_max 
     diamond_acceleration_constraint=0 # not used now
     dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
     dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
     constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
-    constraint.expr_e =vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
+    constraint.expr_e =constraint.expr 
     ### read the parameters range from the yaml file
     # Model bounds
     model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
