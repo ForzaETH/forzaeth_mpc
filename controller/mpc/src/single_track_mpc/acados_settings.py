@@ -51,6 +51,10 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     model_ac = AcadosModel()
     model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
+    # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
+    model_ac.con_h_expr_0 = constraint.expr
+    model_ac.con_h_expr = constraint.expr
+    model_ac.con_h_expr_e = constraint.expr
     model_ac.x = model.x
     model_ac.xdot = model.xdot
     model_ac.u = model.u
@@ -65,19 +69,17 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.parameter_values = p
 
 
-    # define constraint
-    model_ac.con_h_expr = constraint.expr
-
     # dimensions
     nx = model.x.size()[0]
     nu = model.u.size()[0]
     ny = nx + nu
     ny_e = nx
 
-    nsbx = 1
-    nh = constraint.expr.shape[0]
-    nsh = nh
-    ns = nsh + nsbx
+    # define the number of soft constraints
+    nsbx = 0  #state soft constraint
+    nsbu = 0
+    nsh = constraint.expr.shape[0]
+    ns = nsh + nsbx + nsbu
 
     # discretization
     ocp.dims.N = cfg_dict['N']
@@ -92,24 +94,34 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.model.cost_expr_ext_cost = model.cost_expr_ext_cost
     ocp.model.cost_expr_ext_cost_e = model.cost_expr_ext_cost_e
 
-    # cost coefficients of slack variables 
-    # Slack penalty function is 0.5*Z_l*s_l**2 + 0.5*Z_u*s_u**2 + z_l*s_l + z_u*s_u
-    ocp.cost.zl = cfg_dict['zl'] * np.ones((ns,)) # linear coefficient state slack variable
-    ocp.cost.zu = cfg_dict['zu'] * np.ones((ns,)) # linear coefficient input slack variable
-    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) # quadratic coefficient state slack variable
-    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) # quadratic coefficient input slack variable
+    # slack variables included state, input and nonlinear constraints
+    # minmum  slack variables: sl
+    # maximum slack varibales: su
 
+    # Slack penalty function is Z_l*s_l**2 + Z_u*s_u**2
+    # at stage 0
+    ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl_0 = 0 * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zu_0 = 0 * np.ones((ns,))
+    # from 1 to N-1
+    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
+    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
+    ocp.cost.zl = 0 * np.ones((ns,))  
+    ocp.cost.zu = 0 * np.ones((ns,)) 
+    # at stage N
+    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((ns,)) 
+    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((ns,)) 
+    ocp.cost.zl_e = 0 * np.ones((ns,)) 
+    ocp.cost.zu_e = 0 * np.ones((ns,)) 
 
+    # input constraint
     ocp.constraints.lbu = np.array([model.jerk_min, model.ddelta_min])
     ocp.constraints.ubu = np.array([model.jerk_max, model.ddelta_max])
     ocp.constraints.idxbu = np.array([Input.JERK, Input.D_STEERING_ANGLE])
 
-    ocp.constraints.lsbx = np.zeros([nsbx])
-    ocp.constraints.usbx = np.zeros([nsbx])
-    ocp.constraints.idxsbx = np.array(range(nsbx))
-
-    # Define constraints
-    ocp.constraints.lbx = np.array(
+    # state constraint
+    state_constraint_min=np.array(
         [
             constraint.v_x_min,
             model.delta_min,
@@ -117,7 +129,7 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
         
         ]
     )
-    ocp.constraints.ubx = np.array(
+    state_constraint_max=np.array(
         [   
             constraint.v_x_max,
             model.delta_max,
@@ -125,19 +137,23 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
             
         ]
     )
-    ocp.constraints.idxbx = np.array([State.VELOCITY_V_X,State.STEERING_ANGLE_DELTA,State.ACCEL])
+    state_constraint_index=np.array([State.VELOCITY_V_X,State.STEERING_ANGLE_DELTA,State.ACCEL])
+    ocp.constraints.lbx_0 = state_constraint_min
+    ocp.constraints.ubx_0 = state_constraint_max
+    ocp.constraints.idxbx_0=state_constraint_index
 
+    ocp.constraints.lbx = state_constraint_min
+    ocp.constraints.ubx = state_constraint_max
+    ocp.constraints.idxbx = state_constraint_index
+
+    ocp.constraints.lbx_e=state_constraint_min
+    ocp.constraints.ubx_e=state_constraint_max
+    ocp.constraints.idxbx_e=state_constraint_index
 
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
     ocp.constraints.lh = np.array(
         [
             0,
-            0,
-            0,
-            0,
-            -100,
-            -100,
-            -100,
             -100,
             model.n_min,
             model.n_min,
@@ -147,12 +163,6 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.constraints.uh = np.array(  
         [
             100,
-            100,
-            100,
-            100,
-            0,
-            0,
-            0,
             0,
             model.n_max,
             model.n_max,
@@ -160,10 +170,47 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
         ]
     )
 
-    # Nonlinear soft constraint
-    ocp.constraints.lsh = np.zeros(nsh)
-    ocp.constraints.ush = np.zeros(nsh) + np.array([0, 0, 0, 0, 0, 0, 0, 0, 100, 100,0])
-    ocp.constraints.idxsh = np.array([num for num in range(nsh)])
+    # Nonlinear constraint
+    Nonlinear_constraint_min=np.array(
+        [
+            0,
+            -100,
+            model.n_min,
+            model.n_min,
+            0,
+        ]
+    )
+    Nonlinear_constraint_max=np.array(  
+        [
+            100,
+            0,
+            model.n_max,
+            model.n_max,
+            1,
+        ]
+    )
+    Nonlinear_soft_min_value=np.zeros(nsh)
+    Nonlinear_soft_max_value=np.zeros(nsh) + np.array([0, 0, 0.1, 0.1,0])
+    Nonlinear_constraint_index=np.array([num for num in range(nsh)])
+    # at stage 0
+    ocp.constraints.lh_0 = Nonlinear_constraint_min
+    ocp.constraints.uh_0 = Nonlinear_constraint_max
+    ocp.constraints.lsh_0 = Nonlinear_soft_min_value
+    ocp.constraints.ush_0 = Nonlinear_soft_max_value
+    ocp.constraints.idxsh_0 = Nonlinear_constraint_index
+    # from stage 1 to N-1
+    ocp.constraints.lh = Nonlinear_constraint_min
+    ocp.constraints.uh = Nonlinear_constraint_max
+    ocp.constraints.lsh = Nonlinear_soft_min_value
+    ocp.constraints.ush = Nonlinear_soft_max_value
+    ocp.constraints.idxsh = Nonlinear_constraint_index
+
+    # at stage N
+    ocp.constraints.lh_e = Nonlinear_constraint_min
+    ocp.constraints.uh_e = Nonlinear_constraint_max
+    ocp.constraints.lsh_e = Nonlinear_soft_min_value
+    ocp.constraints.ush_e = Nonlinear_soft_max_value
+    ocp.constraints.idxsh_e = Nonlinear_constraint_index
 
     # set intial condition
     ocp.constraints.x0 = model.x0
@@ -176,7 +223,6 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.solver_options.integrator_type = "ERK"
     ocp.solver_options.sim_method_num_stages = 4
     ocp.solver_options.sim_method_num_steps = 3
-    # ocp.solver_options.nlp_solver_max_iter = 50
     ocp.solver_options.tol = 1e-2#1e-2
     ocp.solver_options.print_level = 0
 
@@ -194,12 +240,8 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["qv"],
         cfg["qn"],
         cfg["qalpha"],
-        cfg["v_min"],
-        cfg["v_max"],
-        cfg["ddelta_min"],
-        cfg["ddelta_max"],
-        cfg["a_min"],
-        cfg["a_max"],
+        cfg["qac"],
+        cfg["qddelta"],
         cfg["alat_min"],
         cfg["alat_max"],
     ]).astype(float)

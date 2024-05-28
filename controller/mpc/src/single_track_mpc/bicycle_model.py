@@ -130,31 +130,23 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     weight_qn = MX.sym('weight_qn')
     weight_qv = MX.sym('weight_qv')
     weight_qalpha = MX.sym('weight_qalpha')
-    cs_vx_min = MX.sym('cs_vx_min')
-    cs_vx_max = MX.sym('cs_vx_max')
-    cs_delta_steer_min = MX.sym('cs_delta_steer_min')
-    cs_delta_steer_max = MX.sym('cs_delta_steer_max')
-    cs_delta_v_min = MX.sym('cs_delta_v_min')
-    cs_delta_v_max = MX.sym('cs_delta_v_max')
+    weight_qac=MX.sym('weight_qac')
+    weight_ddelta=MX.sym('weight_ddelta')
     cs_a_lat_min = MX.sym('cs_a_lat_min')
     cs_a_lat_max = MX.sym('cs_a_lat_max')
-    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha, # weights
-                cs_vx_min,cs_vx_max,    # velocity constraints
-                cs_delta_steer_min,cs_delta_steer_max,  # steering angle constraints
-                cs_delta_v_min,cs_delta_v_max,   # velocity change rate constraints
+    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta, # weights
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
 
     # calculate the index
     s_mod = mod(s, pathlength)
 
     # single track model definition with pacejka tire model
-
     ## tire model
     #side slip angle
     v_0 = 1.0
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
-    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+0.1) + delta)
-    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+0.1)) 
+    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+0.01) + delta)
+    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+0.01)) 
     # load transfer
     F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
     F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
@@ -186,13 +178,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0, 0])
 
-    # Definition of external cost function
-    cost_w_v = -weight_adv*sdota + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
-    cost_wo_v = -weight_adv*sdota + weight_qn * n**2 + weight_qalpha * theta**2 
-    cost_function = if_else(weight_qv < 0.1, cost_wo_v, cost_w_v)
-
-    model.cost_expr_ext_cost =  cost_function + u.T @ R @ u
-    model.cost_expr_ext_cost_e = cost_wo_v
+    model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2+u.T @ R @ u
+    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
@@ -206,9 +193,9 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     a_lat = v_x * v_x * cs.tan(delta)/(lr+lf)
     constraint.pathlength = pathlength
     # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
-    diamond_acceleration_constraint=(a_lat/cs_a_lat_max)**2+(accel/cs_delta_v_max)**2
-    dynamic_turn_constraint_min=vertcat(v_x-cs_vx_min,accel-cs_delta_v_min,derDelta-cs_delta_steer_min,a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(v_x-cs_vx_max,accel-cs_delta_v_max,derDelta-cs_delta_steer_max,a_lat-cs_a_lat_max)
+    diamond_acceleration_constraint=0
+    dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
+    dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
     constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound, diamond_acceleration_constraint)
 
 

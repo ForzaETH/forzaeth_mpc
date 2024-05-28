@@ -118,6 +118,8 @@ class MPCNode:
         self.qv = self.conf_params["qv"]
         self.qn = self.conf_params["qn"]   
         self.qalpha = self.conf_params["qalpha"]
+        self.qac = self.conf_params["qac"]
+        self.qddelta = self.conf_params["qddelta"]
         self.cs_v_min = self.conf_params["v_min"]
         self.cs_v_max = self.conf_params["v_max"]
         self.cs_delta_steer_min = self.conf_params["ddelta_min"]
@@ -365,20 +367,19 @@ class MPCNode:
             self.acados_solver.set(0, "ubx", propagated_x)
 
             # dynamically change the target speed, weight parameters and constraints
-            np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
-
-            for i in range(self.N):
+            for i in range(self.N+1):
                 idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
-                traget_v_speed=np.ones(1)*self.glo_v_scale[idx]
-                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
-                                            self.cs_v_min,self.cs_v_max,
-                                            self.cs_delta_steer_min,self.cs_delta_steer_max,
-                                            self.cs_delta_v_min,self.cs_delta_v_max,
+                traget_v_speed=np.ones(1)*self.glo_v_scale[idx]               
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
                                             self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
-                self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
-                                                       online_parameters)
+                self.acados_solver.set(i,"p",online_parameters)
 
+                if i < self.N:
+                #     self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
+                #     self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                    self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4, self.cs_delta_v_min])) # do not change i+1 to i since mpc needs the initial state
+                    self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4, self.cs_delta_v_max]))
 
             # Solve OCP
             status = self.acados_solver.solve()
@@ -405,7 +406,7 @@ class MPCNode:
             ##### visualization #####
             # Creating waypoint array with predicted positions
             mpc_sd = np.array([
-                self.acados_solver.get(j, "x")[:2] for j in range(self.N)
+                self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)
             ])
 
             if status == 0:
