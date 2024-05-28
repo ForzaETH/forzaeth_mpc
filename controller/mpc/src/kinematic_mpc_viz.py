@@ -72,7 +72,6 @@ class tireNode:
             self.conf_params = yaml.safe_load(conf_file)
                 
         self.N = self.conf_params['N']
-        self.R = self.conf_params['R']
 
         self.lf = self.conf_params['lf']
         self.lr = self.conf_params['lr']

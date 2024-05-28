@@ -99,7 +99,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     z = vertcat([])
 
     # parameters
-    R = np.diag(cfg_dict['R'])
     lr = cfg_dict['lr']
     lf = cfg_dict['lf']
     freq = cfg_dict['MPC_freq']

@@ -42,6 +42,7 @@ class Kinematic_MPC_Controller:
 
         #Initial state
         self.mpc_sd = np.zeros((self.N + 1, 2))
+        self.u0 = np.zeros(2)
         self.fre_s=0
         #Initial time
         self.conp_time = 0
@@ -49,18 +50,19 @@ class Kinematic_MPC_Controller:
         # Init the online parameters
         mpc_init_online_params = kwargs['mpc_online_param']
         self.qadv = mpc_init_online_params[0]
-        print(self.qadv)
         self.qv = mpc_init_online_params[1]
-        self.qn = mpc_init_online_params[2]
+        self.qn = mpc_init_online_params[2]   
         self.qalpha = mpc_init_online_params[3]
-        self.cs_v_min = mpc_init_online_params[4]
-        self.cs_v_max = mpc_init_online_params[5]
+        self.qac = mpc_init_online_params[4]
+        self.qddelta = mpc_init_online_params[5]
         self.cs_delta_steer_min = mpc_init_online_params[6]
         self.cs_delta_steer_max = mpc_init_online_params[7]
         self.cs_delta_v_min = mpc_init_online_params[8]
         self.cs_delta_v_max = mpc_init_online_params[9]
-        self.cs_alat_min = mpc_init_online_params[10]
-        self.cs_alat_max = mpc_init_online_params[11]
+        self.cs_v_min = mpc_init_online_params[10]
+        self.cs_v_max = mpc_init_online_params[11]
+        self.cs_alat_min = mpc_init_online_params[12]
+        self.cs_alat_max = mpc_init_online_params[13]
     
 
     def mpc_initialize_solver(self) -> None:
@@ -122,38 +124,39 @@ class Kinematic_MPC_Controller:
         x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, speed_now,self.steering_angle_buf[-1]],dtype=np.float64)
 
         # time delat compensation
-        self.t_delay= self.conp_time+self.t_MPC
-        propagated_x = self.propagate_time_delay(x0, np.zeros(2))
+        self.t_delay= self.conp_time
+        propagated_x = self.propagate_time_delay(x0, self.u0)
 
         # set the initial state for the mpc 
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
         # dynamically change the target speed, weight parameters and constraints
-        np_array_index_online_turn=np.arange(len(self.model_params.p)-13, len(self.model_params.p))
-
         for i in range(self.N+1):
-            idx = np.abs(self.waypoint_array_in_map[:,4] - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-            traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-            online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,
-                                            self.cs_v_min,self.cs_v_max,
-                                            self.cs_delta_steer_min,self.cs_delta_steer_max,
-                                            self.cs_delta_v_min,self.cs_delta_v_max,
+            idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
+            traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]              
+            online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
                                             self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
-            self.acados_solver.set_params_sparse(i,np_array_index_online_turn, 
-                                                       online_parameters)
-        
+            self.acados_solver.set(i,"p",online_parameters)
+
+            if i < self.N:
+                self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
+                self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
+                self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
+
+         
         # Solve OCP
         status = self.acados_solver.solve()
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
         self.pred_x = self.acados_solver.get(1, "x")
-        steering_angle = self.pred_x[4]
-        speed = self.pred_x[3]
-        acceleration=0*self.u0[0]
-        jerk=0
+        self.steering_angle = self.pred_x[4]
+        self.speed = self.pred_x[3]
+        self.acceleration=0*self.u0[0]
+        self.jerk=0
         # steering buffer
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
@@ -170,8 +173,8 @@ class Kinematic_MPC_Controller:
                 result = self.acados_solver.get(node,"x").tolist()
                 for item in result:
                     states.append(item)
-              
-        return speed, acceleration, jerk, steering_angle, states
+            self.states = states      
+        return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
     #############
     # Utilities #
     #############
