@@ -227,21 +227,19 @@ class MPCNode:
         Used for forward propagation. This function takes the dynamics from the acados model.
         '''
     
-        s = x0[State.POS_ON_CENTER_LINE_S]
-        n = x0[State.MIN_DIST_TO_CENTER_LINE_N]
-        theta = x0[State.ORIENTATION_THETA]
-        v_x = x0[State.VELOCITY_V_X]
-        v_y = x0[State.VELOCITY_V_Y]
-        delta = x0[State.STEERING_ANGLE_DELTA]
-        yaw_rate = x0[State.YAW_RATE]
-        accel = x0[State.ACCEL]
-
-        jerk = x0[8]
-        derDelta = x0[9]
-        xdot = self.model.f_expl_func(s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
+        s = x0[0]
+        n = x0[1]
+        theta = x0[2]
+        v_x = x0[3]
+        v_y = x0[4]
+        delta = x0[5]
+        yaw_rate = x0[6]
+        accel = x0[7]
+        derDelta = x0[8]
+        xdot = self.model.f_expl_func(s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, self.model_params.p)
         
         #print(xdot)
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),float(xdot[5]),float(xdot[6]), float(xdot[7]) , jerk, derDelta]  
+        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),float(xdot[5]),float(xdot[6]),accel,derDelta]  
 
         return xdot
 
@@ -271,14 +269,6 @@ class MPCNode:
         # On minimum speed
         if abs(solution[State.VELOCITY_V_X]) < self.constraint.v_x_min:
             solution[State.VELOCITY_V_X] = self.constraint.v_x_min
-
-        # Constraint on max. accel
-        if abs(solution[State.ACCEL]) > self.model.a_max:
-            solution[State.ACCEL] = np.sign(solution[State.ACCEL]) * self.model.a_max
-
-        # # On minimum accel
-        # if abs(solution[State.ACCEL]) < self.model.a_min:
-        #     solution[State.ACCEL] = self.model.a_min
 
         return np.array(solution)[:-2]
 
@@ -314,7 +304,6 @@ class MPCNode:
             alpha_center = alpha_center - 2*np.pi
 
         delta = self.steering_angle_buf[-1]
-        accel_init = self.acceleration
 
         track_length = self.spline.track_length - 0.1 # Needed as values are not exact
 
@@ -322,7 +311,7 @@ class MPCNode:
             self.nr_laps = prev_x0[State.POS_ON_CENTER_LINE_S] // track_length
 
         current_pos_s = resp_frenet.s + self.nr_laps * self.spline.track_length
-        return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y, delta, self.r, accel_init])
+        return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y, delta, self.r])
     
     
     #############
@@ -342,7 +331,7 @@ class MPCNode:
         # Initinal Solve OCP
         status = self.acados_solver.solve()
         mpc_sd = np.array([self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)])
-
+        self.u0 = self.acados_solver.get(0, "u")
         # For computation time
         tcomp_sum = 0
         tcomp_max = 0
@@ -355,9 +344,8 @@ class MPCNode:
             x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
 
             # time delat compensation
-            # self.t_delay= self.conp_time+self.t_MPC
-            propagated_x = self.propagate_time_delay(x0, np.zeros(2))
-            # print("propagated", propagated_x)
+            self.t_delay= self.conp_time
+            propagated_x = self.propagate_time_delay(x0, self.u0)
             self.publish_propagated_states(propagated_x)
             prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
             self.publish_current_pos(prop_x_plot)
@@ -376,10 +364,10 @@ class MPCNode:
                 self.acados_solver.set(i,"p",online_parameters)
 
                 if i < self.N:
-                #     self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
-                #     self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
-                    self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4, self.cs_delta_v_min])) # do not change i+1 to i since mpc needs the initial state
-                    self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4, self.cs_delta_v_max]))
+                    self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
+                    self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                    self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
+                    self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
 
             # Solve OCP
             status = self.acados_solver.solve()
@@ -392,16 +380,12 @@ class MPCNode:
             # steering buffer
             self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
             self.steering_angle_buf[0] = self.pred_x[5]
-            # self.acceleration = self.pred_x[7]
 
             # Publish current state and predicted states
             if status == 0:
                 # print(self.pred_x)
                 self.publish_ackermann_msg(self.pred_x, True)
 
-                # for stage in range(6,1,-1):
-                #     x = self.acados_solver.get(stage, "x")
-                #     self.publish_ackermann_msg(x, False)
 
             ##### visualization #####
             # Creating waypoint array with predicted positions
@@ -417,8 +401,6 @@ class MPCNode:
                         states.append(item)
                 self.publish_states(states)
 
-            pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
-            self.publish_waypoint_markers(pred_waypoints, type="pred")
 
             # manage timings
             elapsed = time.perf_counter() - start
@@ -429,7 +411,7 @@ class MPCNode:
             self.comp_time_pub.publish(elapsed)
             
             rate.sleep()
-    
+
     ##########################
     # Publishing/Visualizing #
     ##########################
@@ -533,8 +515,8 @@ class MPCNode:
         ack_msg.header.frame_id = "base_link"
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
-        ack_msg.drive.speed = 0*state[State.VELOCITY_V_X]
-        ack_msg.drive.acceleration = state[State.ACCEL]
+        ack_msg.drive.speed = state[State.VELOCITY_V_X]
+        ack_msg.drive.acceleration = 0
         self.steering_velocity.publish(ack_msg) 
         # Managing of contol actions sent to controller_node.py
         if next_input:
@@ -547,21 +529,24 @@ class MPCNode:
         Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
         Values from .yaml file are set in mpc_online_params_server      
         """
-        ## mpc Control Parameters
+      ## mpc Control Parameters
         self.qadv = params.doubles[0].value
         self.qv = params.doubles[1].value
         self.qn = params.doubles[2].value   
         self.qalpha = params.doubles[3].value
+        self.qac = params.doubles[4].value
+        self.qddelta = params.doubles[5].value
         
         # onilne constraints tuning
-        self.cs_delta_steer_min = params.doubles[4].value
-        self.cs_delta_steer_max = params.doubles[5].value
-        self.cs_delta_v_min = params.doubles[6].value
-        self.cs_delta_v_max = params.doubles[7].value
-        self.cs_v_min = params.doubles[8].value
-        self.cs_v_max = params.doubles[9].value
-        self.cs_alat_min = params.doubles[10].value
-        self.cs_alat_max = params.doubles[11].value
+        self.cs_delta_steer_min = params.doubles[6].value
+        self.cs_delta_steer_max = params.doubles[7].value
+        self.cs_delta_v_min = params.doubles[8].value
+        self.cs_delta_v_max = params.doubles[9].value
+        self.cs_v_min = params.doubles[10].value
+        print(self.cs_v_min)
+        self.cs_v_max = params.doubles[11].value
+        self.cs_alat_min = params.doubles[12].value
+        self.cs_alat_max = params.doubles[13].value
 
 if __name__ == "__main__":
     controller = MPCNode()

@@ -77,13 +77,12 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     v_y = MX.sym("v_y")
     delta = MX.sym("delta")
     yaw_rate = MX.sym("yaw_rate")
-    accel = MX.sym("accel")
-    x = vertcat(s, n, theta, v_x, v_y, delta, yaw_rate, accel)
+    x = vertcat(s, n, theta, v_x, v_y, delta, yaw_rate)
 
     # controls
-    jerk = MX.sym("jerk")
+    accel = MX.sym("accel")
     derDelta = MX.sym("derDelta")
-    u = vertcat(jerk, derDelta)
+    u = vertcat(accel, derDelta)
 
     # xdot
     sdot = MX.sym("sdot")
@@ -93,16 +92,13 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     v_y_dot = MX.sym("v_y_dot")
     deltadot = MX.sym("deltadot")
     yaw_ratedot = MX.sym("yaw_ratedot")
-    accel_dot = MX.sym("accel_dot")
     
-    xdot = vertcat(sdot, ndot, thetadot, v_x_dot, v_y_dot, deltadot, yaw_ratedot, accel_dot)
+    xdot = vertcat(sdot, ndot, thetadot, v_x_dot, v_y_dot, deltadot, yaw_ratedot)
 
     # algebraic variables
     z = vertcat([])
 
     # parameters
-    R = np.diag(cfg_dict['R'])
-    qv = cfg_dict['qv']
     lr = cfg_dict['lr']
     lf = cfg_dict['lf']
     freq = cfg_dict['MPC_freq']
@@ -145,8 +141,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     #side slip angle
     v_0 = 1.0
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
-    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+0.01) + delta)
-    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+0.01)) 
+    alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+v_0) + delta)
+    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+v_0)) 
     # load transfer
     F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
     F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
@@ -171,15 +167,14 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
         der_v_y,
         derDelta,
         yaw_ratedot,
-        jerk
     )
-    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate,accel, jerk, derDelta, p], [f_expl])
+    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate,accel, derDelta, p], [f_expl])
 
     # Define initial conditions
-    model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0, 0])
+    model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0])
 
-    model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2+u.T @ R @ u
-    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2
+    model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
@@ -215,8 +210,6 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # input bounds
     model.ddelta_min = cfg_dict["ddelta_min"] # minimum change rate of stering angle [rad/s]
     model.ddelta_max = cfg_dict["ddelta_max"] # maximum change rate of steering angle [rad/s]
-    model.jerk_min = cfg_dict["jerk_min"] # minimum velocity change rate
-    model.jerk_max = cfg_dict["jerk_max"] # maximum velocity change rate
 
 
     # Define model struct

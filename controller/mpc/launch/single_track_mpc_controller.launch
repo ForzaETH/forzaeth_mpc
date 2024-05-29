@@ -9,6 +9,7 @@
   <!-- launch dynamic reconfigure for controller manager -->
   <node pkg="controller" name="mpc_param_tuner" type="mpc_online_params_server.py" output="screen"/>
 
-
+    <!-- Launch the viz for the MPC-->
+  <node pkg="controller" type="single_track_mpc_viz.py" name="single_track_mpc_viz" output="screen"/> 
 
 </launch>

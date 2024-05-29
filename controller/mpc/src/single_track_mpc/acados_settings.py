@@ -100,44 +100,40 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
 
     # Slack penalty function is Z_l*s_l**2 + Z_u*s_u**2
     # at stage 0
-    ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((ns,))
-    ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((ns,))
-    ocp.cost.zl_0 = 0 * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
-    ocp.cost.zu_0 = 0 * np.ones((ns,))
+    ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((nsh,))
+    ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((nsh,))
+    ocp.cost.zl_0 = 0 * np.ones((nsh,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zu_0 = 0 * np.ones((nsh,))
     # from 1 to N-1
     ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
     ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
     ocp.cost.zl = 0 * np.ones((ns,))  
     ocp.cost.zu = 0 * np.ones((ns,)) 
     # at stage N
-    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((ns,)) 
-    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl_e = 0 * np.ones((ns,)) 
-    ocp.cost.zu_e = 0 * np.ones((ns,)) 
+    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((nsh,)) 
+    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((nsh,)) 
+    ocp.cost.zl_e = 0 * np.ones((nsh,)) 
+    ocp.cost.zu_e = 0 * np.ones((nsh,)) 
 
     # input constraint
-    ocp.constraints.lbu = np.array([model.jerk_min, model.ddelta_min])
-    ocp.constraints.ubu = np.array([model.jerk_max, model.ddelta_max])
-    ocp.constraints.idxbu = np.array([Input.JERK, Input.D_STEERING_ANGLE])
+    ocp.constraints.lbu = np.array([model.a_min, model.ddelta_min])
+    ocp.constraints.ubu = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.idxbu = np.array([0, 1])
 
     # state constraint
     state_constraint_min=np.array(
         [
             constraint.v_x_min,
             model.delta_min,
-            model.a_min,
-        
         ]
     )
     state_constraint_max=np.array(
         [   
             constraint.v_x_max,
             model.delta_max,
-            model.a_max,
-            
         ]
     )
-    state_constraint_index=np.array([State.VELOCITY_V_X,State.STEERING_ANGLE_DELTA,State.ACCEL])
+    state_constraint_index=np.array([State.VELOCITY_V_X,State.STEERING_ANGLE_DELTA])
     ocp.constraints.lbx_0 = state_constraint_min
     ocp.constraints.ubx_0 = state_constraint_max
     ocp.constraints.idxbx_0=state_constraint_index
@@ -149,6 +145,15 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.constraints.lbx_e=state_constraint_min
     ocp.constraints.ubx_e=state_constraint_max
     ocp.constraints.idxbx_e=state_constraint_index
+
+    #state soft constraint the acceleration does not affect the speed directly so need soft constraint
+    # TODO: now can not turn online velocity constraints
+    # ocp.constraints.lsbx = np.array([-2])
+    # ocp.constraints.usbx = np.array([5])
+    # ocp.constraints.idxsbx = np.array([3])
+    # ocp.constraints.lsbx_e = np.array([0.1])
+    # ocp.constraints.usbx_e = np.array([0.1])
+    # ocp.constraints.idxsbx_e = np.array([3])
 
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
     ocp.constraints.lh = np.array(
