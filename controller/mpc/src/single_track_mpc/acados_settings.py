@@ -30,14 +30,11 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.;
 #
-
 # author: Daniel Kloeser
 
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from single_track_mpc.bicycle_model import bicycle_model
-from utils.indecies import State
+from .bicycle_model import bicycle_model
 import numpy as np
-from utils.indecies import State, Input
 
 
 def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
@@ -133,7 +130,7 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
             model.delta_max,
         ]
     )
-    state_constraint_index=np.array([State.VELOCITY_V_X,State.STEERING_ANGLE_DELTA])
+    state_constraint_index=np.array([3,5])
     ocp.constraints.lbx_0 = state_constraint_min
     ocp.constraints.ubx_0 = state_constraint_max
     ocp.constraints.idxbx_0=state_constraint_index
