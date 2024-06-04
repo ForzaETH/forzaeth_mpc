@@ -99,20 +99,28 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     # at stage 0
     ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((nsh,))
     ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((nsh,))
-    ocp.cost.zl_0 = 0 * np.ones((nsh,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
-    ocp.cost.zu_0 = 0 * np.ones((nsh,))
+    ocp.cost.zl_0 = cfg_dict['Zl'] * np.ones((nsh,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zu_0 = cfg_dict['Zu'] * np.ones((nsh,))
     # from 1 to N-1
     ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
     ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl = 0 * np.ones((ns,))  
-    ocp.cost.zu = 0 * np.ones((ns,)) 
+    ocp.cost.zl = cfg_dict['Zl'] * np.ones((ns,))  
+    ocp.cost.zu = cfg_dict['Zu'] * np.ones((ns,)) 
     # at stage N
     ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((nsh,)) 
     ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((nsh,)) 
-    ocp.cost.zl_e = 0 * np.ones((nsh,)) 
-    ocp.cost.zu_e = 0 * np.ones((nsh,)) 
+    ocp.cost.zl_e = cfg_dict['Zl'] * np.ones((nsh,)) 
+    ocp.cost.zu_e = cfg_dict['Zu'] * np.ones((nsh,)) 
 
     # input constraint
+    ocp.constraints.lbu_0 = np.array([model.a_min, model.ddelta_min])
+    ocp.constraints.ubu_0 = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.idxbu_0 = np.array([0, 1])
+
+    ocp.constraints.lbu_e = np.array([model.a_min, model.ddelta_min])
+    ocp.constraints.ubu_e = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.idxbu_e = np.array([0, 1])
+
     ocp.constraints.lbu = np.array([model.a_min, model.ddelta_min])
     ocp.constraints.ubu = np.array([model.a_max, model.ddelta_max])
     ocp.constraints.idxbu = np.array([0, 1])
@@ -197,21 +205,21 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     # at stage 0
     ocp.constraints.lh_0 = Nonlinear_constraint_min
     ocp.constraints.uh_0 = Nonlinear_constraint_max
-    ocp.constraints.lsh_0 = Nonlinear_soft_min_value
-    ocp.constraints.ush_0 = Nonlinear_soft_max_value
+    # ocp.constraints.lsh_0 = Nonlinear_soft_min_value
+    # ocp.constraints.ush_0 = Nonlinear_soft_max_value
     ocp.constraints.idxsh_0 = Nonlinear_constraint_index
     # from stage 1 to N-1
     ocp.constraints.lh = Nonlinear_constraint_min
     ocp.constraints.uh = Nonlinear_constraint_max
-    ocp.constraints.lsh = Nonlinear_soft_min_value
-    ocp.constraints.ush = Nonlinear_soft_max_value
+    # ocp.constraints.lsh = Nonlinear_soft_min_value
+    # ocp.constraints.ush = Nonlinear_soft_max_value
     ocp.constraints.idxsh = Nonlinear_constraint_index
 
     # at stage N
     ocp.constraints.lh_e = Nonlinear_constraint_min
     ocp.constraints.uh_e = Nonlinear_constraint_max
-    ocp.constraints.lsh_e = Nonlinear_soft_min_value
-    ocp.constraints.ush_e = Nonlinear_soft_max_value
+    # ocp.constraints.lsh_e = Nonlinear_soft_min_value
+    # ocp.constraints.ush_e = Nonlinear_soft_max_value
     ocp.constraints.idxsh_e = Nonlinear_constraint_index
 
     # set intial condition

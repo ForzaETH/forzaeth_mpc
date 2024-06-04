@@ -144,8 +144,10 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+v_0) + delta)
     alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+v_0)) 
     # load transfer
-    F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
-    F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
+    # F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
+    # F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
+    F_zf = m * g * lr / (lf + lr)
+    F_zr = m * g * lf / (lf + lr)
     # lateral tire forces
     F_yf = friction_coeff*Df*F_zf*sin(Cf*cs.atan(Bf*alpha_f - Ef*(Bf*alpha_f - cs.atan(Bf*alpha_f))))
     F_yr = friction_coeff*Dr*F_zr*sin(Cr*cs.atan(Br*alpha_r - Er*(Br*alpha_r - cs.atan(Br*alpha_r))))
@@ -171,10 +173,13 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate,accel, derDelta, p], [f_expl])
 
     # Define initial conditions
-    model.x0 = np.array([-2, 0, 0, 1, 0, 0, 0])
+    model.x0 = np.array([0, 0, 0, 1, 0, 0, 0])
 
-    model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
-    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
+    # model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
+    # model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
+    model.cost_expr_ext_cost_0 =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost_e = weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n

@@ -34,7 +34,7 @@ class Single_track_MPC_Controller:
         self.t_MPC = 1 / self.conf_params['MPC_freq']
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        print(self.conf_params)
+        # print(self.conf_params)
 
         #seering angle buffer size
         buf_size = 2
@@ -99,6 +99,7 @@ class Single_track_MPC_Controller:
         self.opponent = opponent
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
+        
         self.yaw_rate = single_track_state[1]
         self.track_length = track_length
         self.conp_time=compute_time
@@ -126,6 +127,10 @@ class Single_track_MPC_Controller:
 
         # time delat compensation
         self.t_delay= self.conp_time
+        self.t_delay = 0.00
+        
+
+        # print("t_delay",self.t_delay)
         propagated_x = self.propagate_time_delay(x0, self.u0)
 
         # set the initial state for the mpc 
@@ -154,9 +159,9 @@ class Single_track_MPC_Controller:
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
         self.pred_x = self.acados_solver.get(1, "x")
-        self.steering_angle = self.pred_x[5]
-        self.speed = self.pred_x[3]
-        self.acceleration=0
+        self.steering_angle = self.pred_x[5] # propagated_x[5] + self.u0[1]/40 #
+        self.speed = self.pred_x[3] # propagated_x[3] + self.u0[0]/40 #
+        self.acceleration= self.u0[0]
         self.jerk=0
         # steering buffer
         # shift the elements in the buffer to the right and add the predicted steering angle
@@ -226,7 +231,8 @@ class Single_track_MPC_Controller:
         # Initial condition on the ODE
         x0 = np.concatenate((states,inputs), axis=0)
         # forward propagation
-        solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
+        self.t_delay=0.00
+        solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK23', atol=1e-8, rtol=1e-8)
 
         solution = [x[-1] for x in solution.y]
         # Constraint on max. steering angle
