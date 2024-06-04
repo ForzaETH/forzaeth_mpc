@@ -210,6 +210,7 @@ class Single_track_MPC_Controller:
             x[idx] = wpnt.x_m
             y[idx] = wpnt.y_m
         return np.array(x), np.array(y)
+    
     def propagate_time_delay(self, states: np.array, inputs:np.array)->np.array:
         """
         RK45 forward propagation. Calls the function _dynamics_of_car which contains the dynamics of the car.
