@@ -37,7 +37,7 @@ import types
 
 import casadi as cs
 import numpy as np
-from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
+from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat
 
 
 def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: list, cfg_dict: dict):
@@ -139,7 +139,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     p = vertcat(m, C1, C2, Cr0, Cr2, Cr3, Iz, lr, lf, Bf, Cf, Df, Br, Cr, Dr, Imax_c, Caccel, Cdecel, qadv, qn, qalpha, qvy, freq, C_S_front, C_S_rear)
     
     # calculate the index
-    s_mod = mod(s, pathlength)
+    s_mod = fmod(s, pathlength)
 
     # constraint on forces
     # beta = cs.atan(lr/(lr + lf) * cs.tan(delta))

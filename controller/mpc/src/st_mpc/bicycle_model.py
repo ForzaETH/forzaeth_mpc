@@ -37,7 +37,7 @@ import types
 
 import casadi as cs
 import numpy as np
-from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
+from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat
 
 
 def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
@@ -143,7 +143,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
                 Cf, Df, Br, Cr, Dr, Imax_c, Caccel, Cdecel, qadv, qn,
                 qalpha, qvy, freq, C_S_front, C_S_rear, h_cg, mu)
 
-    s_mod = mod(s, pathlength)
+    s_mod = fmod(s, pathlength)
 
 
     ##########################
