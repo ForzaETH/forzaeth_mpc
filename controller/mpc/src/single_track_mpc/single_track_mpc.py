@@ -90,7 +90,7 @@ class Single_track_MPC_Controller:
         self.kappa = kapparef
 
      # main loop    
-    def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, single_track_state, track_length,compute_time):
+    def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, single_track_state, track_length, compute_time):
         # Updating parameters from manager
         self.state = state
         self.position_in_map = position_in_map

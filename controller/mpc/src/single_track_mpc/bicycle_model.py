@@ -37,7 +37,7 @@ import types
 from nav_msgs.msg import Odometry
 import casadi as cs
 import numpy as np
-from casadi import MX, Function, cos, interpolant, mod, sin, vertcat, if_else
+from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat, if_else
 
 
 def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
@@ -134,7 +134,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
 
     # calculate the index
-    s_mod = mod(s, pathlength)
+    s_mod = fmod(s, pathlength)
 
     # single track model definition with pacejka tire model
     ## tire model

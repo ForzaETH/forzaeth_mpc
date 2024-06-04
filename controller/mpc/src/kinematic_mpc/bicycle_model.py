@@ -37,7 +37,7 @@ import types
 
 import casadi as cs
 import numpy as np
-from casadi import MX, Function, cos, interpolant, mod, sin, vertcat
+from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat
 
 
 def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: list, cfg_dict: dict):
@@ -117,7 +117,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
     
     # calculate the index
-    s_mod = mod(s, pathlength)
+    s_mod = fmod(s, pathlength)
 
     # kinematic model
     sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
