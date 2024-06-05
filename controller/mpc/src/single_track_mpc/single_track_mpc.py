@@ -12,7 +12,7 @@ from .acados_settings import acados_settings
 from ..utils.splinify import SplineTrack
 
 class Single_track_MPC_Controller:
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, pose_frenet, **kwargs) -> None:
         """
         Initialise MPC object.
         
@@ -22,7 +22,7 @@ class Single_track_MPC_Controller:
         self.mpc_init_params(kwargs)
 
         # Init the solver
-        self.mpc_initialize_solver()
+        self.mpc_initialize_solver(pose_frenet)
 
     def mpc_init_params(self, kwargs) -> None:
         self.racecar_version = kwargs['racecar_version']
@@ -65,7 +65,7 @@ class Single_track_MPC_Controller:
         self.cs_alat_max = mpc_init_online_params[13]
     
 
-    def mpc_initialize_solver(self) -> None:
+    def mpc_initialize_solver(self, pose_frenet: np.ndarray) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
         
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
@@ -86,8 +86,23 @@ class Single_track_MPC_Controller:
         self.s_ref = [x.s_m for x in shortest_path.wpnts]
         s0 = self.spline.params
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef ,d_left, d_right, self.conf_params)
+        
+        # create warmstart
+        self.apply_warm_start(pose_frenet=pose_frenet)
     
         self.kappa = kapparef
+        
+    def apply_warm_start(self, pose_frenet: np.ndarray):
+        """Applies a warm start to the MPC solver.
+
+        Args:
+            pose_frenet (np.ndarray): _description_
+        """
+        warm_start_trajectory = self.get_warm_start(pose_frenet=pose_frenet, const_acc=1, const_steer_vel=0.0)
+        for i in range(self.N+1):
+            self.acados_solver.set(i, "x", warm_start_trajectory[i][:7])
+            if i < self.N:
+                self.acados_solver.set(i, "u", warm_start_trajectory[i][7:])
 
      # main loop    
     def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, single_track_state, track_length, compute_time):
@@ -155,6 +170,9 @@ class Single_track_MPC_Controller:
          
         # Solve OCP
         status = self.acados_solver.solve()
+        if status != 0:
+            self.apply_warm_start(pose_frenet=[self.fre_s,self.fre_d,self.fre_alpha])
+            
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
@@ -184,6 +202,22 @@ class Single_track_MPC_Controller:
     #############
     # Utilities #
     #############
+    def get_warm_start(self, pose_frenet: np.ndarray, const_acc: float, const_steer_vel: float)->np.array:
+        """
+        Returns a warm start trajectory for the MPC. This is done by propagating the current state with a constant acceleration and steering angle.
+        
+        Input:  const_acc   : Constant acceleration
+                const_steer : Constant steering angle
+        
+        Returns: np.array    : Warm start trajectory
+        """
+        warm_start = np.zeros((self.N+1, 9))
+        warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2], 1, 0, 0, 0, const_acc, const_steer_vel])
+        for i in range(1, self.N+1):
+            der_state = self._dynamics_of_car(0, warm_start[i-1])
+            warm_start[i] = warm_start[0] + np.array(der_state)/20 # ugly euler integration
+        return warm_start
+    
     def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
         
