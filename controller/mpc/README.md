@@ -56,20 +56,24 @@ plotjuggler-ros
 
 Step 1: start the simulator
 
+```bash
+# define the parameter of the simulator:stack_master/config/<racecar_version>/<racecar_version>_pacejka.yaml
+roslaunch stack_master base_system.launch map_name:=f racecar_version:=<racecar_version> sim:=true tire_model:=pacejka
 ```
-# define the parameter of the simulator:stack_master/config/NUC5/NUC5_pacejka.yaml
-roslaunch stack_master base_system.launch map_name:=f racecar_version:=SIM sim:=true tire_model:=pacejka
+for example
+```bash
+roslaunch stack_master base_system.launch map_name:=f racecar_version:=NUC5 sim:=true tire_model:=pacejka
 ```
 
 step 2: start the mpc controller
 
-```
+```bash
 roslaunch controller mpc_controller.launch
 ```
 
 step 3: open plotjuggler 
 
-```
+```bash
 plotjuggler-ros
 # load xml file to visualization from:
 ./config/mpc_plot.xml
@@ -110,4 +114,18 @@ step 4 open rqt to turn the parameters online
 ```
 rqt
 ```
+
+## Single-Track MPC
+The single-track MPC is the the version of MPC with Pacejka tire model dynamics and a tracking cost function that can be adapted to have more of an MPCC behaviour (with the dynamically reconfigurable parameter `q_adv`).
+
+### Usage Instructions
+1. Start the simulator with the desired map and racecar version:
+```bash
+roslaunch stack_master base_system.launch map_name:=f racecar_version:=NUC5 sim:=true tire_model:=pacejka
+```
+2. Start the MPC controller with the time trials launch:
+```bash
+roslaunch stack_master time_trials.launch ctrl_algo:=STMPC                          
+```
+**NOTE**: BE CAREFUL. There must be the correct pacejka parameters in the `stack_master/config/<racecar_version>/single_track_mpc_params.yaml` file. The parameters must be the same as the ones in `stack_master/config/<racecar_version>/<racecar_version>_pacejka.yaml` file to ensure minimal model mismatch.
 

@@ -146,7 +146,10 @@ class Single_track_MPC_Controller:
         
 
         # print("t_delay",self.t_delay)
-        propagated_x = self.propagate_time_delay(x0, self.u0)
+        if x0[3] >= 0.1:
+            propagated_x = self.propagate_time_delay(x0, self.u0)
+        else: 
+            propagated_x = x0
 
         # set the initial state for the mpc 
         self.acados_solver.set(0, "lbx", propagated_x)
@@ -171,6 +174,8 @@ class Single_track_MPC_Controller:
         # Solve OCP
         status = self.acados_solver.solve()
         if status != 0:
+            # if the solver fails, apply warm start again
+            # the initial warm start is a bit rough, but it does the job
             self.apply_warm_start(pose_frenet=[self.fre_s,self.fre_d,self.fre_alpha])
             
 
@@ -185,6 +190,7 @@ class Single_track_MPC_Controller:
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
         self.steering_angle_buf[0] = self.pred_x[5]
+        self.states = None
 
         ##### visualization #####
         # Creating waypoint array with predicted positions
@@ -263,11 +269,24 @@ class Single_track_MPC_Controller:
 
 
         # Initial condition on the ODE
-        x0 = np.concatenate((states,inputs), axis=0)
+        x0 = np.concatenate((states,[inputs[0]],[0]), axis=0)
         # forward propagation
-        self.t_delay=0.00
-        solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK23', atol=1e-8, rtol=1e-8)
+        self.t_delay=0.05
+        # DEBUG print nicely formatted aligned state
+        # print("BEFORE state:", end=" ")
+        # for x in x0:
+        #     print(f"{x:5.2f}", end=" ")
+        # print("\n")
+        
+        solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-4, rtol=1e-4)
+        # NOTE: can't really converge? seen with negative acceleration
 
+        # DEBUG print nicely formatted aligned state
+        # print("AFTER  state:", end=" ")
+        # for x in solution.y[:,-1]:
+        #     print(f"{x:5.2f}", end=" ")
+        # print("\n")
+        
         solution = [x[-1] for x in solution.y]
         # Constraint on max. steering angle
         if abs(solution[5]) > self.model.delta_max:
@@ -284,6 +303,9 @@ class Single_track_MPC_Controller:
       
         # Only get the state as solution of where the car will be in t_delay seconds
         # not including the input
+        # states[5] = solution[5]
+        # states[6] = solution[6]
+        # return states
         return np.array(solution)[:-2]
     
     def _dynamics_of_car(self, t, x0)->list:
