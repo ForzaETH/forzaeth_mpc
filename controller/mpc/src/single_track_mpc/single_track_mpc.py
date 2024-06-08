@@ -31,7 +31,10 @@ class Single_track_MPC_Controller:
         # upper layer parameters: MPC
         self.N = self.conf_params['N']    
         t_delay = self.conf_params['t_delay']
+        self.steps_delay = self.conf_params['steps_delay']
         self.t_MPC = 1 / self.conf_params['MPC_freq']
+        
+        rospy.loginfo(f"[MPC Controller] Steps Delay set to {self.steps_delay}. Equivalent to a delay of {1000*self.steps_delay*self.t_MPC:3.2f} milliseconds.")
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
         # print(self.conf_params)
@@ -146,10 +149,11 @@ class Single_track_MPC_Controller:
         
 
         # print("t_delay",self.t_delay)
-        if x0[3] >= 0.1:
-            propagated_x = self.propagate_time_delay(x0, self.u0)
-        else: 
-            propagated_x = x0
+        # if x0[3] >= 0.1:
+        #     propagated_x = self.propagate_time_delay(x0, self.u0)
+        # else: 
+        propagated_x = x0
+        
 
         # set the initial state for the mpc 
         self.acados_solver.set(0, "lbx", propagated_x)
@@ -159,7 +163,11 @@ class Single_track_MPC_Controller:
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
             traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]              
-            online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
+            if i < self.steps_delay:
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,1e6*self.qddelta,
+                                            self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
+            else:
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
                                             self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
                 
             self.acados_solver.set(i,"p",online_parameters)
@@ -181,7 +189,8 @@ class Single_track_MPC_Controller:
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
-        self.pred_x = self.acados_solver.get(1, "x")
+        delayed_index = self.steps_delay + 1
+        self.pred_x = self.acados_solver.get(delayed_index, "x")
         self.steering_angle = self.pred_x[5] # propagated_x[5] + self.u0[1]/40 #
         self.speed = self.pred_x[3] # propagated_x[3] + self.u0[0]/40 #
         self.acceleration= self.u0[0]
@@ -271,7 +280,7 @@ class Single_track_MPC_Controller:
         # Initial condition on the ODE
         x0 = np.concatenate((states,[inputs[0]],[0]), axis=0)
         # forward propagation
-        self.t_delay=0.05
+        self.t_delay=0.0
         # DEBUG print nicely formatted aligned state
         # print("BEFORE state:", end=" ")
         # for x in x0:
