@@ -139,7 +139,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # single track model definition with pacejka tire model
     ## tire model
     #side slip angle
-    v_0 = 0.5
+    v_0 = 0.1
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
     alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+v_0) + delta)
     alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+v_0)) 
@@ -157,8 +157,9 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     ndot = v_x*sin(theta) + v_y*cos(theta) 
     der_theta = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)))
     yaw_ratedot = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
-    der_v_x = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate) 
+    der_v_x = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate)
     der_v_y = ((1/m)*(F_yr+F_yf*cos(delta))) - (v_x*yaw_rate)
+    der_delta = (derDelta)
 
     # continuous dynamics 
     f_expl = vertcat(
@@ -167,7 +168,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
         der_theta,
         der_v_x,
         der_v_y,
-        derDelta,
+        der_delta,
         yaw_ratedot,
     )
     f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate,accel, derDelta, p], [f_expl])
