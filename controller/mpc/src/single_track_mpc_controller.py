@@ -9,11 +9,12 @@ import rospkg
 import rospy
 import yaml
 from ackermann_msgs.msg import AckermannDriveStamped
+from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
-from nmpc.acados_settings import acados_settings
+from single_track_mpc.acados_settings import acados_settings
 from plotting_fnc import *
 from scipy.integrate import solve_ivp
 from sensor_msgs.msg import Imu
@@ -40,6 +41,7 @@ class MPCNode:
         self._init_params()
 
         self.vel_x = 0
+        self.conp_time=0
         buf_size = 2
         self.steering_angle_buf = np.zeros(buf_size)
         self.steering_angle_buf[-1]= 0
@@ -52,7 +54,8 @@ class MPCNode:
         rospy.Subscriber("/car_state/pose", PoseStamped, self._pose_cb)
         rospy.Subscriber("/vesc/high_level/ackermann_cmd_mux/input/nav_1", AckermannDriveStamped, self._input_cb)
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
-        rospy.Subscriber("/slip_angle", Float32, self._slip_angle)
+        rospy.Subscriber("/global_waypoints_scaled", WpntArray, self._global_velocity_scale_cb)
+        rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb) #l1 param tuning/updating
 
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
         self.target_pos_pub = rospy.Publisher("/mpc_controller/target_position", MarkerArray, queue_size=10)
@@ -67,8 +70,6 @@ class MPCNode:
         self.comp_time_pub = rospy.Publisher("/mpc_controller/comp_time", Float64, queue_size=10 )
         self.states_pub = rospy.Publisher("/mpc_controller/states", Float64MultiArray, queue_size=10)
         self.states_propagated_pub = rospy.Publisher("/mpc_controller/states_propagated", Float64MultiArray, queue_size=10)
-        self.beta_pub = rospy.Publisher("/mpc_controller/beta", Float64, queue_size=10 )
-        self.alpha_pub = rospy.Publisher("/mpc_controller/alpha", Float64, queue_size=10 )
 
 
         self._initialize_solver()
@@ -83,16 +84,11 @@ class MPCNode:
         
         
         self.N = self.conf_params['N']
-        self.R = self.conf_params['R']
-        
-        # Just for cost function testing
         self.track_safety_margin = self.conf_params['track_safety_margin']
         t_delay = self.conf_params['t_delay']
         self.t_MPC = 1 / self.conf_params['MPC_freq']
-
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-
         print(self.conf_params)
 
     def _initialize_solver(self) -> None:
@@ -110,13 +106,28 @@ class MPCNode:
         self.spline = SplineTrack(coords_direct=coords_path)
         
         self.nr_laps = 0
-
         kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
+        self.s_ref = [x.s_m for x in shortest_path.wpnts]
         s0 = self.spline.params
         
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef, d_left, d_right, self.conf_params)
-
         self.kappa = self.model.kappa
+
+        # Set the initial value for online parameter tuning
+        self.qadv = self.conf_params["qadv"]
+        self.qv = self.conf_params["qv"]
+        self.qn = self.conf_params["qn"]   
+        self.qalpha = self.conf_params["qalpha"]
+        self.qac = self.conf_params["qac"]
+        self.qddelta = self.conf_params["qddelta"]
+        self.cs_v_min = self.conf_params["v_min"]
+        self.cs_v_max = self.conf_params["v_max"]
+        self.cs_delta_steer_min = self.conf_params["ddelta_min"]
+        self.cs_delta_steer_max = self.conf_params["ddelta_max"]
+        self.cs_delta_v_min = self.conf_params["a_min"]
+        self.cs_delta_v_max = self.conf_params["a_max"]
+        self.cs_alat_min = self.conf_params["alat_min"]
+        self.cs_alat_max = self.conf_params["alat_max"]
 
     #############
     # Callbacks #
@@ -131,7 +142,6 @@ class MPCNode:
         """Odom frenet callback"""
         self.pos_s = data.pose.pose.position.x
         self.pos_n = data.pose.pose.position.y
-
         self.alpha = data.pose.pose.orientation.z
     
     def _pose_cb(self, data: PoseStamped) -> None:
@@ -150,10 +160,9 @@ class MPCNode:
         """acceleration callback. Normally not used."""
         self.acceleration = data.linear_acceleration.x 
 
-    def _slip_angle(self, data: Float32) -> None:
-        """slip angle callback callback. Normally not used."""
-        self.slip_angle= data
-
+    def _global_velocity_scale_cb(self, data: WpntArray) -> None:
+        """global_velocity_scale callback. """
+        self.glo_v_scale = [x.vx_mps for x in data.wpnts]
     #############
     # Utilities #
     #############
@@ -202,7 +211,6 @@ class MPCNode:
         R = np.array(((co, -si), (si, co)))
 
         frenet_coords = np.array(frenet_coords, dtype=np.float32)
-        # print("heyo", frenet_coords, frenet_coords.shape)
 
         if frenet_coords.shape[0] > 2:
             return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)                
@@ -219,21 +227,19 @@ class MPCNode:
         Used for forward propagation. This function takes the dynamics from the acados model.
         '''
     
-        s = x0[State.POS_ON_CENTER_LINE_S]
-        n = x0[State.MIN_DIST_TO_CENTER_LINE_N]
-        theta = x0[State.ORIENTATION_THETA]
-        v_x = x0[State.VELOCITY_V_X]
-        v_y = x0[State.VELOCITY_V_Y]
-        delta = x0[State.STEERING_ANGLE_DELTA]
-        yaw_rate = x0[State.YAW_RATE]
-        accel = x0[State.ACCEL]
-
-        jerk = x0[8]
-        derDelta = x0[9]
-        xdot = self.model.f_expl_func(s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
+        s = x0[0]
+        n = x0[1]
+        theta = x0[2]
+        v_x = x0[3]
+        v_y = x0[4]
+        delta = x0[5]
+        yaw_rate = x0[6]
+        accel = x0[7]
+        derDelta = x0[8]
+        xdot = self.model.f_expl_func(s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, self.model_params.p)
         
         #print(xdot)
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),float(xdot[5]),float(xdot[6]), float(xdot[7]) , jerk, derDelta]  
+        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),float(xdot[5]),float(xdot[6]),accel,derDelta]  
 
         return xdot
 
@@ -247,43 +253,23 @@ class MPCNode:
         Returns: np.array   : Propagated state without input. 
         
         """
-
-        print("bbbbbbbbbbbbbbbbbb")
         # Initial condition on the ODE
         x0 = np.concatenate((states,inputs), axis=0)
-        print(x0)
         solution = solve_ivp(self._dynamics_of_car, t_span= [0, self.t_delay], y0=x0, method='RK45', atol=1e-8, rtol=1e-8)
         solution = [x[-1] for x in solution.y]
-        print(solution,"after removing")
-        # print("sol", solution)
-        print("solution found1")
+
         # Constraint on max. steering angle
         if abs(solution[State.STEERING_ANGLE_DELTA]) > self.model.delta_max:
             solution[State.STEERING_ANGLE_DELTA] = np.sign(solution[State.STEERING_ANGLE_DELTA]) * self.model.delta_max
-        print("solution found2")
 
         # Constraint on max. vel
         if abs(solution[State.VELOCITY_V_X]) > self.constraint.v_x_max:
             solution[State.VELOCITY_V_X] = np.sign(solution[State.VELOCITY_V_X]) * self.constraint.v_x_max
-        print("solution found3")
+
         # On minimum speed
         if abs(solution[State.VELOCITY_V_X]) < self.constraint.v_x_min:
             solution[State.VELOCITY_V_X] = self.constraint.v_x_min
 
-        # Constraint on max. accel
-        if abs(solution[State.ACCEL]) > self.model.a_max:
-            solution[State.ACCEL] = np.sign(solution[State.ACCEL]) * self.model.a_max
-        print("solution found3")
-        # On minimum accel
-        if abs(solution[State.ACCEL]) < self.model.a_min:
-            solution[State.ACCEL] = self.model.a_min
-
-        # Constraint on max. vel
-        #if abs(solution[State.YAW_RATE]) > self.constraint.yaw_rate_max:
-            #solution[State.YAW_RATE] = np.sign(solution[State.YAW_RATE]) * self.constraint.yaw_rate_max
-        print("solution found4")
-        print(np.array(solution))
-        # Only get the state as solution of where the car will be in t_delay seconds
         return np.array(solution)[:-2]
 
     def get_initial_position(self, init: bool = False, prev_x0 = None) -> np.ndarray:
@@ -298,12 +284,8 @@ class MPCNode:
         pos_x = self.pos_x
         pos_y = self.pos_y
         resp_frenet = self.glob2frenet(pos_x, pos_y)
-#        my_frenex = self.fren_conv.get_frenet(self.pos_x, self.pos_y)
-#        print(f"My Frenet {my_frenex%self.spline.track_length}")
-        print(f"Service one: {resp_frenet}")
-#        print(f"Error: {resp_frenet.s - (my_frenex[0]%self.spline.track_length)}, {resp_frenet.d - my_frenex[1]}")
         theta = self.theta
-        vel_x = self.vel_x #+ (np.sign(self.vel_x)*1)
+        vel_x = self.vel_x 
         vel_y = self.vel_y
 
         if init:
@@ -312,8 +294,6 @@ class MPCNode:
             self.acceleration = 0
             prev_x0 = self.pred_x
 
-        # deriv = self.spline.get_derivative(resp_frenet.s)
-        # alpha = theta - np.arctan2(deriv[1],deriv[0])
         alpha = self.alpha
         center_car_s = resp_frenet.s + self.conf_params["lr"]*np.cos(alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
@@ -323,21 +303,7 @@ class MPCNode:
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2*np.pi
 
-        self.alpha_pub.publish(alpha_center)
-
-        #eta_init_0 = -np.arctan(self.conf_params['lr']/(self.conf_params['lr'] + self.conf_params['lf']) * prev_x0[3])
-        #beta_init_0 = self.slip_angle.data#beta_init_0+0.001
-        #beta_init = beta_init_0
-       
-        #if self.steering_angle_buf[0]>15:
-         #   print("EMERGENCY")
-         #   self.steering_angle_buf[0] = 0
-        #if self.steering_angle_buf[-1]>float(15):
-         #   print("EMERGENCY")
-         #   self.steering_angle_buf[-1] == float(0)
-        print(self.steering_angle_buf) 
         delta = self.steering_angle_buf[-1]
-        accel_init = self.acceleration
 
         track_length = self.spline.track_length - 0.1 # Needed as values are not exact
 
@@ -345,22 +311,8 @@ class MPCNode:
             self.nr_laps = prev_x0[State.POS_ON_CENTER_LINE_S] // track_length
 
         current_pos_s = resp_frenet.s + self.nr_laps * self.spline.track_length
-        #a = np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y, delta, self.r])
-        #print(a,"GOT INITIAL POSITION")
-        return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y,delta, self.r, accel_init])
+        return np.array([current_pos_s, resp_frenet.d, alpha_center, vel_x, vel_y, delta, self.r])
     
-    #def calc_alat(self, x0) -> float:
-      #  return self.conf_params['C1'] * self.pred_x[3] ** 2 \
-       #     + self.u0[0] * np.sin(
-        #        np.arctan(
-         #           self.conf_params['lr']/(self.conf_params['lr'] + self.conf_params['lf']) \
-          #          * np.tan(x0[4])
-           #     )
-            #)
-    
-    #def calc_beta(self, x0) -> float:
-     #   """Calc beta according to the approximation used in the model"""
-     #   return -np.arctan(self.conf_params['lr']/(self.conf_params['lr'] + self.conf_params['lf']) * np.tan(x0[4]))
     
     #############
     # Main Loop #
@@ -370,39 +322,16 @@ class MPCNode:
         rate = rospy.Rate(1/self.t_MPC)
         
         x0 = self.get_initial_position(init=True)
-        print("HALLLLLLLLLLLLLLLLLLLLLLLLLD")       
         propagated_x = self.propagate_time_delay(x0, np.zeros(2))
 
-        print("going into constraints")
+        # Set the initial state
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
-        #begin_u_l = [-12, -0.01]
-        #begin_u_l = np.array(begin_u_l)
-        #begin_u_u = [12, 0.01]
-        #begin_u_u = np.array(begin_u_u)
-        #self.acados_solver.set(0, "lbu", begin_u_l)
-        #self.acados_solver.set(0, "ubu", begin_u_u)     
-    
-
-        # For plotting
-        simX = np.ndarray((int(1e5),self.model.x.size()[0]))
-        simU = np.ndarray((int(1e5),self.model.u.size()[0]))
-        realX = np.ndarray((int(1e5),self.model.x.size()[0]))
-        propX = np.ndarray((int(1e5),self.model.x.size()[0]))
-        iter_loop = 1
-        simX[0,:] = x0
-        realX[0,:] = x0
-        propX[0,:] = propagated_x
-
-
-        # Cost function testing
-        advance = []
-        deviation = []
-        alpha_cost = []
-        regularisation = []
-        cost_check = []
-        cost_acados = []
-
+        
+        # Initinal Solve OCP
+        status = self.acados_solver.solve()
+        mpc_sd = np.array([self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)])
+        self.u0 = self.acados_solver.get(0, "u")
         # For computation time
         tcomp_sum = 0
         tcomp_max = 0
@@ -411,81 +340,57 @@ class MPCNode:
             
             start = time.perf_counter()
 
+            # update initial state from sensors
+            x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
+
+            # time delat compensation
+            self.t_delay= self.conp_time
+            propagated_x = self.propagate_time_delay(x0, self.u0)
+            self.publish_propagated_states(propagated_x)
+            prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
+            self.publish_current_pos(prop_x_plot)
+
+            # Set the new initial state
+            self.acados_solver.set(0, "lbx", propagated_x)
+            self.acados_solver.set(0, "ubx", propagated_x)
+
+            # dynamically change the target speed, weight parameters and constraints
+            for i in range(self.N+1):
+                idx = np.abs(self.s_ref - mpc_sd[i,0]%self.spline.track_length).argmin()
+                traget_v_speed=np.ones(1)*self.glo_v_scale[idx]               
+                online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
+                                            self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
+                
+                self.acados_solver.set(i,"p",online_parameters)
+
+                if i < self.N:
+                    self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
+                    self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                    self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
+                    self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
+
             # Solve OCP
             status = self.acados_solver.solve()
-
-            # if status != 0:
-                # rospy.logerr(f"acados returned status {status} in closed loop iteration.")
 
             # get solution
             x0 = self.acados_solver.get(0, "x")
             self.u0 = self.acados_solver.get(0, "u")
             self.u1 = self.acados_solver.get(1, "u")
-            print(self.u0,"input")
-            print(self.u1,"input")
             self.pred_x = self.acados_solver.get(1, "x") 
-            # print(f"A LONG!: {self.u0[0]}")
-            #a_lat = self.calc_alat(x0)
-            #beta = self.calc_beta(x0)
-            # print(f"beta: {}")
-            #self.beta_pub.publish(beta)
-            #if a_lat > 9 or a_lat < -9:
-            #    print(f"A LAT!!!!!!: {a_lat}")
-
-            # getting the cost of each term
-            # states = np.array([
-            #     self.acados_solver.get(j, "x")[:] for j in range(self.N)
-            # ])
-            
-            # sum_s = 0
-            # sum_n = 0
-            # sum_alpha = 0
-            # sum_regular = 0
-
-            # for idx, state in enumerate(states):
-            #     lr = self.model_params.p[Parameter.lr]
-            #     lf = self.model_params.p[Parameter.lf]
-            #     sdota = (state[State.VELOCITY_V] * np.cos(state[State.ORIENTATION_ALPHA] + np.arctan(lr/(lr + lf) * np.tan(state[State.STEERING_ANGLE_DELTA])))) / (1 - self.kappa(state[State.POS_ON_CENTER_LINE_S]) * state[State.MIN_DIST_TO_CENTER_LINE_N])
-            #     sum_s += -self.model_params.p[Parameter.qadv] * sdota * self.t_MPC
-            #     if idx == self.N - 1:
-            #         sum_n += 5 * self.model_params.p[Parameter.qn] * state[State.MIN_DIST_TO_CENTER_LINE_N]**2
-            #         sum_alpha += 5 * self.model_params.p[Parameter.qalpha] * state[State.ORIENTATION_ALPHA]**2   
-            #     else:
-            #         sum_n += self.model_params.p[Parameter.qn] * state[State.MIN_DIST_TO_CENTER_LINE_N]**2
-            #         sum_alpha += self.model_params.p[Parameter.qalpha] * state[State.ORIENTATION_ALPHA]**2
-            #         sum_regular += self.u0 @ np.diag(self.R) @ self.u0.reshape(2,1)
-
-            # advance.append(abs(sum_s))
-            # deviation.append(sum_n)
-            # alpha_cost.append(sum_alpha)
-            # regularisation.append(sum_regular[0])
-            # cost = sum_s + sum_n + sum_alpha + sum_regular[0]
-            # cost_check.append(cost)
-            # cost_acados.append(self.acados_solver.get_cost())
+            # steering buffer
+            self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
+            self.steering_angle_buf[0] = self.pred_x[5]
 
             # Publish current state and predicted states
             if status == 0:
                 # print(self.pred_x)
                 self.publish_ackermann_msg(self.pred_x, True)
 
-                for stage in range(6,1,-1):
-                    x = self.acados_solver.get(stage, "x")
-                    self.publish_ackermann_msg(x, False)
 
-            # steering buffer
-            self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
-            self.steering_angle_buf[0] = self.pred_x[5]
-            print(self.pred_x,"LENGTH SHOULD BE 8")
-            print(self.steering_angle_buf,"V2")
-            
-            simX[iter_loop,:] = self.pred_x
-            simU[iter_loop,:] = self.u0
-            
-            # print(iter_loop)
-
+            ##### visualization #####
             # Creating waypoint array with predicted positions
             mpc_sd = np.array([
-                self.acados_solver.get(j, "x")[:2] for j in range(self.N)
+                self.acados_solver.get(j, "x")[:2] for j in range(self.N+1)
             ])
 
             if status == 0:
@@ -496,85 +401,17 @@ class MPCNode:
                         states.append(item)
                 self.publish_states(states)
 
-            pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
-
-            self.publish_waypoint_markers(pred_waypoints, type="pred")
-
-
-            # time1 = time.perf_counter()
-            x0 = self.get_initial_position(init=False, prev_x0=x0) # Take D and steering angle delta from MPC solution!
-            # time2 =time.perf_counter()
-            # self.beta_pub.publish(np.arctan2(lr,lr + lf) * np.tan(x0[State.STEERING_ANGLE_DELTA]))
-        
-            propagated_x = self.propagate_time_delay(x0, np.zeros(2))
-            # print("propagated", propagated_x)
-            self.publish_propagated_states(propagated_x)
-
-
-            prop_x_plot = self.convert_frenet_to_cartesian(propagated_x[:2])
-            self.publish_current_pos(prop_x_plot)
-
-            # Print measured states
-            # print(f"s: {x0[0]}, n: {x0[1]}, alpha: {x0[2]}, v: {x0[3]}, delta: {x0[4]}")
-            
-            realX[iter_loop,:] = x0
-            propX[iter_loop,:] = propagated_x
-            
-            # Set the new initial state
-            self.acados_solver.set(0, "lbx", propagated_x)
-            self.acados_solver.set(0, "ubx", propagated_x)
-
-            # Print trajectory bounds
-            boundaries = np.zeros((self.acados_solver.N + 1, 3, 2))
-
-            for stage in range(self.acados_solver.N + 1):
-                x_ = self.acados_solver.get(stage, 'x')
-                s_ = x_[State.POS_ON_CENTER_LINE_S]
-                s_mod = s_ % self.spline.track_length
-                n_ = x_[State.MIN_DIST_TO_CENTER_LINE_N]
-                if stage == 1:
-                    if self.model.outer_bound_s(s_mod) + n_ <= 0.4 or self.model.inner_bound_s(s_mod) - n_ <= 0.4:
-                        rospy.logwarn(f"Outer: {self.model.outer_bound_s(s_mod) + n_}, Inner: {self.model.inner_bound_s(s_mod) - n_}")
-                
-                # boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
-                # boundaries[stage,2,:] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
-                # boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
-
-            # self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
-            # self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            # self.publish_waypoint_markers(boundaries[:,2,:], "d_right")
-
-            iter_loop += 1
 
             # manage timings
             elapsed = time.perf_counter() - start
             tcomp_sum += elapsed
+            self.conp_time=elapsed
             if elapsed > tcomp_max:
                 tcomp_max = elapsed
-                    
-            # print(f"MPC took {elapsed:01.5f} s.")
             self.comp_time_pub.publish(elapsed)
             
-            # Plotting
-            if iter_loop == 40000:
-                simX_plot = simX[:iter_loop, :]
-                simU_plot = simU[:iter_loop,:]
-                realX_plot = realX[:iter_loop,:]
-                print(f"Max. computation time: {tcomp_max}")
-                print(f"Average computation time: {tcomp_sum/iter_loop}")
-
-                plot_costs(advance, deviation,alpha_cost, regularisation)
-                plot_n(simX_plot, simU_plot, realX_plot)
-                plot_alpha(simX_plot, simU_plot, realX_plot)
-                plot_vx(simX_plot, simU_plot, realX_plot)
-
-                # plot_res(self.spline, self.mintime_spline, simX_plot,simU_plot, realX_plot)
-                # plot_res(self.spline, simX_plot,simU_plot, realX_plot)
-                plot_costs()
-
-
             rate.sleep()
-    
+
     ##########################
     # Publishing/Visualizing #
     ##########################
@@ -678,15 +515,38 @@ class MPCNode:
         ack_msg.header.frame_id = "base_link"
 
         ack_msg.drive.steering_angle = state[State.STEERING_ANGLE_DELTA]
-        ack_msg.drive.acceleration = state[State.ACCEL]
-        ack_msg.drive.speed = 512 #state[State.VELOCITY_V_X]
-        #ack_msg.drive.jerk
+        ack_msg.drive.speed = state[State.VELOCITY_V_X]
+        ack_msg.drive.acceleration = 0
         self.steering_velocity.publish(ack_msg) 
         # Managing of contol actions sent to controller_node.py
         if next_input:
             self.drive_next_pub.publish(ack_msg)
         else:
             self.drive_pub.publish(ack_msg)
+
+    def mpc_params_cb(self, params:Config):
+        """
+        Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
+        Values from .yaml file are set in mpc_online_params_server      
+        """
+      ## mpc Control Parameters
+        self.qadv = params.doubles[0].value
+        self.qv = params.doubles[1].value
+        self.qn = params.doubles[2].value   
+        self.qalpha = params.doubles[3].value
+        self.qac = params.doubles[4].value
+        self.qddelta = params.doubles[5].value
+        
+        # onilne constraints tuning
+        self.cs_delta_steer_min = params.doubles[6].value
+        self.cs_delta_steer_max = params.doubles[7].value
+        self.cs_delta_v_min = params.doubles[8].value
+        self.cs_delta_v_max = params.doubles[9].value
+        self.cs_v_min = params.doubles[10].value
+        print(self.cs_v_min)
+        self.cs_v_max = params.doubles[11].value
+        self.cs_alat_min = params.doubles[12].value
+        self.cs_alat_max = params.doubles[13].value
 
 if __name__ == "__main__":
     controller = MPCNode()

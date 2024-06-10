@@ -1,0 +1,15 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+  <arg name="mpc_config_filename" default="single_track_mpc_params.yaml"/>
+  <param name="mpc_config_filename" value="$(arg mpc_config_filename)"/>
+
+  <!-- Launch Acados MPC controller -->
+  <node pkg="controller" type="single_track_mpc_controller.py" name="single_track_mpc_controller" output="screen"/>
+
+  <!-- launch dynamic reconfigure for controller manager -->
+  <node pkg="controller" name="mpc_param_tuner" type="mpc_online_params_server.py" output="screen"/>
+
+    <!-- Launch the viz for the MPC-->
+  <node pkg="controller" type="single_track_mpc_viz.py" name="single_track_mpc_viz" output="screen"/> 
+
+</launch>
