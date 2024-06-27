@@ -151,14 +151,31 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # lateral tire forces
     F_yf = friction_coeff*Df*F_zf*sin(Cf*cs.atan(Bf*alpha_f - Ef*(Bf*alpha_f - cs.atan(Bf*alpha_f))))
     F_yr = friction_coeff*Dr*F_zr*sin(Cr*cs.atan(Br*alpha_r - Er*(Br*alpha_r - cs.atan(Br*alpha_r))))
+    
+    # motor force
+    F_motor = accel*m
+    motor_split_front = 0.5
+    motor_split_rear = 1 - motor_split_front
+    F_xf = motor_split_front*F_motor
+    F_xr = motor_split_rear*F_motor
 
     # dynamics
     sdota = ((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)
     ndot = v_x*sin(theta) + v_y*cos(theta) 
     der_theta = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)))
     yaw_ratedot = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
-    der_v_x = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate)
-    der_v_y = ((1/m)*(F_yr+F_yf*cos(delta))) - (v_x*yaw_rate)
+    der_v_x = (1/m) * (
+        F_xr
+        + F_xf * cos(delta)
+        - F_yf * sin(delta)
+        + m * v_y * yaw_rate
+    )
+    der_v_y = (1/m) * (
+        F_yr
+        + F_xf * sin(delta)
+        + F_yf * cos(delta)
+        - m * v_x * yaw_rate
+    ) 
     der_delta = (derDelta)
 
     # continuous dynamics 
