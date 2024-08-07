@@ -47,6 +47,7 @@ class Single_track_MPC_Controller:
         self.mpc_sd = np.zeros((self.N + 1, 2))
         self.u0 = np.zeros(2)
         self.fre_s=0
+        self.previous_frenet_s = 0
         #Initial time
         self.conp_time = 0
 
@@ -131,15 +132,15 @@ class Single_track_MPC_Controller:
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2*np.pi
     
-        if self.position_in_map_frenet[0] < 0.2 and self.fre_s // track_length != self.nr_laps:
-            self.nr_laps = self.fre_s  // track_length
+        if self.position_in_map_frenet[0] < self.previous_frenet_s - 1: # - 1 for rejecting noise or moving slightly backwards
+            self.nr_laps += 1
+        self.previous_frenet_s = self.position_in_map_frenet[0]
 
         current_pos_s = self.position_in_map_frenet[0]  + self.nr_laps * self.spline.track_length
 
         self.fre_s= current_pos_s
         self.fre_d= self.position_in_map_frenet[1]
         self.fre_alpha= alpha_center  
-
 
         x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, speed_now,self.vel_y,self.steering_angle_buf[-1],self.yaw_rate],dtype=np.float64)
 
