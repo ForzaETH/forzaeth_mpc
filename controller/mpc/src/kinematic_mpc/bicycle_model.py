@@ -49,7 +49,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     length = len(s0)
     pathlength = s0[-1]
-    # copy loop to beginning and end 
+    # copy loop to beginning and end
     # Something wrong：s0[1:length]
     s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
     s0 = np.append([s0[:length -1 ] - s0[length - 1]], s0)
@@ -113,9 +113,13 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     weight_ddelta=MX.sym('weight_ddelta')
     cs_a_lat_min = MX.sym('cs_a_lat_min')
     cs_a_lat_max = MX.sym('cs_a_lat_max')
+    # dynamic boundary inflation
+    bound_inflation = MX.sym('boundary_inflation')
+
     p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta,# weights
-                cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
-    
+                cs_a_lat_min, cs_a_lat_max, # lateral acceleration constraints
+                bound_inflation) # boundary inflation
+
     # calculate the index
     s_mod = fmod(s, pathlength)
 
@@ -145,8 +149,12 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
 
     # constraint on lateral erros
     # distance to border
-    n_outer_bound = outer_bound_s(s_mod) + n
-    n_inner_bound = inner_bound_s(s_mod) - n 
+    n_outer_bound = outer_bound_s(s_mod) + n + bound_inflation
+    n_inner_bound = inner_bound_s(s_mod) - n - bound_inflation
+
+    # Clip that the boundaries don't overlap
+    n_outer_bound = cs.fmax(n_outer_bound, 0)
+    n_inner_bound = cs.fmax(n_inner_bound, 0)
 
     pos_s = MX.sym('pos_s')
     pos_n = MX.sym('pos_n')
@@ -161,7 +169,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
     dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
     constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
-    constraint.expr_e =constraint.expr 
+    constraint.expr_e =constraint.expr
     ### read the parameters range from the yaml file
     # Model bounds
     model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]

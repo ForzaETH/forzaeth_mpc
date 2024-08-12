@@ -104,15 +104,15 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     ocp.cost.zl_0 = 0 * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
     ocp.cost.zu_0 = 0 * np.ones((ns,))
     # from 1 to N-1
-    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
-    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl = 0 * np.ones((ns,))  
-    ocp.cost.zu = 0 * np.ones((ns,)) 
+    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl = 0 * np.ones((ns,))
+    ocp.cost.zu = 0 * np.ones((ns,))
     # at stage N
-    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((ns,)) 
-    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl_e = 0 * np.ones((ns,)) 
-    ocp.cost.zu_e = 0 * np.ones((ns,)) 
+    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl_e = 0 * np.ones((ns,))
+    ocp.cost.zu_e = 0 * np.ones((ns,))
 
     # Input hard constraint
     ocp.constraints.lbu = np.array([model.dv_min, model.ddelta_min])
@@ -127,10 +127,10 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
         ]
     )
     state_constraint_max=np.array(
-        [   
+        [
             constraint.v_max,
             model.delta_max,
-        ]   
+        ]
     )
     state_constraint_index=np.array([3, 4])
 
@@ -156,7 +156,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
             0,
         ]
     )
-    Nonlinear_constraint_max=np.array(  
+    Nonlinear_constraint_max=np.array(
         [
             100,
             0,
@@ -226,7 +226,8 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["qddelta"],
         cfg["alat_min"],
         cfg["alat_max"],
+        cfg["boundary_inflation"],
     ]).astype(float)
-    
+
     return params
 
