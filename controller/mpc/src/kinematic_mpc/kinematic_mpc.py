@@ -47,6 +47,8 @@ class Kinematic_MPC_Controller:
         self.fre_s=0
         #Initial time
         self.conp_time = 0
+        #Initial speed
+        self.speed=0
 
         # Init the online parameters
         mpc_init_online_params = kwargs['mpc_online_param']
@@ -122,12 +124,12 @@ class Kinematic_MPC_Controller:
         self.fre_alpha= alpha_center
 
 
-        x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, speed_now,self.steering_angle_buf[-1]],dtype=np.float64)
+        x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, self.speed,self.steering_angle_buf[-1]],dtype=np.float64)
 
         # time delat compensation
         self.t_delay= self.conp_time
         propagated_x = self.propagate_time_delay(x0, self.u0)
-
+        propagated_x=x0
         # set the initial state for the mpc
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
@@ -153,10 +155,14 @@ class Kinematic_MPC_Controller:
         status = self.acados_solver.solve()
 
         # get solution
+        # time delay step for the prediction
+        # todo make this a parameter in the yaml file
+        time_delay_step=3
         self.u0 = self.acados_solver.get(0, "u")
-        self.pred_x = self.acados_solver.get(1, "x")
+        self.pred_x = self.acados_solver.get(time_delay_step, "x")
         self.steering_angle = self.pred_x[4]
         self.speed = self.pred_x[3]
+        print(self.speed)
         self.acceleration=0*self.u0[0]
         self.jerk=0
         # steering buffer

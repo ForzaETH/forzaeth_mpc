@@ -138,6 +138,32 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
 
 
+    # external discretized dynamics for the reverse behavior
+    # runge kutta simulation
+    control_period=1/freq
+    f_c_runge= vertcat(
+        sdota,
+        ndot,
+        alphadot,
+    )
+    x_runge = vertcat(s,n,alpha)
+    f_c_runge_func = Function('f_c_runge_func', [s,n,alpha,v,delta,p], [f_c_runge])
+    # arg input
+    dis_v_k=v+der_v
+    dis_delta_k=delta+derDelta
+
+    k1 = control_period * f_c_runge_func(s,n,alpha,dis_v_k,dis_delta_k,p)
+    x_next_runge= x_runge + 0.5 * k1
+    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
+    x_next_runge = x_runge + 0.5 * k2
+    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
+    x_next_runge = x_runge + k3
+    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
+    x_next_runge=x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
+
+    f_disc=vertcat(x_next_runge,dis_v_k,dis_delta_k)
+
+
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 0, 0])
 
@@ -200,7 +226,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     params = types.SimpleNamespace()
     model.f_impl_expr = xdot - f_expl
     model.f_expl_expr = f_expl
-    model.dyn_disc_fun = 0
+    model.dyn_disc_fun = f_disc
     model.x = x
     model.xdot = xdot
     model.u = u
