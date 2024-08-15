@@ -23,7 +23,7 @@ def get_yaml_values():
     return data
 
 def callback(config, level):
-    rospy.loginfo("L1 Parameter Updated")
+    rospy.loginfo("MPC Parameter Updated")
     # Ensuring nice rounding by 0.05
     config.qadv = round(config.qadv * 20000) / 20000 # round to 0.005
     config.qv = round(config.qv * 200) / 200 # round to 0.005
