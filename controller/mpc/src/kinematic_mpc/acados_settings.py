@@ -49,6 +49,7 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     model_ac = AcadosModel()
     model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
+    model_ac.disc_dyn_expr = model.dyn_disc_fun #use the discrete dynamics function by ourselves
     # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
     model_ac.con_h_expr_0 = constraint.expr
     model_ac.con_h_expr = constraint.expr
@@ -200,10 +201,10 @@ def acados_settings(s0, kapparef, vx_ref,d_left, d_right, cfg_dict:dict):
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.nlp_solver_type = "SQP_RTI" # SQP_RTI
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-    # ocp.solver_options.integrator_type = "DISCRETE"
+    ocp.solver_options.integrator_type = "DISCRETE"  # use discrete time model by ourselves
     # continuous time integrator
-    ocp.solver_options.sim_method_num_stages = 4
-    ocp.solver_options.sim_method_num_steps = 3
+    # ocp.solver_options.sim_method_num_stages = 4
+    # ocp.solver_options.sim_method_num_steps = 3
     ocp.solver_options.tol = 1e-2
     ocp.solver_options.print_level = 0
     # ocp.solver_options.nlp_solver_tol_comp = 1e-1
