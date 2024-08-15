@@ -162,7 +162,6 @@ class Kinematic_MPC_Controller:
         self.pred_x = self.acados_solver.get(time_delay_step, "x")
         self.steering_angle = self.pred_x[4]
         self.speed = self.pred_x[3]
-        print(self.speed)
         self.acceleration=0*self.u0[0]
         self.jerk=0
         # steering buffer
