@@ -50,7 +50,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     length = len(s0)
     pathlength = s0[-1]
     # copy loop to beginning and end
-    
+
     s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
     s0 = np.append([s0[:length -1 ] - s0[length - 1]], s0)
     kapparef = np.append(kapparef, kapparef[1:length])
@@ -92,7 +92,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     v_y_dot = MX.sym("v_y_dot")
     deltadot = MX.sym("deltadot")
     yaw_ratedot = MX.sym("yaw_ratedot")
-    
+
     xdot = vertcat(sdot, ndot, thetadot, v_x_dot, v_y_dot, deltadot, yaw_ratedot)
 
     # algebraic variables
@@ -110,7 +110,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     Bf = cfg_dict['Bf']#tire parameters
     Cf = cfg_dict['Cf']
     Df = cfg_dict['Df']
-    Ef = cfg_dict['Ef'] 
+    Ef = cfg_dict['Ef']
     Br = cfg_dict['Br']
     Cr = cfg_dict['Cr']
     Dr = cfg_dict['Dr']
@@ -142,7 +142,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     v_0 = 0.1
     func_v = v_x*(1/(1 + cs.exp(-v_x/v_0))) - v_x*(1/(1 + cs.exp(v_x/v_0))) + v_0*(1/(cs.cosh(v_x/v_0)))
     alpha_f = (cs.atan2((-v_y - (lf*yaw_rate)),v_x+v_0) + delta)
-    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+v_0)) 
+    alpha_r = (cs.atan2((-v_y + (lr*yaw_rate)),v_x+v_0))
     # load transfer
     # F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
     # F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
@@ -154,14 +154,14 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     # dynamics
     sdota = ((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)
-    ndot = v_x*sin(theta) + v_y*cos(theta) 
+    ndot = v_x*sin(theta) + v_y*cos(theta)
     der_theta = yaw_rate - (kapparef_s(s_mod)*(((v_x*cos(theta)) - (v_y*sin(theta))) / (1 - kapparef_s(s_mod) * n)))
     yaw_ratedot = (1/Iz)*((-F_yr*lr)+(F_yf*lf)*cos(delta))
     der_v_x = accel +((1/m)*(-F_yf*sin(delta))) + (v_y*yaw_rate)
     der_v_y = ((1/m)*(F_yr+F_yf*cos(delta))) - (v_x*yaw_rate)
     der_delta = (derDelta)
 
-    # continuous dynamics 
+    # continuous dynamics
     f_expl = vertcat(
         sdota,
         ndot,
@@ -180,11 +180,15 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
     model.cost_expr_ext_cost_0 =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
     model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
-    model.cost_expr_ext_cost_e = weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
+    model.cost_expr_ext_cost_e = 100*(weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2)
+    if cfg_dict["vy_minimization"]:
+        model.cost_expr_ext_cost_0 += 100*v_y**2
+        model.cost_expr_ext_cost +=  100*v_y**2
+        model.cost_expr_ext_cost_e += 100*(100*v_y**2)
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
-    n_inner_bound = inner_bound_s(s_mod) - n 
+    n_inner_bound = inner_bound_s(s_mod) - n
     pos_s = MX.sym('pos_s')
     pos_n = MX.sym('pos_n')
     model.n_outer_bound = Function('outer_bound', [pos_s,pos_n], [outer_bound_s(pos_s) + pos_n])
