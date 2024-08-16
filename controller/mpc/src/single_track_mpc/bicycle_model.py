@@ -178,16 +178,13 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     # model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
     # model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
-
     model.cost_expr_ext_cost_0 =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
     model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
     model.cost_expr_ext_cost_e = 100*(weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2)
-
-    # model.cost_expr_ext_cost_0 =  weight_qn * n**2 + 0.1 * theta**2 + weight_qv*(v_x-V_target)**2 + weight_qac*accel**2 + weight_ddelta*derDelta**2 + weight_qalpha*v_y**2
-    # model.cost_expr_ext_cost =  weight_qn * n**2 + 0.1 * theta**2 + weight_qv*(v_x-V_target)**2 + weight_qac*accel**2 + weight_ddelta*derDelta**2 + weight_qalpha*v_y**2
-    # model.cost_expr_ext_cost_e = 100*(weight_qn * n**2 + 0.1 * theta**2 +weight_qv*(v_x-V_target)**2) + weight_qalpha*v_y**2
-
-
+    if cfg_dict["vy_minimization"]:
+        model.cost_expr_ext_cost_0 += 100*v_y**2
+        model.cost_expr_ext_cost +=  100*v_y**2
+        model.cost_expr_ext_cost_e += 100*(100*v_y**2)
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
