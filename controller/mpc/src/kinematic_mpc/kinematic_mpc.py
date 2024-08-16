@@ -15,7 +15,7 @@ class Kinematic_MPC_Controller:
     def __init__(self, **kwargs) -> None:
         """
         Initialise MPC object.
-        
+
         Input:  conf_file   : String containing the path to the param_config.yaml file
         """
         # Init the parameters
@@ -29,9 +29,10 @@ class Kinematic_MPC_Controller:
         #MPC Params
         self.conf_params = kwargs['conf_params']
         # upper layer parameters: MPC
-        self.N = self.conf_params['N']    
+        self.N = self.conf_params['N']
         t_delay = self.conf_params['t_delay']
         self.t_MPC = 1 / self.conf_params['MPC_freq']
+        self.bound_inflation = self.conf_params["boundary_inflation"] # boundary constraints to distance from the walls
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
         print(self.conf_params)
@@ -46,12 +47,14 @@ class Kinematic_MPC_Controller:
         self.fre_s=0
         #Initial time
         self.conp_time = 0
+        #Initial speed
+        self.speed=0
 
         # Init the online parameters
         mpc_init_online_params = kwargs['mpc_online_param']
         self.qadv = mpc_init_online_params[0]
         self.qv = mpc_init_online_params[1]
-        self.qn = mpc_init_online_params[2]   
+        self.qn = mpc_init_online_params[2]
         self.qalpha = mpc_init_online_params[3]
         self.qac = mpc_init_online_params[4]
         self.qddelta = mpc_init_online_params[5]
@@ -63,22 +66,22 @@ class Kinematic_MPC_Controller:
         self.cs_v_max = mpc_init_online_params[11]
         self.cs_alat_min = mpc_init_online_params[12]
         self.cs_alat_max = mpc_init_online_params[13]
-    
+        self.bound_inflation = mpc_init_online_params[14]
 
     def mpc_initialize_solver(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
-        
+
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
         shortest_path = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
         x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
         self.fren_conv = FrenetConverter(x, y)
-        
+
         d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts) # on f track trajectory is 81.803 m long.
-        
+
         self.spline = SplineTrack(coords_direct=coords_path)
-        
+
         self.nr_laps = 0
 
         kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
@@ -86,10 +89,10 @@ class Kinematic_MPC_Controller:
         self.s_ref = [x.s_m for x in shortest_path.wpnts]
         s0 = self.spline.params
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(s0, kapparef,vx_ref ,d_left, d_right, self.conf_params)
-    
+
         self.kappa = kapparef
 
-     # main loop    
+
     def main_loop(self, state, position_in_map, waypoint_array_in_map, speed_now, opponent, position_in_map_frenet, acc_now, track_length,compute_time):
         # Updating parameters from manager
         self.state = state
@@ -110,7 +113,7 @@ class Kinematic_MPC_Controller:
         alpha_center = alpha_center % (2*np.pi)
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2*np.pi
-    
+
         if self.position_in_map_frenet[0] < 0.2 and self.fre_s // track_length != self.nr_laps:
             self.nr_laps = self.fre_s  // track_length
 
@@ -118,26 +121,27 @@ class Kinematic_MPC_Controller:
 
         self.fre_s= current_pos_s
         self.fre_d= self.position_in_map_frenet[1]
-        self.fre_alpha= alpha_center  
+        self.fre_alpha= alpha_center
 
 
-        x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, speed_now,self.steering_angle_buf[-1]],dtype=np.float64)
+        x0=np.array([self.fre_s,self.fre_d,self.fre_alpha, self.speed,self.steering_angle_buf[-1]],dtype=np.float64)
 
         # time delat compensation
         self.t_delay= self.conp_time
         propagated_x = self.propagate_time_delay(x0, self.u0)
-
-        # set the initial state for the mpc 
+        propagated_x=x0
+        # set the initial state for the mpc
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
         # dynamically change the target speed, weight parameters and constraints
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-            traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]              
+            traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
             online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
-                                            self.cs_alat_min,self.cs_alat_max],dtype=np.float64)
-                
+                                            self.cs_alat_min,self.cs_alat_max,
+                                            self.bound_inflation],dtype=np.float64)
+
             self.acados_solver.set(i,"p",online_parameters)
 
             if i < self.N:
@@ -146,13 +150,16 @@ class Kinematic_MPC_Controller:
                 self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
                 self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
 
-         
+
         # Solve OCP
         status = self.acados_solver.solve()
 
         # get solution
+        # time delay step for the prediction
+        # todo make this a parameter in the yaml file
+        time_delay_step=3
         self.u0 = self.acados_solver.get(0, "u")
-        self.pred_x = self.acados_solver.get(1, "x")
+        self.pred_x = self.acados_solver.get(time_delay_step, "x")
         self.steering_angle = self.pred_x[4]
         self.speed = self.pred_x[3]
         self.acceleration=0*self.u0[0]
@@ -173,17 +180,18 @@ class Kinematic_MPC_Controller:
                 result = self.acados_solver.get(node,"x").tolist()
                 for item in result:
                     states.append(item)
-            self.states = states      
+            self.states = states
         return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+
     #############
     # Utilities #
     #############
     def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
@@ -191,17 +199,17 @@ class Kinematic_MPC_Controller:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion 
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion 
+            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
-    
+
     def _transform_waypoints_to_cartesian(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         x = np.zeros(len(data))
         y = np.zeros(len(data))
@@ -209,6 +217,7 @@ class Kinematic_MPC_Controller:
             x[idx] = wpnt.x_m
             y[idx] = wpnt.y_m
         return np.array(x), np.array(y)
+
     def propagate_time_delay(self, states: np.array, inputs:np.array)->np.array:
         """
         RK45 forward propagation. Calls the function _dynamics_of_car which contains the dynamics of the car.
@@ -216,8 +225,8 @@ class Kinematic_MPC_Controller:
         Input:  np.array    : Holds the current state which needs to be propagated.
                 inputs      : Holds the current inputs from the MPC.
 
-        Returns: np.array   : Propagated state without input. 
-        
+        Returns: np.array   : Propagated state without input.
+
         """
 
 
@@ -231,25 +240,25 @@ class Kinematic_MPC_Controller:
         # Constraint on max. steering angle
         if abs(solution[4]) > self.model.delta_max:
             solution[4] = np.sign(solution[4]) * self.model.delta_max
-        
+
         # Constraint on max. vel
         if abs(solution[3]) > self.constraint.v_max:
             solution[3] = np.sign(solution[3]) * self.constraint.v_max
-        
+
         # On minimum speed
         if abs(solution[3]) < self.constraint.v_min:
             solution[3] = self.constraint.v_min
-        
-      
+
+
         # Only get the state as solution of where the car will be in t_delay seconds
         # not including the input
         return np.array(solution)[:-2]
-    
+
     def _dynamics_of_car(self, t, x0)->list:
         '''
         Used for forward propagation. This function takes the dynamics from the acados model.
         '''
-    
+
         s = x0[0]
         n = x0[1]
         alpha = x0[2]
@@ -260,6 +269,6 @@ class Kinematic_MPC_Controller:
 
         xdot = self.model.f_expl_func(s, n, alpha, v, delta, derv, derDelta, self.model_params.p)
 
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),derv, derDelta]  
+        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]),derv, derDelta]
 
         return xdot
