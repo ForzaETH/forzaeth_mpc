@@ -130,6 +130,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     weight_ddelta=MX.sym('weight_ddelta')
     cs_a_lat_min = MX.sym('cs_a_lat_min')
     cs_a_lat_max = MX.sym('cs_a_lat_max')
+
     p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta, # weights
                 cs_a_lat_min, cs_a_lat_max) # lateral acceleration constraints
 
@@ -195,8 +196,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
 
     # model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
     # model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
-    model.cost_expr_ext_cost_0 =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
-    model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
+    model.cost_expr_ext_cost_0 =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+0.5*derDelta**2
+    model.cost_expr_ext_cost =  weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+0.5*derDelta**2
     model.cost_expr_ext_cost_e = 100*(weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2)
     if cfg_dict["vy_minimization"]:
         model.cost_expr_ext_cost_0 += 100*v_y**2
@@ -215,10 +216,13 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     a_lat = v_x * v_x * cs.tan(delta)/(lr+lf)
     constraint.pathlength = pathlength
     # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
-    diamond_acceleration_constraint=0
-    dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound, diamond_acceleration_constraint)
+    ellipse_acc_constraint=(a_lat/cs_a_lat_max)**2+(der_v_x/(10*weight_ddelta))**2
+    zero=0
+    # long_acceleration=der_v_x
+    # dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
+    # dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
+    constraint.expr = vertcat(zero, n_inner_bound, n_outer_bound, ellipse_acc_constraint)
+    constraint.expr_e = vertcat(n_inner_bound, n_outer_bound)
 
 
     ### read the parameters range from the yaml file

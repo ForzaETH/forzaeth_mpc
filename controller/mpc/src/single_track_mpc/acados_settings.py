@@ -51,7 +51,7 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
     model_ac.con_h_expr_0 = constraint.expr
     model_ac.con_h_expr = constraint.expr
-    model_ac.con_h_expr_e = constraint.expr
+    model_ac.con_h_expr_e = constraint.expr_e
     model_ac.x = model.x
     model_ac.xdot = model.xdot
     model_ac.u = model.u
@@ -102,15 +102,15 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.cost.zl_0 = cfg_dict['Zl'] * np.ones((nsh,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
     ocp.cost.zu_0 = cfg_dict['Zu'] * np.ones((nsh,))
     # from 1 to N-1
-    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,)) 
-    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,)) 
-    ocp.cost.zl = cfg_dict['Zl'] * np.ones((ns,))  
-    ocp.cost.zu = cfg_dict['Zu'] * np.ones((ns,)) 
+    ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl = cfg_dict['Zl'] * np.ones((ns,))
+    ocp.cost.zu = cfg_dict['Zu'] * np.ones((ns,))
     # at stage N
-    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((nsh,)) 
-    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((nsh,)) 
-    ocp.cost.zl_e = cfg_dict['Zl'] * np.ones((nsh,)) 
-    ocp.cost.zu_e = cfg_dict['Zu'] * np.ones((nsh,)) 
+    ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((2,))
+    ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((2,))
+    ocp.cost.zl_e = cfg_dict['Zl'] * np.ones((2,))
+    ocp.cost.zu_e = cfg_dict['Zu'] * np.ones((2,))
 
     # input constraint
     ocp.constraints.lbu_0 = np.array([model.a_min, model.ddelta_min])
@@ -133,7 +133,7 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
         ]
     )
     state_constraint_max=np.array(
-        [   
+        [
             constraint.v_x_max,
             model.delta_max,
         ]
@@ -161,46 +161,25 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     # ocp.constraints.idxsbx_e = np.array([3])
 
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
-    ocp.constraints.lh = np.array(
-        [
-            0,
-            -100,
-            model.n_min,
-            model.n_min,
-            0,
-        ]
-    )
-    ocp.constraints.uh = np.array(  
-        [
-            100,
-            0,
-            model.n_max,
-            model.n_max,
-            1,
-        ]
-    )
-
     # Nonlinear constraint
     Nonlinear_constraint_min=np.array(
         [
-            0,
-            -100,
+            p[7],
             model.n_min,
             model.n_min,
             0,
         ]
     )
-    Nonlinear_constraint_max=np.array(  
+    Nonlinear_constraint_max=np.array(
         [
-            100,
-            0,
+            p[8],
             model.n_max,
             model.n_max,
             1,
         ]
     )
     Nonlinear_soft_min_value=np.zeros(nsh)
-    Nonlinear_soft_max_value=np.zeros(nsh) + np.array([0, 0, 0.1, 0.1,0])
+    Nonlinear_soft_max_value=np.zeros(nsh) + np.array([0, 0.1, 0.1,0])
     Nonlinear_constraint_index=np.array([num for num in range(nsh)])
     # at stage 0
     ocp.constraints.lh_0 = Nonlinear_constraint_min
@@ -216,11 +195,11 @@ def acados_settings(s0, kapparef, d_left, d_right, cfg_dict:dict):
     ocp.constraints.idxsh = Nonlinear_constraint_index
 
     # at stage N
-    ocp.constraints.lh_e = Nonlinear_constraint_min
-    ocp.constraints.uh_e = Nonlinear_constraint_max
+    ocp.constraints.lh_e = Nonlinear_constraint_min[1:3]
+    ocp.constraints.uh_e = Nonlinear_constraint_max[1:3]
     # ocp.constraints.lsh_e = Nonlinear_soft_min_value
     # ocp.constraints.ush_e = Nonlinear_soft_max_value
-    ocp.constraints.idxsh_e = Nonlinear_constraint_index
+    ocp.constraints.idxsh_e = Nonlinear_constraint_index[:2]
 
     # set intial condition
     ocp.constraints.x0 = model.x0
@@ -255,6 +234,6 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["alat_min"],
         cfg["alat_max"],
     ]).astype(float)
-    
+
     return params
 

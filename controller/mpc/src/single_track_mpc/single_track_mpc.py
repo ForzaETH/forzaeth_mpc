@@ -174,8 +174,8 @@ class Single_track_MPC_Controller:
             self.acados_solver.set(i,"p",online_parameters)
 
             if i < self.N:
-                self.acados_solver.set(i, "lbu", np.array([self.cs_delta_v_min, self.cs_delta_steer_min]))
-                self.acados_solver.set(i, "ubu", np.array([self.cs_delta_v_max, self.cs_delta_steer_max]))
+                self.acados_solver.set(i, "lbu", np.array([100*self.cs_delta_v_min, self.cs_delta_steer_min]))
+                self.acados_solver.set(i, "ubu", np.array([100*self.cs_delta_v_max, self.cs_delta_steer_max]))
                 self.acados_solver.set(i+1, "lbx", np.array([self.cs_v_min, -0.4])) # do not change i+1 to i since mpc needs the initial state
                 self.acados_solver.set(i+1, "ubx", np.array([self.cs_v_max, 0.4]))
 
