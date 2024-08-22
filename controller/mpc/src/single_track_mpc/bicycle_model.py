@@ -151,10 +151,10 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # lateral tire forces
     F_yf = friction_coeff*Df*F_zf*sin(Cf*cs.atan(Bf*alpha_f - Ef*(Bf*alpha_f - cs.atan(Bf*alpha_f))))
     F_yr = friction_coeff*Dr*F_zr*sin(Cr*cs.atan(Br*alpha_r - Er*(Br*alpha_r - cs.atan(Br*alpha_r))))
-    
+
     # motor force
     F_motor = accel*m
-    motor_split_front = 0.0
+    motor_split_front = 0.5
     motor_split_rear = 1 - motor_split_front
     F_xf = motor_split_front*F_motor
     F_xr = motor_split_rear*F_motor
@@ -175,7 +175,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
         + F_xf * sin(delta)
         + F_yf * cos(delta)
         - m * v_x * yaw_rate
-    ) 
+    )
     der_delta = (derDelta)
 
     # continuous dynamics
