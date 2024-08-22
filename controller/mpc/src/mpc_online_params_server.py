@@ -23,7 +23,7 @@ def get_yaml_values():
     return data
 
 def callback(config, level):
-    rospy.loginfo("L1 Parameter Updated")
+    rospy.loginfo("MPC Parameter Updated")
     # Ensuring nice rounding by 0.05
     config.qadv = round(config.qadv * 20000) / 20000 # round to 0.005
     config.qv = round(config.qv * 200) / 200 # round to 0.005
@@ -41,9 +41,8 @@ def callback(config, level):
     config.v_max = round(config.v_max * 200) / 200 # round to 0.005
     config.alat_min = round(config.alat_min * 200) / 200 # round to 0.005
     config.alat_max = round(config.alat_max * 200) / 200 # round to 0.005
+    config.boundary_inflation = round(config.boundary_inflation * 20) / 20 # round to 0.05
 
-
-    
     return config
 
 if __name__ == "__main__":
@@ -51,7 +50,7 @@ if __name__ == "__main__":
     server = Server(dyn_mpc_params_tunerConfig, callback)
 
     yaml_data = get_yaml_values()
- 
+
     # Set mpc parameter values to the values of the corresponding .yaml file
     # float() is need as we want to ensure its type to access it in L1_controller with "params.doubles[idx].value"
     default_config = {
@@ -70,7 +69,8 @@ if __name__ == "__main__":
         "v_min": float(yaml_data["v_min"]),
         "v_max": float(yaml_data["v_max"]),
         "alat_min": float(yaml_data["alat_min"]),
-        "alat_max": float(yaml_data["alat_max"])
+        "alat_max": float(yaml_data["alat_max"]),
+        "boundary_inflation": float(yaml_data["boundary_inflation"]),
     }
 
     server.update_configuration(default_config)

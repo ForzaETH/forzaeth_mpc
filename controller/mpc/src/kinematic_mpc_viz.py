@@ -18,6 +18,7 @@ from tf.transformations import euler_from_quaternion
 from utils.indecies import  State
 from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
+from dynamic_reconfigure.msg import Config
 
 from frenet_converter.frenet_converter import FrenetConverter
 from kinematic_mpc.bicycle_model import bicycle_model
@@ -27,7 +28,7 @@ class tireNode:
     def __init__(self,) -> None:
         """
         Initialise MPC object.
-        
+
         Input:  conf_file   : String containing the path to the param_config.yaml file
         """
 
@@ -39,7 +40,7 @@ class tireNode:
         buf_size = 2
         self.steering_angle_buf = np.zeros(buf_size)
         self.steering_angle_buf[-1]= 0
-        
+
         self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
         self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
 
@@ -50,6 +51,7 @@ class tireNode:
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
         rospy.Subscriber("/slip_angle", Float32, self._slip_angle)
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
+        rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb)
 
         self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
         self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
@@ -70,7 +72,7 @@ class tireNode:
         self.conf_file = os.path.join(dir_path, "config", self.racecar_version, file_path)
         with open(self.conf_file, "r") as conf_file:
             self.conf_params = yaml.safe_load(conf_file)
-                
+
         self.N = self.conf_params['N']
 
         self.lf = self.conf_params['lf']
@@ -78,11 +80,12 @@ class tireNode:
         self.m = self.conf_params['m']
         self.g = 9.8
         self.Iz= self.conf_params['Iz']
-        
+
         # Just for cost function testing
         self.track_safety_margin = self.conf_params['track_safety_margin']
         t_delay = self.conf_params['t_delay']
         self.t_MPC = 1 / self.conf_params['MPC_freq']
+        self.bound_inflation = self.conf_params["boundary_inflation"] # boundary constraints to distance from the walls
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
@@ -91,16 +94,16 @@ class tireNode:
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
-        
+
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
         shortest_path = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
         x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
         self.fren_conv = FrenetConverter(x, y)
-        
+
         d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts) # on f track trajectory is 81.803 m long.
-        
+
         self.spline = SplineTrack(coords_direct=coords_path)
         s0 = self.spline.params
         self.pathlength =s0[-1]
@@ -112,10 +115,10 @@ class tireNode:
         self.max_v_target = max(vx_ref)
         self.s_ref = [x.s_m for x in shortest_path.wpnts]
         s0 = self.spline.params
-        
-        
+
+
         self.model, self.constraint, self.params = bicycle_model(s0, kapparef,vx_ref ,d_left, d_right, self.conf_params)
-        
+
         #basic mpc param to run plot
         mpc_param=kinematic_mpc_param()
         mpc_param.N= self.N
@@ -132,10 +135,10 @@ class tireNode:
         map_boundaries = np.zeros((len(self.spline.params),2,2))
         for stage in range(len(self.spline.params)):
             map_boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage], -self.model.outer_bound_s(self.spline.params[stage])]))
-            map_boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage],  self.model.inner_bound_s(self.spline.params[stage])]))  
+            map_boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage],  self.model.inner_bound_s(self.spline.params[stage])]))
 
         self.map_boundaries=map_boundaries
-        
+
     #############
     # Callbacks #
     #############
@@ -144,48 +147,57 @@ class tireNode:
         self.vel_x = data.twist.twist.linear.x
         self.vel_y = data.twist.twist.linear.y
         self.r = data.twist.twist.angular.z
-    
+
     def _odom_frenet_cb(self, data: Odometry) -> None:
         """Odom frenet callback"""
         self.pos_s = data.pose.pose.position.x
         self.pos_n = data.pose.pose.position.y
 
         self.alpha = data.pose.pose.orientation.z
-    
+
     def _pose_cb(self, data: PoseStamped) -> None:
         """Position callback"""
         self.pos_x = data.pose.position.x
         self.pos_y = data.pose.position.y
-        self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
+        self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y,
                                     data.pose.orientation.z, data.pose.orientation.w])[2]
-    
+
     def _input_cb(self, data: AckermannDriveStamped) -> None:
         """Steering angle callback. Normally not used since the steering angle of the MPC is taken."""
-        
+
         self.steering_angle = data.drive.steering_angle
 
     def _imu_cb(self, data: Imu) -> None:
         """acceleration callback. Normally not used."""
-       # self.acceleration = data.linear_acceleration.x 
+       # self.acceleration = data.linear_acceleration.x
+
+    def mpc_params_cb(self, params:Config):
+        """
+        Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
+        Values from .yaml file are set in mpc_online_params_server
+        """
+        self.bound_inflation = params.doubles[14].value
+
 
     def _slip_angle(self, data: Float32) -> None:
         """slip angle callback callback. Normally not used."""
         self.slip_angle= data
+
     def _states(self, states: Float64MultiArray) -> None:
         """slip angle callback callback. Normally not used."""
         self.states_k_1 = self.states
         self.states= states.data
-    
+
 
     #############
     # Utilities #
     #############
     def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
@@ -193,17 +205,17 @@ class tireNode:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion 
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion 
+            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
-    
+
     def _transform_waypoints_to_cartesian(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         x = np.zeros(len(data))
         y = np.zeros(len(data))
@@ -218,7 +230,7 @@ class tireNode:
 
         Input:  frenet_coords   : Either a np.array or a np.arrray of np.arrays holding the frenet coordinates
         Returns: np.array       : Cartesian coordinates in the shape of the input.
-        
+
         """
 
         co, si = np.cos(-np.pi/2), np.sin(-np.pi/2)
@@ -228,16 +240,16 @@ class tireNode:
         # print("heyo", frenet_coords, frenet_coords.shape)
 
         if frenet_coords.shape[0] > 2:
-            return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)                
-        
+            return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)
+
         else:
-            
+
             s = frenet_coords[0]
             d = frenet_coords[1]
 
             return self.spline.get_coordinate(s) + d*self.spline.get_derivative(s) @ R
 
-   
+
     #############
     # Main Loop #
     #############
@@ -245,7 +257,7 @@ class tireNode:
         """Main loop. The control procedure is implemented here."""
 
         rate = rospy.Rate(1/self.t_MPC)
-       
+
         while not rospy.is_shutdown():
 
 
@@ -255,7 +267,7 @@ class tireNode:
             self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_right")
 
             # # publish trajectory bounds
-            boundaries = np.zeros((self.N, 3, 3))
+            boundaries = np.zeros((self.N+1, 3, 2))
             mpc_sd = []
             for stage in range(self.N ):
                 x_ = self.states[5*stage:5*(stage+1)-1]
@@ -265,20 +277,26 @@ class tireNode:
                 v_=x_[State.VELOCITY_V_X]
                 # store predicted position
                 mpc_sd.append(x_[:2])
-                
-                boundaries[stage,0,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
-                boundaries[stage,2,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
-                boundaries[stage,1,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
-                boundaries[stage,1,2] = v_/self.max_v_target
+                # distance to border
+                # consider left_bound_s and right_bound_s are positive. They are the distance from the centerline to the left and right boundary
+                # bound_inflation is positive, it is the dynamic inflation of the boundary
+                sd_lefts = np.array([s_mod, self.model.inner_bound_s(s_mod) - self.bound_inflation - self.track_safety_margin])
+                sd_rights = np.array([s_mod, -(self.model.outer_bound_s(s_mod) - self.bound_inflation - self.track_safety_margin)])
+                # Clip that the boundaries don't overlap
+                boundaries[stage,0,:] = self.convert_frenet_to_cartesian(sd_lefts)
+                boundaries[stage,2,:] = self.convert_frenet_to_cartesian(sd_rights)
+                boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
 
-            self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
-            self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            self.publish_waypoint_markers(boundaries[:,2,:], "d_right")           
+            self.publish_waypoint_markers(boundaries[:-1,0,:], "d_left") # skip the last point because they seemed to be buggy in visualization
+            self.publish_waypoint_markers(boundaries[:-1,1,:], "d_mid")
+            self.publish_waypoint_markers(boundaries[:-1,2,:], "d_right")
+
             pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
 
             self.publish_waypoint_markers(pred_waypoints, type="pred")
 
             rate.sleep()
+
     ##########################
     # Publishing/Visualizing #
     ##########################
@@ -310,7 +328,7 @@ class tireNode:
         msg = Float64MultiArray()
         msg.data = states
         self.states_pub.publish(msg)
-    
+
     def publish_propagated_states(self, states: list) -> None:
         """Publishes propagated state into /mpc_controller/states_propagated"""
         msg = Float64MultiArray()
@@ -360,8 +378,6 @@ class tireNode:
                 waypoint_marker.color.g = 1.0
                 waypoint_marker.color.b = 0.0
                 waypoint_marker.color.a = 1.0
-                #predicted velocity viz
-                waypoint_marker.pose.position.z = waypoint[2]
             else:
                 waypoint_marker.color.r = 1.0
                 waypoint_marker.color.g = 0.0
@@ -402,12 +418,13 @@ class tireNode:
         ack_msg.drive.acceleration = state[State.ACCEL]
         # ack_msg.drive.speed = state[State.VELOCITY_V_X]
         #ack_msg.drive.jerk
-        self.steering_velocity.publish(ack_msg) 
+        self.steering_velocity.publish(ack_msg)
         # Managing of contol actions sent to controller_node.py
         if next_input:
             self.drive_next_pub.publish(ack_msg)
         else:
             self.drive_pub.publish(ack_msg)
+
     def publish_tireforce(self, states: list) -> None:
         """Publishes states into /mpc_controller/states"""
         msg = Float64MultiArray()
