@@ -154,7 +154,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     
     # motor force
     F_motor = accel*m
-    motor_split_front = 0.5
+    motor_split_front = 0.0
     motor_split_rear = 1 - motor_split_front
     F_xf = motor_split_front*F_motor
     F_xr = motor_split_rear*F_motor
