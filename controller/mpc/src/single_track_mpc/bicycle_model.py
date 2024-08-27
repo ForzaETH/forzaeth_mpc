@@ -39,9 +39,10 @@ import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, fmod, if_else, interpolant, sin, vertcat
 from nav_msgs.msg import Odometry
+from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig
 
-
-def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dict: dict):
+def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
+                  stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig):
     # define structs
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
@@ -98,25 +99,24 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     z = vertcat([])
 
     # parameters
-    lr = cfg_dict['lr']
-    lf = cfg_dict['lf']
-    freq = cfg_dict['MPC_freq']
+    freq = stmpc_config.MPC_freq
 
-    m = cfg_dict['m']
-    Iz = cfg_dict['Iz']
-    lf = cfg_dict['lf']
-    lr = cfg_dict['lr']
-    Bf = cfg_dict['Bf']  # tire parameters
-    Cf = cfg_dict['Cf']
-    Df = cfg_dict['Df']
-    Ef = cfg_dict['Ef']
-    Br = cfg_dict['Br']
-    Cr = cfg_dict['Cr']
-    Dr = cfg_dict['Dr']
-    Er = cfg_dict['Er']
-    h_cg = cfg_dict['h_cg']
+    lr = car_config.lr
+    lf = car_config.lf
+    m = car_config.m
+    Iz = car_config.Iz
+    h_cg = car_config.h_cg
+
+    friction_coeff = tire_config.friction_coeff
+    Bf = tire_config.Bf
+    Cf = tire_config.Cf
+    Df = tire_config.Df
+    Ef = tire_config.Ef
+    Br = tire_config.Br
+    Cr = tire_config.Cr
+    Dr = tire_config.Dr
+    Er = tire_config.Er
     g = 9.81
-    friction_coeff = cfg_dict['friction_coeff']
 
     # # online parameters
     V_target = MX.sym('V_target')
@@ -126,10 +126,11 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     weight_qalpha = MX.sym('weight_qalpha')
     weight_qac = MX.sym('weight_qac')
     weight_ddelta = MX.sym('weight_ddelta')
-    cs_a_lat_min = MX.sym('cs_a_lat_min')
-    cs_a_lat_max = MX.sym('cs_a_lat_max')
+    a_lat_max = MX.sym('a_lat_max')
+    a_long_min = MX.sym('a_long_min')
+    a_long_max = MX.sym('a_long_max')
     p = vertcat(V_target, weight_adv, weight_qv, weight_qn, weight_qalpha, weight_qac, weight_ddelta,  # weights
-                cs_a_lat_min, cs_a_lat_max)  # lateral acceleration constraints
+                a_lat_max, a_long_min, a_long_max)  # lateral acceleration constraints
 
     # calculate the index
     s_mod = fmod(s, pathlength)
@@ -192,18 +193,19 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     # Define initial conditions
     model.x0 = np.array([0, 0, 0, 1, 0, 0, 0])
 
-    # model.cost_expr_ext_cost =  -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2 +weight_qac*accel**2+weight_ddelta*derDelta**2
-    # model.cost_expr_ext_cost_e = -weight_adv*sdota/freq + weight_qn * n**2 + weight_qalpha * theta**2 +weight_qv*(v_x-V_target)**2
-
+    terminal_multiplier = 10
     model.cost_expr_ext_cost_0 = weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * \
         (v_x - V_target)**2 + weight_qac * accel**2 + weight_ddelta * derDelta**2
     model.cost_expr_ext_cost = weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * \
         (v_x - V_target)**2 + weight_qac * accel**2 + weight_ddelta * derDelta**2
-    model.cost_expr_ext_cost_e = 100 * (weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * (v_x - V_target)**2)
-    if cfg_dict["vy_minimization"]:
+    model.cost_expr_ext_cost_e = terminal_multiplier * (weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * (v_x - V_target)**2)
+    if stmpc_config.vy_minimization:
         model.cost_expr_ext_cost_0 += 100 * v_y**2
         model.cost_expr_ext_cost += 100 * v_y**2
-        model.cost_expr_ext_cost_e += 100 * (100 * v_y**2)
+        model.cost_expr_ext_cost_e += terminal_multiplier * (100 * v_y**2)
+    if stmpc_config.adv_maximization:
+        model.cost_expr_ext_cost -= weight_adv * sdota / freq
+        model.cost_expr_ext_cost_e -= terminal_multiplier * weight_adv * sdota / freq
 
     # constraint on lateral errors
     n_outer_bound = outer_bound_s(s_mod) + n
@@ -217,31 +219,34 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list, cfg_dic
     a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
     constraint.pathlength = pathlength
     # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
-    ellipse_acc_constraint=(a_lat/cs_a_lat_max)**2+(der_v_x/(10*weight_ddelta))**2
-    zero=0
-    # long_acceleration=der_v_x
-    # dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
-    # dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(zero, n_inner_bound, n_outer_bound, ellipse_acc_constraint)
+    if stmpc_config.combined_constraints == "ellipse":
+        combined_constraints=(a_lat/a_lat_max)**2+(der_v_x/a_long_max)**2
+    elif stmpc_config.combined_constraints == "diamond":
+        combined_constraints=abs(a_lat/a_lat_max)+abs(der_v_x/a_long_max)
+    else:
+        combined_constraints=0
+    #TODO fix the n constraint with a single constraint
+    #NOTE: easiest when non-terminal constraints have the extra constraints only at the end, otherwise need to change acados_settings.py
+    constraint.expr = vertcat(n_inner_bound, n_outer_bound, combined_constraints)
     constraint.expr_e = vertcat(n_inner_bound, n_outer_bound)
 
 
     ### read the parameters range from the yaml file
     # Model bounds
-    model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
-    model.n_max = cfg_dict['track_max_width']  # width of the track [m]
+    model.n_min = stmpc_config.track_safety_margin  # width of the track [m]
+    model.n_max = stmpc_config.track_max_width  # width of the track [m]
 
     # state bounds
-    model.delta_min = cfg_dict["delta_min"]  # minimum steering angle [rad]
-    model.delta_max = cfg_dict["delta_max"]  # maximum steering angle [rad]
-    constraint.v_x_min = cfg_dict["v_min"]  # minimum velocity [m/s]
-    constraint.v_x_max = cfg_dict["v_max"]  # maximum velocity [m/s]
-    model.a_min = cfg_dict["a_min"]  # minimum velocity change rate
-    model.a_max = cfg_dict["a_max"]  # maximum velocity change rate
+    model.delta_min = stmpc_config.delta_min  # minimum steering angle [rad]
+    model.delta_max = stmpc_config.delta_max  # maximum steering angle [rad]
+    constraint.v_x_min = stmpc_config.v_min  # minimum velocity [m/s]
+    constraint.v_x_max = stmpc_config.v_max  # maximum velocity [m/s]
+    model.a_min = stmpc_config.a_min  # minimum velocity change rate
+    model.a_max = stmpc_config.a_max  # maximum velocity change rate
 
     # input bounds
-    model.ddelta_min = cfg_dict["ddelta_min"]  # minimum change rate of stering angle [rad/s]
-    model.ddelta_max = cfg_dict["ddelta_max"]  # maximum change rate of steering angle [rad/s]
+    model.ddelta_min = stmpc_config.ddelta_min  # minimum change rate of stering angle [rad/s]
+    model.ddelta_max = stmpc_config.ddelta_max  # maximum change rate of steering angle [rad/s]
 
     # Define model struct
     params = types.SimpleNamespace()

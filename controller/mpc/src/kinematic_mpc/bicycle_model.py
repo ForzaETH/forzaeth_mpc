@@ -111,13 +111,12 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     weight_qalpha = MX.sym('weight_qalpha')
     weight_qac=MX.sym('weight_qac')
     weight_ddelta=MX.sym('weight_ddelta')
-    cs_a_lat_min = MX.sym('cs_a_lat_min')
-    cs_a_lat_max = MX.sym('cs_a_lat_max')
+    a_lat_max = MX.sym('a_lat_max')
     # dynamic boundary inflation
     bound_inflation = MX.sym('boundary_inflation')
 
     p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta,# weights
-                cs_a_lat_min, cs_a_lat_max, # lateral acceleration constraints
+                a_lat_max, # lateral acceleration constraints
                 bound_inflation) # boundary inflation
 
     # calculate the index
@@ -193,9 +192,9 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
     diamond_acceleration_constraint=0 # not used now
-    dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
+    dynamic_turn_constraint_max=vertcat(a_lat-a_lat_max)
+    #TODO: completely broken constraint for KMPC, fix this before merging!!!
+    constraint.expr = vertcat(dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
     constraint.expr_e =constraint.expr
     ### read the parameters range from the yaml file
     # Model bounds

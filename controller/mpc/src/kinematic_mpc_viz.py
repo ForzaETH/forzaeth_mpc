@@ -15,7 +15,7 @@ from plotting_fnc import *
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Float32,Float64MultiArray
 from tf.transformations import euler_from_quaternion
-from utils.indecies import  State
+from controller.mpc.src.utils.indicies import  State
 from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 from dynamic_reconfigure.msg import Config

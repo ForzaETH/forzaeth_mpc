@@ -64,9 +64,8 @@ class Kinematic_MPC_Controller:
         self.cs_delta_v_max = mpc_init_online_params[9]
         self.cs_v_min = mpc_init_online_params[10]
         self.cs_v_max = mpc_init_online_params[11]
-        self.cs_alat_min = mpc_init_online_params[12]
-        self.cs_alat_max = mpc_init_online_params[13]
-        self.bound_inflation = mpc_init_online_params[14]
+        self.cs_alat_max = mpc_init_online_params[12]
+        self.bound_inflation = mpc_init_online_params[13]
 
     def mpc_initialize_solver(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -139,8 +138,7 @@ class Kinematic_MPC_Controller:
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
             traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
             online_parameters=np.array([traget_v_speed, self.qadv, self.qv, self.qn, self.qalpha,self.qac,self.qddelta,
-                                            self.cs_alat_min,self.cs_alat_max,
-                                            self.bound_inflation],dtype=np.float64)
+                                            self.cs_alat_max, self.bound_inflation], dtype=np.float64)
 
             self.acados_solver.set(i,"p",online_parameters)
 
