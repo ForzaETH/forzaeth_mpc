@@ -129,8 +129,9 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     a_lat_max = MX.sym('a_lat_max')
     a_long_min = MX.sym('a_long_min')
     a_long_max = MX.sym('a_long_max')
+    safety_margin = MX.sym('safety_margin')
     p = vertcat(V_target, weight_adv, weight_qv, weight_qn, weight_qalpha, weight_qac, weight_ddelta,  # weights
-                a_lat_max, a_long_min, a_long_max)  # lateral acceleration constraints
+                a_lat_max, a_long_min, a_long_max, safety_margin)  # lateral acceleration constraints
 
     # calculate the index
     s_mod = fmod(s, pathlength)
@@ -208,12 +209,13 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
         model.cost_expr_ext_cost_e -= terminal_multiplier * weight_adv * sdota / freq
 
     # constraint on lateral errors
-    n_right_bound = n + right_bound_s(s_mod)
-    n_left_bound = n - left_bound_s(s_mod)
+    n_right_bound = n + right_bound_s(s_mod) - safety_margin
+    n_left_bound = n - left_bound_s(s_mod) + safety_margin
 
     # nonlinear constraints
     a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
     constraint.pathlength = pathlength
+    #TODO: introduce asymmetric constraints (now you can just over constrain breaking) with a_long_min
     if stmpc_config.combined_constraints == "ellipse":
         combined_constraints=(a_lat/a_lat_max)**2+(der_v_x/a_long_max)**2
     elif stmpc_config.combined_constraints == "diamond":
@@ -256,5 +258,5 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     model.left_bound_s = left_bound_s
     model.right_bound_s = right_bound_s
     model.track_max = stmpc_config.track_max_width
-    model.safety_width = stmpc_config.track_safety_margin
+    # model.safety_width = stmpc_config.track_safety_margin
     return model, constraint, params

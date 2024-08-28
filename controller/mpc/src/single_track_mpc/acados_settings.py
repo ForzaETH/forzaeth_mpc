@@ -173,12 +173,12 @@ def acados_settings(s0, kapparef, d_left, d_right,
     # Nonlinear constraint: longitudinal force; Lateral force; inner_bound; outer_bound
     # Nonlinear constraint
     Nonlinear_constraint_min = np.array([
-        model.safety_width,
+        0,
         -model.track_max,
         0])
     Nonlinear_constraint_max = np.array([
         model.track_max,
-        -model.safety_width,
+        0,
         1])
     # Nonlinear_soft_min_value = np.zeros(nsh)
     # Nonlinear_soft_max_value = np.zeros(nsh) + np.array([0.1, 0.1, 0])
@@ -238,6 +238,7 @@ def get_parameters(cfg: STMPCConfig) -> np.ndarray:
         cfg.alat_max,
         cfg.a_min,
         cfg.a_max,
+        cfg.track_safety_margin
     ]).astype(float)
 
     return params

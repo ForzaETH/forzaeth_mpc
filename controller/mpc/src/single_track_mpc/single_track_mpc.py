@@ -169,7 +169,8 @@ class Single_track_MPC_Controller:
                                               multiplier * self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
-                                              self.stmpc_config.a_max],
+                                              self.stmpc_config.a_max,
+                                              self.stmpc_config.track_safety_margin],
                                              dtype=np.float64)
             else:
                 online_parameters = np.array([target_v_speed,
@@ -181,7 +182,8 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
-                                              self.stmpc_config.a_max],
+                                              self.stmpc_config.a_max,
+                                              self.stmpc_config.track_safety_margin],
                                              dtype=np.float64)
 
             self.acados_solver.set(i, "p", online_parameters)
