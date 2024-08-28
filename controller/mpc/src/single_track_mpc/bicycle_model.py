@@ -65,8 +65,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
 
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
-    outer_bound_s = interpolant("outer_bound_s", "bspline", [s0], d_left)
-    inner_bound_s = interpolant("inner_bound_s", "bspline", [s0], d_right)
+    left_bound_s = interpolant("left_bound_s", "bspline", [s0], d_left)
+    right_bound_s = interpolant("right_bound_s", "bspline", [s0], d_right)
 
     # CasADi Model
     # set up states & controls
@@ -208,17 +208,12 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
         model.cost_expr_ext_cost_e -= terminal_multiplier * weight_adv * sdota / freq
 
     # constraint on lateral errors
-    n_outer_bound = outer_bound_s(s_mod) + n
-    n_inner_bound = inner_bound_s(s_mod) - n
-    pos_s = MX.sym('pos_s')
-    pos_n = MX.sym('pos_n')
-    model.n_outer_bound = Function('outer_bound', [pos_s, pos_n], [outer_bound_s(pos_s) + pos_n])
-    model.n_inner_bound = Function('inner_bound', [pos_s, pos_n], [inner_bound_s(pos_s) - pos_n])
+    n_right_bound = n + right_bound_s(s_mod)
+    n_left_bound = n - left_bound_s(s_mod)
 
     # nonlinear constraints
     a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
     constraint.pathlength = pathlength
-    # constraint.expr = vertcat(n_inner_bound, n_outer_bound)
     if stmpc_config.combined_constraints == "ellipse":
         combined_constraints=(a_lat/a_lat_max)**2+(der_v_x/a_long_max)**2
     elif stmpc_config.combined_constraints == "diamond":
@@ -227,14 +222,11 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
         combined_constraints=0
     #TODO fix the n constraint with a single constraint
     #NOTE: easiest when non-terminal constraints have the extra constraints only at the end, otherwise need to change acados_settings.py
-    constraint.expr = vertcat(n_inner_bound, n_outer_bound, combined_constraints)
-    constraint.expr_e = vertcat(n_inner_bound, n_outer_bound)
+    constraint.expr = vertcat(n_right_bound, n_left_bound, combined_constraints)
+    constraint.expr_e = vertcat(n_right_bound, n_left_bound)
 
 
     ### read the parameters range from the yaml file
-    # Model bounds
-    model.n_min = stmpc_config.track_safety_margin  # width of the track [m]
-    model.n_max = stmpc_config.track_max_width  # width of the track [m]
 
     # state bounds
     model.delta_min = stmpc_config.delta_min  # minimum steering angle [rad]
@@ -261,6 +253,8 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     model.params = params
     model.kappa = kapparef_s
     model.f_expl_func = f_expl_func
-    model.outer_bound_s = outer_bound_s
-    model.inner_bound_s = inner_bound_s
+    model.left_bound_s = left_bound_s
+    model.right_bound_s = right_bound_s
+    model.track_max = stmpc_config.track_max_width
+    model.safety_width = stmpc_config.track_safety_margin
     return model, constraint, params

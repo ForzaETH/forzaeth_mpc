@@ -16,9 +16,9 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from frenet_converter.frenet_converter import FrenetConverter
 from single_track_mpc.bicycle_model import bicycle_model
-from pbl_config import STMPCConfig, load_STMPC_config_ros, CarConfig, load_car_config_ros, load_pacejka_tire_config_ros
+from pbl_config import load_STMPC_config_ros, load_car_config_ros, load_pacejka_tire_config_ros
 
-from single_track_mpc.utils.indicies import State
+from single_track_mpc.utils.indicies import StateIndex
 
 class tireNode:
     def __init__(self,) -> None:
@@ -33,8 +33,8 @@ class tireNode:
         self._init_params()
 
         self.vel_x = 0
-        self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
-        self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
+        # self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
+        # self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
 
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
 
@@ -102,8 +102,8 @@ class tireNode:
         # visualize the boundaries of the map
         map_boundaries = np.zeros((len(self.s_ref),2,2))
         for stage in range(len(self.s_ref)):
-            map_boundaries[stage,0,:] = self.fren_conv.get_cartesian(self.s_ref[stage], -self.model.outer_bound_s(self.s_ref[stage])).reshape(2)
-            map_boundaries[stage,1,:] = self.fren_conv.get_cartesian(self.s_ref[stage],  self.model.inner_bound_s(self.s_ref[stage])).reshape(2)
+            map_boundaries[stage,0,:] = self.fren_conv.get_cartesian(self.s_ref[stage], -self.model.right_bound_s(self.s_ref[stage])).reshape(2)
+            map_boundaries[stage,1,:] = self.fren_conv.get_cartesian(self.s_ref[stage],  self.model.left_bound_s(self.s_ref[stage])).reshape(2)
 
         self.map_boundaries=map_boundaries
 
@@ -132,8 +132,8 @@ class tireNode:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
 
@@ -190,8 +190,8 @@ class tireNode:
 
             # publish mpc param and map boundaries
             # self.mpc_param_pub.publish(self.mpc_param)
-            self.publish_waypoint_markers(self.map_boundaries[:,0,:], "map_b_left")
-            self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_right")
+            self.publish_waypoint_markers(self.map_boundaries[:,0,:], "map_b_right")
+            self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_left")
 
             # # publish trajectory bounds
             boundaries = np.zeros((self.N, 3, 3))
@@ -203,13 +203,13 @@ class tireNode:
                 # store predicted position
                 mpc_sd.append(x_[:2])
 
-                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin).reshape(2)
-                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin).reshape(2)
+                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.track_safety_margin).reshape(2)
                 boundaries[stage,1,0:2] = self.fren_conv.get_cartesian(s_mod, 0).reshape(2)
+                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.track_safety_margin).reshape(2)
 
-            self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
+            self.publish_waypoint_markers(boundaries[:,0,:], "d_right")
             self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            self.publish_waypoint_markers(boundaries[:,2,:], "d_right")
+            self.publish_waypoint_markers(boundaries[:,2,:], "d_left")
             mpc_s_coords = np.array([el[0]%self.spline.track_length for el in mpc_sd])
             mpc_d_coords = np.array([el[1] for el in mpc_sd])
             pred_waypoints_x, pred_waypoints_y = self.fren_conv.get_cartesian(mpc_s_coords, mpc_d_coords)
@@ -329,7 +329,7 @@ class tireNode:
         position = Odometry()
         position.header.stamp = rospy.Time.now()
         position.header.frame_id = "base_link"
-        position.pose.pose.position.y = state[State.MIN_DIST_TO_CENTER_LINE_N]
+        position.pose.pose.position.y = state[StateIndex.MIN_DIST_TO_CENTER_LINE_N]
         self.pos_n_pub.publish(position)
 
     def publish_tireforce(self, states: list) -> None:

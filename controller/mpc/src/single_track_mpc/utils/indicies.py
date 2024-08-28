@@ -1,6 +1,6 @@
 from enum import IntEnum
 
-class State(IntEnum):
+class StateIndex(IntEnum):
     POS_ON_CENTER_LINE_S = 0
     MIN_DIST_TO_CENTER_LINE_N = 1
     ORIENTATION_THETA = 2

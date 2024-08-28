@@ -2,9 +2,6 @@
 from typing import Tuple
 import numpy as np
 import rospy
-import yaml
-import logging
-import time
 from scipy.integrate import solve_ivp
 from frenet_converter.frenet_converter import FrenetConverter
 from f110_msgs.msg import WpntArray
@@ -264,8 +261,8 @@ class Single_track_MPC_Controller:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1], waypoints[:-1], boundaries[:-1]])
         return d_left, res_coords, d_right
 
