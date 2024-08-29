@@ -228,7 +228,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
 def get_parameters(cfg: STMPCConfig) -> np.ndarray:
     """Get parameters from stmpc_config"""
     params = np.array([
-        2,  # initial velocity, not important should be immediately changed
+        2,  # initial velocity, not important it is immediately changed
         cfg.qadv,
         cfg.qv,
         cfg.qn,

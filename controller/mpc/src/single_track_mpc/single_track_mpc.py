@@ -192,8 +192,8 @@ class Single_track_MPC_Controller:
                 self.acados_solver.set(i, "lbu", np.array([self.stmpc_config.a_min, self.stmpc_config.ddelta_min]))
                 self.acados_solver.set(i, "ubu", np.array([self.stmpc_config.a_max, self.stmpc_config.ddelta_max]))
                 # do not change i+1 to i since mpc needs the initial state
-                self.acados_solver.set(i + 1, "lbx", np.array([self.stmpc_config.v_min, -0.4]))
-                self.acados_solver.set(i + 1, "ubx", np.array([self.stmpc_config.v_max, 0.4]))
+                self.acados_solver.set(i + 1, "lbx", np.array([self.stmpc_config.v_min, self.stmpc_config.delta_min]))
+                self.acados_solver.set(i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max]))
 
         # Solve OCP
         status = self.acados_solver.solve()

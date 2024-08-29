@@ -56,13 +56,9 @@ class tireNode:
         self.car_config = load_car_config_ros(self.racecar_version)
         self.tire_config = load_pacejka_tire_config_ros(self.racecar_version)
 
-        self.N = self.stmpc_config.N
+        self.stmpc_config.N = self.stmpc_config.N
 
-        self.lf = self.car_config.lf
-        self.lr = self.car_config.lr
-        self.m = self.car_config.m
-        self.Iz= self.car_config.Iz
-        self.g = 9.8
+        self.car_config.lf = self.car_config.lf
 
         # Just for cost function testing
         self.track_safety_margin = self.stmpc_config.track_safety_margin
@@ -71,29 +67,29 @@ class tireNode:
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        self.states=np.zeros(7*(self.N+1))
-        self.states_k_1=np.zeros(7*(self.N+1))
+        self.states=np.zeros(7*(self.stmpc_config.N+1))
+        self.states_k_1=np.zeros(7*(self.stmpc_config.N+1))
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
 
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        mincurv_raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
+        raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
-        x, y = self._transform_waypoints_to_cartesian(mincurv_raceline.wpnts)
+        x, y = self._transform_waypoints_to_cartesian(raceline.wpnts)
         self.fren_conv = FrenetConverter(x, y)
 
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(mincurv_raceline.wpnts) # on f track trajectory is 81.803 m long.
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords(raceline.wpnts) # on f track trajectory is 81.803 m long.
 
         self.spline = SplineTrack(coords_direct=coords_path)
 
         # create the mpc contro ller struct to use the function
 
-        kapparef = [x.kappa_radpm for x in mincurv_raceline.wpnts]
-        vx_ref =[x.vx_mps for x in mincurv_raceline.wpnts]
+        kapparef = [x.kappa_radpm for x in raceline.wpnts]
+        vx_ref =[x.vx_mps for x in raceline.wpnts]
         self.max_v_target = max(vx_ref)
-        self.s_ref = np.array([x.s_m for x in mincurv_raceline.wpnts])
+        self.s_ref = np.array([x.s_m for x in raceline.wpnts])
         self.pathlength = self.s_ref[-1]
 
 
@@ -151,32 +147,6 @@ class tireNode:
             y[idx] = wpnt.y_m
         return np.array(x), np.array(y)
 
-    def convert_frenet_to_cartesian(self,frenet_coords)->np.array:
-        """
-        Converts frenet coordinates to cartesian coordinates.
-
-        Input:  frenet_coords   : Either a np.array or a np.arrray of np.arrays holding the frenet coordinates
-        Returns: np.array       : Cartesian coordinates in the shape of the input.
-
-        """
-
-        co, si = np.cos(-np.pi/2), np.sin(-np.pi/2)
-        R = np.array(((co, -si), (si, co)))
-
-        frenet_coords = np.array(frenet_coords, dtype=np.float32)
-        # print("heyo", frenet_coords, frenet_coords.shape)
-
-        if frenet_coords.shape[0] > 2:
-            return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)
-
-        else:
-
-            s = frenet_coords[0]
-            d = frenet_coords[1]
-
-            return self.spline.get_coordinate(s) + d*self.spline.get_derivative(s) @ R
-
-
     #############
     # Main Loop #
     #############
@@ -194,9 +164,9 @@ class tireNode:
             self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_left")
 
             # # publish trajectory bounds
-            boundaries = np.zeros((self.N, 3, 3))
+            boundaries = np.zeros((self.stmpc_config.N, 3, 3))
             mpc_sd = []
-            for stage in range(self.N ):
+            for stage in range(self.stmpc_config.N ):
                 x_ = self.states[7*stage:7*(stage+1)-1]
                 s_ = x_[0]
                 s_mod = s_ % self.spline.track_length
