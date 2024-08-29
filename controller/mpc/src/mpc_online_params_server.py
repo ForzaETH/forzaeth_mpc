@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 import rospy
-import rospkg
-import yaml, os
+import rosparam
 from dynamic_reconfigure.server import Server
 from controller.cfg import dyn_mpc_params_tunerConfig
-from pbl_config import STMPCConfig, load_STMPC_config_ros, STMPCConfigDyn
+from pbl_config import STMPCConfig, load_STMPC_config_ros, STMPCConfigDyn, KMPCConfig, load_KMPC_config_ros, KMPCConfigDyn
 
 class CallbackHandler:
-    def __init__(self) -> None:
-        self.dyn_config_keys = STMPCConfigDyn.model_fields.keys()
+    def __init__(self, mpc_version: str) -> None:
+        self.version = mpc_version
+        if mpc_version == "STMPC":
+            self.dyn_config_keys = STMPCConfigDyn.model_fields.keys()
+        elif mpc_version == "KMPC":
+            self.dyn_config_keys = KMPCConfigDyn.model_fields.keys()
+        else:
+            raise ValueError("Invalid MPC version")
+
 
     def callback(self, config: dyn_mpc_params_tunerConfig, level):
-        rospy.loginfo("[STMPC dynamic parameter server] MPC Parameters Updated")
+        rospy.loginfo(f"[{self.version} dynamic parameter server] MPC Parameters Updated")
         print(config)
 
         for k in self.dyn_config_keys:
@@ -20,26 +26,31 @@ class CallbackHandler:
 
         return config
 
-def get_default_dict():
+def get_default_dict(mpc_version: str) -> dict:
     # get full config from yaml
     racecar_version = rospy.get_param('/racecar_version') # NUCX or SIM
-    #TODO: automatically recongize mpc version with rosparam
-    stmpc_config: STMPCConfig = load_STMPC_config_ros(racecar_version)
+
+    if mpc_version == "KMPC":
+        config: KMPCConfig = load_KMPC_config_ros(racecar_version)
+        dyn_config_keys = KMPCConfigDyn.model_fields.keys()
+    elif mpc_version == "STMPC":
+        config: STMPCConfig = load_STMPC_config_ros(racecar_version)
+        dyn_config_keys = STMPCConfigDyn.model_fields.keys()
 
     # only iterate in possible keys of the dynamic reconfigure
-    dyn_config_keys = STMPCConfigDyn.model_fields.keys()
-
-    default_config = {key: getattr(stmpc_config, key) for key in dyn_config_keys}
+    default_config = {key: getattr(config, key) for key in dyn_config_keys}
 
     return default_config
 
 
 if __name__ == "__main__":
     rospy.init_node("mpc_dyn_rec_tuner_server", anonymous=False)
-    cbh = CallbackHandler()
+    mpc_version = rosparam.get_param("/mpc_version")
+
+    cbh = CallbackHandler(mpc_version)
     server = Server(dyn_mpc_params_tunerConfig, cbh.callback)
 
-    default_dict = get_default_dict()
+    default_dict = get_default_dict(mpc_version)
 
     server.update_configuration(default_dict)
     rospy.spin()
