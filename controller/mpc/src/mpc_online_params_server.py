@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import rospy
 import rosparam
+from typing import Union
 from dynamic_reconfigure.server import Server
-from controller.cfg import dyn_mpc_params_tunerConfig
+from controller.cfg import dyn_kmpc_params_tunerConfig, dyn_stmpc_params_tunerConfig
 from pbl_config import STMPCConfig, load_STMPC_config_ros, STMPCConfigDyn, KMPCConfig, load_KMPC_config_ros, KMPCConfigDyn
 
 class CallbackHandler:
@@ -16,7 +17,7 @@ class CallbackHandler:
             raise ValueError("Invalid MPC version")
 
 
-    def callback(self, config: dyn_mpc_params_tunerConfig, level):
+    def callback(self, config, level):
         rospy.loginfo(f"[{self.version} dynamic parameter server] MPC Parameters Updated")
         print(config)
 
@@ -48,6 +49,10 @@ if __name__ == "__main__":
     mpc_version = rosparam.get_param("/mpc_version")
 
     cbh = CallbackHandler(mpc_version)
+    if mpc_version == "STMPC":
+        dyn_mpc_params_tunerConfig = dyn_stmpc_params_tunerConfig
+    elif mpc_version == "KMPC":
+        dyn_mpc_params_tunerConfig = dyn_kmpc_params_tunerConfig
     server = Server(dyn_mpc_params_tunerConfig, cbh.callback)
 
     default_dict = get_default_dict(mpc_version)
