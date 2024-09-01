@@ -38,9 +38,17 @@ import types
 import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat
+from pbl_config import KMPCConfig, CarConfig
 
 
-def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: list, cfg_dict: dict):
+def bicycle_model(
+        s0: list,
+        kapparef: list,
+        vx_ref: list,
+        d_left: list,
+        d_right: list,
+        kmpc_config: KMPCConfig,
+        car_config: CarConfig):
     # define structs
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
@@ -52,7 +60,7 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     # copy loop to beginning and end
     # Something wrong：s0[1:length]
     s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
-    s0 = np.append([s0[:length -1 ] - s0[length - 1]], s0)
+    s0 = np.append([s0[:length - 1] - s0[length - 1]], s0)
 
     kapparef = np.append(kapparef, kapparef[1:length])
     kapparef = np.append([kapparef[:length - 1] - kapparef[length - 1]], kapparef)
@@ -61,18 +69,18 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     vx_ref = np.append([vx_ref[:length - 1] - vx_ref[length - 1]], vx_ref)
 
     d_left = np.append(d_left, d_left[1:length])
-    d_left = np.append([d_left[:length -1 ] - d_left[length - 1]], d_left)
+    d_left = np.append([d_left[:length - 1] - d_left[length - 1]], d_left)
 
     d_right = np.append(d_right, d_right[1:length])
-    d_right = np.append([d_right[:length -1 ] - d_right[length - 1]], d_right)
+    d_right = np.append([d_right[:length - 1] - d_right[length - 1]], d_right)
 
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
     vx_ref_s = interpolant("vx_ref_s", "bspline", [s0], vx_ref)
-    outer_bound_s = interpolant("outer_bound_s", "bspline", [s0], d_left)
-    inner_bound_s = interpolant("inner_bound_s", "bspline", [s0], d_right)
+    left_bound_s = interpolant("left_bound_s", "bspline", [s0], d_left)
+    right_bound_s = interpolant("right_bound_s", "bspline", [s0], d_right)
 
-    ## CasADi Model
+    # CasADi Model
     # set up states & controls
     s = MX.sym("s")
     n = MX.sym("n")
@@ -99,9 +107,9 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     z = vertcat([])
 
     # parameters
-    lr = cfg_dict['lr']
-    lf = cfg_dict['lf']
-    freq = cfg_dict['MPC_freq']
+    lr = car_config.lr
+    lf = car_config.lf
+    freq = kmpc_config.MPC_freq
 
     # parameters
     V_target = MX.sym('V_target')
@@ -109,24 +117,30 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     weight_qn = MX.sym('weight_qn')
     weight_qv = MX.sym('weight_qv')
     weight_qalpha = MX.sym('weight_qalpha')
-    weight_qac=MX.sym('weight_qac')
-    weight_ddelta=MX.sym('weight_ddelta')
-    cs_a_lat_min = MX.sym('cs_a_lat_min')
-    cs_a_lat_max = MX.sym('cs_a_lat_max')
+    weight_qac = MX.sym('weight_qac')
+    weight_ddelta = MX.sym('weight_ddelta')
+    a_lat_max = MX.sym('a_lat_max')
     # dynamic boundary inflation
     bound_inflation = MX.sym('boundary_inflation')
 
-    p = vertcat(V_target,weight_adv,weight_qv,weight_qn,weight_qalpha,weight_qac,weight_ddelta,# weights
-                cs_a_lat_min, cs_a_lat_max, # lateral acceleration constraints
-                bound_inflation) # boundary inflation
+    p = vertcat(
+        V_target,
+        weight_adv,
+        weight_qv,
+        weight_qn,
+        weight_qalpha,
+        weight_qac,
+        weight_ddelta,
+        a_lat_max,
+        bound_inflation)  # boundary inflation
 
     # calculate the index
     s_mod = fmod(s, pathlength)
 
     # kinematic model
-    sdota = (v * cos(alpha )) / (1 - kapparef_s(s_mod) * n)
-    ndot = v * sin(alpha) # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
-    alphadot= v / (lr + lf) * cs.tan(delta) - kapparef_s(s_mod) * sdota
+    sdota = (v * cos(alpha)) / (1 - kapparef_s(s_mod) * n)
+    ndot = v * sin(alpha)  # (v * cos(alpha + beta))**2 * (0.5 * kapparef_s(s_mod))
+    alphadot = v / (lr + lf) * cs.tan(delta) - kapparef_s(s_mod) * sdota
     # continuous dynamics
     f_expl = vertcat(
         sdota,
@@ -135,92 +149,90 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
         der_v,
         derDelta,
     )
-    f_expl_func = Function('f_expl_func', [s,n,alpha,v,delta, der_v, derDelta, p], [f_expl])
-
+    f_expl_func = Function('f_expl_func', [s, n, alpha, v, delta, der_v, derDelta, p], [f_expl])
 
     # external discretized dynamics for the reverse behavior
     # runge kutta simulation
-    control_period=1/freq
-    f_c_runge= vertcat(
+    control_period = 1 / freq
+    f_c_runge = vertcat(
         sdota,
         ndot,
         alphadot,
     )
-    x_runge = vertcat(s,n,alpha)
-    f_c_runge_func = Function('f_c_runge_func', [s,n,alpha,v,delta,p], [f_c_runge])
+    x_runge = vertcat(s, n, alpha)
+    f_c_runge_func = Function('f_c_runge_func', [s, n, alpha, v, delta, p], [f_c_runge])
     # arg input
-    dis_v_k=v+der_v
-    dis_delta_k=delta+derDelta
+    dis_v_k = v + der_v
+    dis_delta_k = delta + derDelta
 
-    k1 = control_period * f_c_runge_func(s,n,alpha,dis_v_k,dis_delta_k,p)
-    x_next_runge= x_runge + 0.5 * k1
-    k2 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
+    k1 = control_period * f_c_runge_func(s, n, alpha, dis_v_k, dis_delta_k, p)
+    x_next_runge = x_runge + 0.5 * k1
+    k2 = control_period * f_c_runge_func(x_next_runge[0], x_next_runge[1], x_next_runge[2], dis_v_k, dis_delta_k, p)
     x_next_runge = x_runge + 0.5 * k2
-    k3 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
+    k3 = control_period * f_c_runge_func(x_next_runge[0], x_next_runge[1], x_next_runge[2], dis_v_k, dis_delta_k, p)
     x_next_runge = x_runge + k3
-    k4 = control_period* f_c_runge_func(x_next_runge[0],x_next_runge[1],x_next_runge[2],dis_v_k,dis_delta_k,p)
-    x_next_runge=x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
+    k4 = control_period * f_c_runge_func(x_next_runge[0], x_next_runge[1], x_next_runge[2], dis_v_k, dis_delta_k, p)
+    x_next_runge = x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
 
-    f_disc=vertcat(x_next_runge,dis_v_k,dis_delta_k)
-
+    f_disc = vertcat(x_next_runge, dis_v_k, dis_delta_k)
 
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost =  -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2 +weight_qv*(v-V_target)**2+weight_qac*der_v**2+weight_ddelta*derDelta**2
-    model.cost_expr_ext_cost_e = -weight_adv*sdota/freq+weight_qn * n**2 + weight_qalpha * alpha**2+weight_qv*(v-V_target)**2
+    model.cost_expr_ext_cost = -weight_adv * sdota / freq + weight_qn * n**2 + weight_qalpha * \
+        alpha**2 + weight_qv * (v - V_target)**2 + weight_qac * der_v**2 + weight_ddelta * derDelta**2
+    model.cost_expr_ext_cost_e = -weight_adv * sdota / freq + weight_qn * \
+        n**2 + weight_qalpha * alpha**2 + weight_qv * (v - V_target)**2
 
     # constraint on forces
-    a_lat = v * v * cs.tan(delta)/(lr+lf)
+    a_lat = v * v * cs.tan(delta) / (lr + lf)
 
     # constraint on lateral erros
     # distance to border
-    n_outer_bound = outer_bound_s(s_mod) + n + bound_inflation
-    n_inner_bound = inner_bound_s(s_mod) - n - bound_inflation
+    n_left_bound = left_bound_s(s_mod) + n + bound_inflation
+    n_right_bound = right_bound_s(s_mod) - n - bound_inflation
 
     # Clip that the boundaries don't overlap
-    n_outer_bound = cs.fmax(n_outer_bound, 0)
-    n_inner_bound = cs.fmax(n_inner_bound, 0)
+    n_left_bound = cs.fmax(n_left_bound, 0)
+    n_right_bound = cs.fmax(n_right_bound, 0)
 
     pos_s = MX.sym('pos_s')
     pos_n = MX.sym('pos_n')
-    model.n_outer_bound = Function('outer_bound', [pos_s,pos_n], [outer_bound_s(pos_s) + pos_n])
-    model.n_inner_bound = Function('inner_bound', [pos_s,pos_n], [inner_bound_s(pos_s) - pos_n])
+    model.n_left_bound = Function('left_bound', [pos_s, pos_n], [left_bound_s(pos_s) + pos_n])
+    model.n_right_bound = Function('right_bound', [pos_s, pos_n], [right_bound_s(pos_s) - pos_n])
 
     # nonlinear constraints
     constraint.alat = Function("a_lat", [x, u], [a_lat])
     constraint.pathlength = pathlength
     # construct online parameter turning constraints
-    diamond_acceleration_constraint=0 # not used now
-    dynamic_turn_constraint_min=vertcat(a_lat-cs_a_lat_min)
-    dynamic_turn_constraint_max=vertcat(a_lat-cs_a_lat_max)
-    constraint.expr = vertcat(dynamic_turn_constraint_min, dynamic_turn_constraint_max, n_inner_bound, n_outer_bound,diamond_acceleration_constraint)
-    constraint.expr_e =constraint.expr
-    ### read the parameters range from the yaml file
+    constraint.expr = vertcat(
+        a_lat - (-a_lat_max),
+        a_lat - a_lat_max,
+        n_right_bound,
+        n_left_bound)
+    constraint.expr_e = constraint.expr
+    # read the parameters range from the yaml file
     # Model bounds
-    model.n_min = cfg_dict['track_safety_margin']  # width of the track [m]
-    model.n_max = cfg_dict['track_max_width'] # width of the track [m]
+    model.n_min = kmpc_config.track_safety_margin  # width of the track [m]
+    model.n_max = kmpc_config.track_max_width  # width of the track [m]
     # state bounds
 
-    model.delta_min = cfg_dict["delta_min"] # minimum steering angle [rad]
-    model.delta_max = cfg_dict["delta_max"] # maximum steering angle [rad]
+    model.delta_min = kmpc_config.delta_min  # minimum steering angle [rad]
+    model.delta_max = kmpc_config.delta_max  # maximum steering angle [rad]
 
     # input bounds
-    model.ddelta_min = cfg_dict["ddelta_min"] # minimum change rate of stering angle [rad/s]
-    model.ddelta_max = cfg_dict["ddelta_max"] # maximum change rate of steering angle [rad/s]
-    model.dv_min = cfg_dict["a_min"] # minimum velocity change rate
-    model.dv_max = cfg_dict["a_max"]# maximum velocity change rate
+    model.ddelta_min = kmpc_config.ddelta_min  # minimum change rate of stering angle [rad/s]
+    model.ddelta_max = kmpc_config.ddelta_max  # maximum change rate of steering angle [rad/s]
+    model.dv_min = kmpc_config.a_min  # minimum velocity change rate
+    model.dv_max = kmpc_config.a_max  # maximum velocity change rate
 
     # nonlinear constraint
-    constraint.alat_min = cfg_dict["alat_min"] # maximum lateral force [m/s^2]
-    constraint.alat_max = cfg_dict["alat_max"] # maximum lateral force [m/s^1]
+    constraint.alat_max = kmpc_config.alat_max  # maximum lateral force [m/s^1]
 
     # Velocity constraint
-    constraint.v_min = cfg_dict["v_min"] # minimum velocity [m/s]
-    constraint.v_max = cfg_dict["v_max"] # maximum velocity [m/s]
-
-
+    constraint.v_min = kmpc_config.v_min  # minimum velocity [m/s]
+    constraint.v_max = kmpc_config.v_max  # maximum velocity [m/s]
 
     # Define model struct
     params = types.SimpleNamespace()
@@ -236,7 +248,6 @@ def bicycle_model(s0: list, kapparef: list,vx_ref: list ,d_left: list, d_right: 
     model.params = params
     model.kappa = kapparef_s
     model.f_expl_func = f_expl_func
-    model.outer_bound_s = outer_bound_s
-    model.inner_bound_s = inner_bound_s
+    model.left_bound_s = left_bound_s
+    model.right_bound_s = right_bound_s
     return model, constraint, params
-
