@@ -10,7 +10,6 @@ from f110_msgs.msg import WpntArray
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
-from f110_msgs.msg import kinematic_mpc_param
 from plotting_fnc import *
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Float32,Float64MultiArray
@@ -19,6 +18,7 @@ from kinematic_mpc.utils.indicies import StateIndex
 from splinify.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 from dynamic_reconfigure.msg import Config
+from dynamic_reconfigure.client import Client
 
 from pbl_config import KMPCConfig, load_KMPC_config_ros, CarConfig, load_car_config_ros
 from frenet_converter.frenet_converter import FrenetConverter
@@ -54,6 +54,7 @@ class tireNode:
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
         #TODO: adapt dyn reconf to Client
         # rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb)
+        self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.mpc_config_cb)
 
         self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
@@ -145,13 +146,14 @@ class tireNode:
         """acceleration callback. Normally not used."""
        # self.acceleration = data.linear_acceleration.x
 
-    def mpc_params_cb(self, params:Config):
+    def mpc_config_cb(self, params:Config):
         """
         Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
         Values from .yaml file are set in mpc_online_params_server
         """
-        self.bound_inflation = params.doubles[14].value
-
+        for k, v in params.items():
+            if k != "groups":
+                setattr(self.kmpc_config, k, v)
 
     def _slip_angle(self, data: Float32) -> None:
         """slip angle callback callback. Normally not used."""

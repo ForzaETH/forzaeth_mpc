@@ -8,7 +8,6 @@ import yaml
 from f110_msgs.msg import WpntArray
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from nav_msgs.msg import Odometry
-from f110_msgs.msg import kinematic_mpc_param
 from plotting_fnc import *
 from std_msgs.msg import Float64MultiArray
 from splinify.splinify import SplineTrack
@@ -39,7 +38,6 @@ class tireNode:
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
 
         self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
-        self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
         self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
         self.d_left_pub = rospy.Publisher("/mpc_controller/d_left", MarkerArray, queue_size=10)
