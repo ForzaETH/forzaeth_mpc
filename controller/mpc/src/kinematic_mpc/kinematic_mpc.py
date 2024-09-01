@@ -5,7 +5,7 @@ import rospy
 from scipy.integrate import solve_ivp
 from frenet_converter.frenet_converter import FrenetConverter
 from f110_msgs.msg import WpntArray
-from splinify.splinify import SplineTrack
+from kinematic_mpc.utils.splinify import SplineTrack
 from pbl_config import KMPCConfig, CarConfig
 from kinematic_mpc.acados_settings import acados_settings
 

@@ -15,7 +15,7 @@ from sensor_msgs.msg import Imu
 from std_msgs.msg import Float32,Float64MultiArray
 from tf.transformations import euler_from_quaternion
 from kinematic_mpc.utils.indicies import StateIndex
-from splinify.splinify import SplineTrack
+from kinematic_mpc.utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 from dynamic_reconfigure.msg import Config
 from dynamic_reconfigure.client import Client

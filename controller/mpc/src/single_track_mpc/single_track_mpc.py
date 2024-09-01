@@ -6,7 +6,7 @@ from scipy.integrate import solve_ivp
 from frenet_converter.frenet_converter import FrenetConverter
 from f110_msgs.msg import WpntArray
 from single_track_mpc.acados_settings import acados_settings
-from splinify.splinify import SplineTrack
+from single_track_mpc.utils.splinify import SplineTrack
 from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig
 
 

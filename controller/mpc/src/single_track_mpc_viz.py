@@ -10,7 +10,7 @@ from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from nav_msgs.msg import Odometry
 from plotting_fnc import *
 from std_msgs.msg import Float64MultiArray
-from splinify.splinify import SplineTrack
+from single_track_mpc.utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 
 from frenet_converter.frenet_converter import FrenetConverter
