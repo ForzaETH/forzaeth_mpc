@@ -49,6 +49,23 @@ class Single_track_MPC_Controller:
         # Initial time
         self.comp_time = 0
 
+        # Init the trailing controller parameters
+        self.trailing_mode = True
+        self.trailing_gap = 1.5
+        self.trailing_p_gain = 0.5
+        self.trailing_i_gain = 0.001
+        self.trailing_d_gain = 0.2
+        self.blind_trailing_speed = 1.5
+        self.loop_rate = 40
+        self.gap = None
+        self.gap_should = None
+        self.gap_error = None
+        self.gap_actual = None
+        self.v_diff = None
+        self.i_gap = 0
+
+
+
     def mpc_initialize_solver(self, pose_frenet: np.ndarray) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
 
@@ -155,8 +172,18 @@ class Single_track_MPC_Controller:
 
         # dynamically change the target speed, weight parameters and constraints
         for i in range(self.stmpc_config.N + 1):
-            idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
-            target_v_speed = np.ones(1) * self.waypoint_array_in_map[idx, 2]
+            # head to head racing
+            # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
+            if(self.state == "TRAILING" and (self.opponent is not None)): #Trailing controller
+                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
+            else:
+                idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
+                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+                self.overtake_d=0
+                # head to head overtaking
+                if(self.state == "OVERTAKE" and (self.opponent is not None)):
+                    self.overtake_d=self.waypoint_array_in_map[idx,3]
+
             if i < self.stmpc_config.steps_delay:
                 # NOTE: increase the weight of the the steering angle cost, to effectively keep it constant
                 multiplier = 1e6
@@ -361,3 +388,28 @@ class Single_track_MPC_Controller:
             float(xdot[4]), float(xdot[5]), float(xdot[6]), accel, derDelta]
 
         return xdot
+    def trailing_controller(self, global_speed):
+
+        self.gap = (self.opponent[0] - self.position_in_map_frenet[0])%self.track_length # gap to opponent
+        # prev_gap = self.gap if self.gap_actual is None else self.gap_actual
+        self.gap_actual = self.gap
+        if self.trailing_mode:
+            self.gap_should = self.trailing_gap
+        else:
+            self.gap_should = self.position_in_map_frenet[2] * self.trailing_gap
+
+        self.gap_error = self.gap_should - self.gap_actual
+        self.v_diff =  self.position_in_map_frenet[2] - self.opponent[2]
+        self.i_gap = np.clip(self.i_gap + self.gap_error/self.loop_rate, -10, 10)
+
+        p_value = self.gap_error * self.trailing_p_gain
+        d_value = self.v_diff * self.trailing_d_gain
+        i_value = self.i_gap * self.trailing_i_gain
+
+
+        self.trailing_command = np.clip(self.opponent[2] - p_value - i_value - d_value, 0, global_speed)
+        if not self.opponent[4] and self.gap_actual > self.gap_should:
+            self.trailing_command = max(self.blind_trailing_speed, self.trailing_command)
+
+        return self.trailing_command
+
