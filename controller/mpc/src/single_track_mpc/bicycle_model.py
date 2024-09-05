@@ -130,8 +130,9 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     a_long_min = MX.sym('a_long_min')
     a_long_max = MX.sym('a_long_max')
     safety_margin = MX.sym('safety_margin')
+    overtake_d = MX.sym('overtake_d')
     p = vertcat(V_target, weight_adv, weight_qv, weight_qn, weight_qalpha, weight_qac, weight_ddelta,  # weights
-                a_lat_max, a_long_min, a_long_max, safety_margin)  # lateral acceleration constraints
+                a_lat_max, a_long_min, a_long_max, safety_margin,overtake_d)  # lateral acceleration constraints
 
     # calculate the index
     s_mod = fmod(s, pathlength)
@@ -195,11 +196,11 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     model.x0 = np.array([0, 0, 0, 1, 0, 0, 0])
 
     terminal_multiplier = 10
-    model.cost_expr_ext_cost_0 = weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * \
+    model.cost_expr_ext_cost_0 = weight_qn * (n-overtake_d)**2 + weight_qalpha * theta**2 + weight_qv * \
         (v_x - V_target)**2 + weight_qac * accel**2 + weight_ddelta * derDelta**2
-    model.cost_expr_ext_cost = weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * \
+    model.cost_expr_ext_cost = weight_qn * (n-overtake_d)**2 + weight_qalpha * theta**2 + weight_qv * \
         (v_x - V_target)**2 + weight_qac * accel**2 + weight_ddelta * derDelta**2
-    model.cost_expr_ext_cost_e = terminal_multiplier * (weight_qn * n**2 + weight_qalpha * theta**2 + weight_qv * (v_x - V_target)**2)
+    model.cost_expr_ext_cost_e = terminal_multiplier * (weight_qn * (n-overtake_d)**2 + weight_qalpha * theta**2 + weight_qv * (v_x - V_target)**2)
     if stmpc_config.vy_minimization:
         model.cost_expr_ext_cost_0 += 100 * v_y**2
         model.cost_expr_ext_cost += 100 * v_y**2

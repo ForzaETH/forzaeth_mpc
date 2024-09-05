@@ -238,7 +238,8 @@ def get_parameters(cfg: STMPCConfig) -> np.ndarray:
         cfg.alat_max,
         cfg.a_min,
         cfg.a_max,
-        cfg.track_safety_margin
+        cfg.track_safety_margin,
+        cfg.overtake_d,
     ]).astype(float)
 
     return params

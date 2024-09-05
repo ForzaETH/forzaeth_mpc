@@ -48,6 +48,8 @@ class Single_track_MPC_Controller:
         self.previous_frenet_s = 0
         # Initial time
         self.comp_time = 0
+        #Initial overtake lateral distance
+        self.overtake_d = self.stmpc_config.overtake_d
 
         # Init the trailing controller parameters
         self.trailing_mode = True
@@ -197,7 +199,8 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
                                               self.stmpc_config.a_max,
-                                              self.stmpc_config.track_safety_margin],
+                                              self.stmpc_config.track_safety_margin,
+                                              self.overtake_d],
                                              dtype=np.float64)
             else:
                 online_parameters = np.array([target_v_speed,
@@ -210,7 +213,8 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
                                               self.stmpc_config.a_max,
-                                              self.stmpc_config.track_safety_margin],
+                                              self.stmpc_config.track_safety_margin,
+                                              self.overtake_d],
                                              dtype=np.float64)
 
             self.acados_solver.set(i, "p", online_parameters)
