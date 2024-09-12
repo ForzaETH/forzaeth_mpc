@@ -220,7 +220,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     if stmpc_config.combined_constraints == "ellipse":
         combined_constraints=(a_lat/a_lat_max)**2+(der_v_x/a_long_max)**2
     elif stmpc_config.combined_constraints == "diamond":
-        combined_constraints=abs(a_lat/a_lat_max)+abs(der_v_x/a_long_max)
+        combined_constraints=cs.fabs(a_lat/a_lat_max)+cs.fabs(der_v_x/a_long_max)
     else:
         combined_constraints=0
     #TODO fix the n constraint with a single constraint
