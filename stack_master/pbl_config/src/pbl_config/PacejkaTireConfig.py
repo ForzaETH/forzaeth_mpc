@@ -75,7 +75,10 @@ def save_pacejka_tire_config(
     path = rospkg.RosPack().get_path('stack_master') + '/config/'
     model_path = path + racecar_version + '/pacejka/' + floor + '/'
     timestamp = datetime.now().strftime("%m%d")
-    filename = model_path + f'{timestamp}_pacejka.yaml'
+    archive_folder = model_path + 'archive/'
+    if not os.path.exists(archive_folder):
+        os.makedirs(archive_folder)
+    filename = archive_folder + f'{timestamp}_pacejka.yaml'
 
     # print warning if the file already exists
     if os.path.exists(filename):
