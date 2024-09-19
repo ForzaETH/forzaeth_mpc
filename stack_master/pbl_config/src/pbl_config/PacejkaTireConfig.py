@@ -1,7 +1,10 @@
-
+import os
 import yaml
 import rospkg
+import logging
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, ValidationError
+
 
 class PacejkaTireConfig(BaseModel):
     """Pacejka Tire Parameters configuration class"""
@@ -27,6 +30,7 @@ class PacejkaTireConfig(BaseModel):
     Er: float
     """Lateral stiffness coefficient (E) of the REAR tire"""
 
+
 def load_pacejka_tire_config_ros(racecar_version: str) -> PacejkaTireConfig:
     """Loads the pacejka_tire config from the yaml file
 
@@ -36,7 +40,7 @@ def load_pacejka_tire_config_ros(racecar_version: str) -> PacejkaTireConfig:
 
     relative_path = '/config/' + racecar_version + '/pacejka_tire_params.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
-    with open(config_path, 'r') as file:
+    with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
         try:
             config = PacejkaTireConfig(**cfg_dict)
@@ -54,3 +58,35 @@ def load_pacejka_tire_config_ros(racecar_version: str) -> PacejkaTireConfig:
             return None
 
     return config
+
+
+def save_pacejka_tire_config(
+        config: PacejkaTireConfig,
+        racecar_version: str,
+        floor: str,
+        update_latest: bool = True) -> None:
+    """Saves the pacejka_tire config to the yaml file
+
+    Args:
+        config (PacejkaTireConfig): a PacejkaTireConfig
+    """
+    path = rospkg.RosPack().get_path('stack_master') + '/config/'
+    model_path = path + racecar_version + '/pacejka/' + floor + '/'
+    timestamp = datetime.now().strftime("%m%d")
+    filename = model_path + f'{timestamp}_pacejka.yaml'
+
+    # print warning if the file already exists
+    if os.path.exists(filename):
+        logging.warning("%s already exists and will be overwritten", filename)
+
+    with open(filename, 'w', encoding='utf-8') as file:
+        yaml.dump(config.model_config, file)
+    logging.info("Saved pacejka_tire config of %s on floor %s to %s", racecar_version, floor, filename)
+
+    if update_latest:
+        # update  default.yaml to be symlink to the latest model
+        latest_path = model_path + 'default.yaml'
+        if os.path.exists(latest_path):
+            os.remove(latest_path)
+        os.symlink(filename, latest_path)
+        logging.info("Updated latest pacejka_tire config symlink of %s on floor %s to %s", racecar_version, floor, filename)
