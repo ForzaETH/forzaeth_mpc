@@ -30,15 +30,17 @@ class PacejkaTireConfig(BaseModel):
     Er: float
     """Lateral stiffness coefficient (E) of the REAR tire"""
 
+    floor: str
+    """Floor indicating location of the track"""
 
-def load_pacejka_tire_config_ros(racecar_version: str) -> PacejkaTireConfig:
+def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTireConfig:
     """Loads the pacejka_tire config from the yaml file
 
     Args:
         racecar_version (str): a car name
     """
 
-    relative_path = '/config/' + racecar_version + '/pacejka_tire_params.yaml'
+    relative_path = '/config/' + racecar_version + '/pacejka/' + floor + '/default.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
     with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
@@ -80,7 +82,7 @@ def save_pacejka_tire_config(
         logging.warning("%s already exists and will be overwritten", filename)
 
     with open(filename, 'w', encoding='utf-8') as file:
-        yaml.dump(config.model_config, file)
+        yaml.dump(config.dict(), file)
     logging.info("Saved pacejka_tire config of %s on floor %s to %s", racecar_version, floor, filename)
 
     if update_latest:

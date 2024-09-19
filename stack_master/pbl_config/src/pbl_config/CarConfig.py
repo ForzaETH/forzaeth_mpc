@@ -16,6 +16,25 @@ class CarConfig(BaseModel):
     """Distance from the center of mass to the rear axle"""
     h_cg: float
     """Height of the center of gravity"""
+    a_max: float
+    """Maximum acceleration"""
+    a_min: float
+    """Minimum acceleration (maximum deceleration)"""
+    C_0d: float
+    """Steering Angle-to-Servo Offset"""
+    C_d: float
+    """Steering Angle-to-Servo Gain"""
+    C_acc: float
+    """Acceleration to Current Gain"""
+    C_dec: float
+    """Deceleration to Current Gain"""
+    C_R: float
+    """Velocity to Current Gain"""
+    tau_steer: float
+    """Steering Angle Time Constant"""
+    model_name: str
+    """Name of the car model"""
+
 
 def load_car_config_ros(racecar_version: str) -> CarConfig:
     """Loads the car config from the yaml file
@@ -24,7 +43,7 @@ def load_car_config_ros(racecar_version: str) -> CarConfig:
         racecar_version (str): a car name
     """
 
-    relative_path = '/config/' + racecar_version + '/car_params.yaml'
+    relative_path = '/config/' + racecar_version + '/car_model.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
     with open(config_path, 'r') as file:
         cfg_dict = yaml.safe_load(file)
