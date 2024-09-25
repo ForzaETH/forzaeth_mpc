@@ -30,6 +30,10 @@ class CarConfig(BaseModel):
     """Deceleration to Current Gain"""
     C_R: float
     """Velocity to Current Gain"""
+    C_0v: float
+    """Velocity-to-erpm Offset"""
+    C_v: float
+    """Velocity-to-erpm Gain"""
     tau_steer: float
     """Steering Angle Time Constant"""
     model_name: str

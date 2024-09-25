@@ -1,8 +1,8 @@
 import os
-import yaml
-import rospkg
 import logging
 from datetime import datetime
+import yaml
+import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 
@@ -85,7 +85,7 @@ def save_pacejka_tire_config(
         logging.warning("%s already exists and will be overwritten", filename)
 
     with open(filename, 'w', encoding='utf-8') as file:
-        yaml.dump(config.dict(), file)
+        yaml.dump(config.model_dump(), file)
     logging.info("Saved pacejka_tire config of %s on floor %s to %s", racecar_version, floor, filename)
 
     if update_latest:
