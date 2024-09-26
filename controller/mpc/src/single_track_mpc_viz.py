@@ -53,7 +53,7 @@ class tireNode:
         self.floor = rospy.get_param("/floor")
         self.stmpc_config = load_STMPC_config_ros(self.racecar_version)
         self.car_config = load_car_config_ros(self.racecar_version)
-        self.tire_config = load_pacejka_tire_config_ros(self.racecar_version, self.floor) # TODO: read floor from param
+        self.tire_config = load_pacejka_tire_config_ros(self.racecar_version, self.floor)
 
         self.stmpc_config.N = self.stmpc_config.N
 

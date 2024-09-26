@@ -42,22 +42,30 @@ def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTir
 
     relative_path = '/config/' + racecar_version + '/pacejka/' + floor + '/default.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
-    with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = yaml.safe_load(file)
-        try:
-            config = PacejkaTireConfig(**cfg_dict)
-        except ValidationError as e:
-            for error in e.errors():
-                if error["type"] == "missing":
-                    for missing_key in error["loc"]:
-                        print(f"Missing key <{missing_key}> in {relative_path} file. Please add it.")
-                elif error["type"] == "extra_forbidden":
-                    for extra_key in error["loc"]:
-                        print(f"Extra key <{extra_key}> in {relative_path} file. Please remove it.")
-                else:
-                    print(f"Error loading the {relative_path} file. Please contact support (edo) with this traceback.")
-                    raise e
-            return None
+    try:
+        with open(config_path, 'r', encoding='utf-8') as file:
+            cfg_dict = yaml.safe_load(file)
+            try:
+                config = PacejkaTireConfig(**cfg_dict)
+            except ValidationError as e:
+                for error in e.errors():
+                    if error["type"] == "missing":
+                        for missing_key in error["loc"]:
+                            print(f"Missing key <{missing_key}> in {relative_path} file. Please add it.")
+                    elif error["type"] == "extra_forbidden":
+                        for extra_key in error["loc"]:
+                            print(f"Extra key <{extra_key}> in {relative_path} file. Please remove it.")
+                    else:
+                        print(f"Error loading the {relative_path} file. Please contact support (edo) with this traceback.")
+                        raise e
+                return None
+    except FileNotFoundError as e:
+        # check if pacejka folder exists
+        pacejka_path = rospkg.RosPack().get_path('stack_master') + '/config/' + racecar_version + '/pacejka/'
+        if os.path.exists(pacejka_path):
+            print(f"Selected floor {floor} does not exist. Please initialize it with some sysid procedure.")
+        else:
+            raise e
 
     return config
 
@@ -78,7 +86,8 @@ def save_pacejka_tire_config(
     archive_folder = model_path + 'archive/'
     if not os.path.exists(archive_folder):
         os.makedirs(archive_folder)
-    filename = archive_folder + f'{timestamp}_pacejka.yaml'
+    filename_only = f'{timestamp}_pacejka.yaml'
+    filename = archive_folder + filename_only
 
     # print warning if the file already exists
     if os.path.exists(filename):
@@ -93,5 +102,6 @@ def save_pacejka_tire_config(
         latest_path = model_path + 'default.yaml'
         if os.path.exists(latest_path):
             os.remove(latest_path)
-        os.symlink(filename, latest_path)
+        symlink_path = f"./archive/{filename_only}"
+        os.symlink(symlink_path, latest_path)
         logging.info("Updated latest pacejka_tire config symlink of %s on floor %s to %s", racecar_version, floor, filename)
