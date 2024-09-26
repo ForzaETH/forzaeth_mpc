@@ -21,6 +21,8 @@ class STMPCConfig(BaseModel):
     """Safety margin for the track"""
     track_max_width: float
     """Maximum width of the track"""
+    overtake_d: float
+    """MPC Overtake path lateral tracking distance"""
 
 
     # Cost function settings #
