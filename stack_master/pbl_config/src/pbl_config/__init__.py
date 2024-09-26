@@ -8,5 +8,6 @@ from pbl_config.controller.mpc.STMPCConfig import (STMPCConfig,
 from pbl_config.controller.mpc.STMPCConfigDyn import (
     STMPCConfigDyn, create_STMPC_dynamic_parameters)
 from pbl_config.PacejkaTireConfig import (PacejkaTireConfig,
-                                          load_pacejka_tire_config_ros)
+                                          load_pacejka_tire_config_ros,
+                                          save_pacejka_tire_config)
 from pbl_config.TrailingConfig import TrailingConfig, load_trailing_config_ros
