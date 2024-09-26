@@ -1,6 +1,7 @@
-import yaml
 import rospkg
+import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
+
 
 class TrailingConfig(BaseModel):
     """Car Parameters configuration class"""
@@ -23,6 +24,7 @@ class TrailingConfig(BaseModel):
     blind_trailing_speed: float
     """blind_trailing_speed"""
 
+
 def load_trailing_config_ros(racecar_version: str) -> TrailingConfig:
     """Loads the car config from the yaml file
 
@@ -30,7 +32,7 @@ def load_trailing_config_ros(racecar_version: str) -> TrailingConfig:
         racecar_version (str): a car name
     """
 
-    relative_path = '/config/' + racecar_version + '/trailing_parmas.yaml'
+    relative_path = '/config/' + racecar_version + '/trailing_params.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
     with open(config_path, 'r') as file:
         cfg_dict = yaml.safe_load(file)
