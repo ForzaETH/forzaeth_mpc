@@ -64,6 +64,7 @@ def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTir
         pacejka_path = rospkg.RosPack().get_path('stack_master') + '/config/' + racecar_version + '/pacejka/'
         if os.path.exists(pacejka_path):
             print(f"Selected floor {floor} does not exist. Please initialize it with some sysid procedure.")
+            raise NotExistingFloor()
         else:
             raise e
 
@@ -105,3 +106,6 @@ def save_pacejka_tire_config(
         symlink_path = f"./archive/{filename_only}"
         os.symlink(symlink_path, latest_path)
         logging.info("Updated latest pacejka_tire config symlink of %s on floor %s to %s", racecar_version, floor, filename)
+
+class NotExistingFloor(ValueError):
+    pass
