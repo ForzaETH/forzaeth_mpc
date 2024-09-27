@@ -14,6 +14,8 @@ class CarConfig(BaseModel):
     """Distance from the center of mass to the front axle"""
     lr: float
     """Distance from the center of mass to the rear axle"""
+    l_wb: float
+    """Wheelbase of the car. Distance between the front and rear axles"""
     h_cg: float
     """Height of the center of gravity"""
     a_max: float
