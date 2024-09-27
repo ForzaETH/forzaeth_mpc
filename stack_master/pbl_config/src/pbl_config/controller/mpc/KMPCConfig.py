@@ -1,5 +1,5 @@
-
 import yaml
+import logging
 import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -88,12 +88,12 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
             for error in e.errors():
                 if error["type"] == "missing":
                     for missing_key in error["loc"]:
-                        print(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
+                        logging.warning(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
                 elif error["type"] == "extra_forbidden":
                     for extra_key in error["loc"]:
-                        print(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
+                        logging.warning(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
                 else:
-                    print(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
+                    logging.warning(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
                     raise e
             return None
 
