@@ -11,8 +11,8 @@ from f110_msgs.msg import WpntArray
 # for the GP_for_MPC_node
 import os
 import rospkg
-from joblib import dump, load
-# from gp_mpc_node.gp import CustomGPRegression, CustomKernelFunctions
+from joblib import load
+from gp_mpc_node.gp import CustomGPRegression, CustomKernelFunctions
 
 class MAP2_Controller:
     def __init__(self, **kwargs):
@@ -43,7 +43,6 @@ class MAP2_Controller:
         self.GP_model_update=self.conf_params["GP_model_update"]
         self.GP_model_update_flag=self.GP_model_update
         self.GP_beta_comp=0
-        self.GP_v_comp=0
 
     def map_init_params(self,
                 t_clip_min,
@@ -149,12 +148,10 @@ class MAP2_Controller:
         self.position_in_map = position_in_map
         self.position_in_map_frenet = position_in_map_frenet
         self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
-        self.v_model_error = self.position_in_map_frenet[1]-self.mpc_sd[1,1]
-        print(self.v_model_error)
+
         ### MAP2 ###
         #Upper curvature mpc:
         # update initial state from sensors
-
 
         # calculate the current alpha angle
         self.yaw=self.position_in_map[2]
@@ -268,7 +265,6 @@ class MAP2_Controller:
         beta=np.arcsin(self.conf_params['lr']*u_sd[0,1]/(mpc_sd[0,3]+0.5))
         self.states[2]=(center_car_s)
         self.states[3]=(beta_real-beta)
-        self.states[6]=(self.v_model_error)
         return speed, acceleration, steering_angle, lookahead_point, lookahead_distance, idx_nearest_waypoint, self.states
 
     @staticmethod
