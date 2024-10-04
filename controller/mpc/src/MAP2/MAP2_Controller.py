@@ -11,9 +11,8 @@ from f110_msgs.msg import WpntArray
 # for the GP_for_MPC_node
 import os
 import rospkg
-# from joblib import dump, load
+from joblib import dump, load
 # from gp_mpc_node.gp import CustomGPRegression, CustomKernelFunctions
-
 
 class MAP2_Controller:
     def __init__(self, **kwargs):
@@ -35,13 +34,17 @@ class MAP2_Controller:
         self.map2_init_params(*map2_init_params)
         self.map_init_params(*map_init_params)
 
-        # load the GP model
-        # rospack = rospkg.RosPack()
-        # package_path=rospack.get_path('gp_mpc_node')
-        # self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/gp_model.pkl')
-        # gp_model=load(self.model_file)
-        # print(gp_model.predict(np.array(20)))
-        # print("GP model loaded")
+        # # load the GP model
+        rospack = rospkg.RosPack()
+        package_path=rospack.get_path('gp_mpc_node')
+        self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/gp_model.pkl')
+        self.gp_model=load(self.model_file)
+        self.GP_model_load=self.conf_params["GP_model_load"]
+        self.GP_model_update=self.conf_params["GP_model_update"]
+        self.GP_model_update_flag=self.GP_model_update
+        self.GP_beta_comp=0
+        self.GP_v_comp=0
+
     def map_init_params(self,
                 t_clip_min,
                 t_clip_max,
@@ -62,7 +65,6 @@ class MAP2_Controller:
         self.logger_info = rospy.loginfo
         self.logger_warn = rospy.logwarn
         self.map_lat_acc=0
-        # TODO: notice pacejka is hardcoded, linear is rn not supported anymore
         self.steer_lookup = LookupSteerAngle(self.racecar_version, self.floor, "pacejka",self.logger_info)
 
     def map2_init_params(self, t_d_v,
@@ -141,13 +143,14 @@ class MAP2_Controller:
         self.waypoint_array_in_map=waypoint_array_in_map
         target_speed = waypoint_array_in_map[0][2] # local waypoint: x, y, speed, d, s, kappa, psi, ax
         self.comp_time = comp_time
-        self.speed_now = state[0]
+        self.vx_now = state[0]
         self.vy_now = state[1]
         self.yaw_rate_now = state[2]
         self.position_in_map = position_in_map
         self.position_in_map_frenet = position_in_map_frenet
-
-
+        self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
+        self.v_model_error = self.position_in_map_frenet[1]-self.mpc_sd[1,1]
+        print(self.v_model_error)
         ### MAP2 ###
         #Upper curvature mpc:
         # update initial state from sensors
@@ -177,15 +180,29 @@ class MAP2_Controller:
         self.fre_alpha= alpha_center
 
         # set the initial state for the mpc
-        propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, np.sqrt(self.speed_now**2+self.vy_now**2)],dtype=np.float64)
+        propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, self.v],dtype=np.float64)
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
+        # GP conpensation for the mpc
+        if self.GP_model_load:
+            if self.GP_model_update and not self.GP_model_update_flag:
+                self.gp_model=load(self.model_file)
+                self.GP_model_update_flag=True
+                print("update the GP model")
+            if not self.GP_model_update:
+                self.GP_model_update_flag = False
 
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
             traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,traget_v_speed,0],dtype=np.float64)
+            if self.GP_model_load:
+                if i<self.N:
+                    self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i+1,0]%self.spline.track_length))
+                else:
+                    self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i,0]%self.spline.track_length))
+            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,traget_v_speed,self.GP_beta_comp],dtype=np.float64)
+
             self.acados_solver.set(i,"p",online_parameters)
         # Solve optimal upper layer control problem
         status = self.acados_solver.solve()
@@ -242,14 +259,16 @@ class MAP2_Controller:
                 for item in result:
                     states.append(item)
             self.states = states
+
         # Prevent division by zero or very small numbers
-        if abs(self.speed_now) > 1e-6:  # Use a small threshold to avoid numerical instability
-            beta_real = np.arctan(self.vy_now / self.speed_now)
+        if abs(self.vx_now) > 1e-6:  # Use a small threshold to avoid numerical instability
+            beta_real = np.arctan(self.vy_now / self.vx_now)
         else:
-            beta_real = 0  # When speed is too small, assume no slip angle (adjust as per your model)
+            beta_real = 0  # When speed is too small, assume no slip angle
         beta=np.arcsin(self.conf_params['lr']*u_sd[0,1]/(mpc_sd[0,3]+0.5))
         self.states[2]=(center_car_s)
         self.states[3]=(beta_real-beta)
+        self.states[6]=(self.v_model_error)
         return speed, acceleration, steering_angle, lookahead_point, lookahead_distance, idx_nearest_waypoint, self.states
 
     @staticmethod

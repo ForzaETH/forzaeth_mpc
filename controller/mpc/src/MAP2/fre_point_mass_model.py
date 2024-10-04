@@ -130,7 +130,7 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
     constraint.expr = vertcat(n_inner_bound, n_outer_bound)
     constraint.expr_e = vertcat(n_inner_bound, n_outer_bound)
     # dynamics
-    #simple approximation of beta
+    #simple approximation of beta plus GP correction
     beta=cs.asin(cfg_dict['lr']*yawrate/(v+0.5))+GP_beta_comp
 
     #calculate the beta with considering tire model
@@ -142,7 +142,7 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
     # beta=k_1*v**2*curvature+k_2*curvature
 
     sdota = v*cos(theta+beta) / (1 - kapparef_s(s_mod) * n)
-    ndot =  v*sin(theta+beta) # (v * cos(alpha + beta))**2 * (0. 5 * kapparef_s(s_mod))
+    ndot =  v*sin(theta+beta)
     der_theta = yawrate- (kapparef_s(s_mod)*(( v*cos(theta+beta)) / (1 - kapparef_s(s_mod) * n)))
 
 
