@@ -38,10 +38,12 @@ class MAP2_Controller:
         rospack = rospkg.RosPack()
         package_path=rospack.get_path('gp_mpc_node')
         self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/gp_model.pkl')
-        self.gp_model=load(self.model_file)
         self.GP_model_load=self.conf_params["GP_model_load"]
         self.GP_model_update=self.conf_params["GP_model_update"]
         self.GP_model_update_flag=self.GP_model_update
+        if self.GP_model_load:
+            self.gp_model=load(self.model_file)
+
         self.GP_beta_comp=0
 
     def map_init_params(self,
@@ -66,7 +68,7 @@ class MAP2_Controller:
         self.map_lat_acc=0
         self.steer_lookup = LookupSteerAngle(self.racecar_version, self.floor, "pacejka",self.logger_info)
 
-    def map2_init_params(self, t_d_v,
+    def map2_init_params(self, time_delay_step,
                          t_d_c,
                          online_ac_y_max,
                          online_ac_x_max,
@@ -78,7 +80,7 @@ class MAP2_Controller:
                          weight_yaw_rate,
                          ) -> None:
         # Parameters from manager
-        self.t_d_v=t_d_v
+        self.time_delay_step=time_delay_step
         self.t_d_c=t_d_c
         self.online_ac_y_max=online_ac_y_max
         self.online_ac_x_max=online_ac_x_max
@@ -231,7 +233,7 @@ class MAP2_Controller:
         eta = np.arcsin(np.dot([-np.sin(yaw), np.cos(yaw)], position_la_vector)/np.linalg.norm(position_la_vector))
         self.map_lat_acc = 2*target_speed**2 / lookahead_distance * np.sin(eta)
 
-        time_delay_step=round(self.t_d_v)
+        time_delay_step=round(self.time_delay_step)
         self.lat_acc_0 = acc_sd[time_delay_step]
 
         self.lat_acc = self.lat_acc_0

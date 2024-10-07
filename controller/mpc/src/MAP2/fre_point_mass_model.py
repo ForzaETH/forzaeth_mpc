@@ -155,9 +155,11 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
     )
 
     #cost
+    terminal_multiplier = 10
     model.cost_expr_ext_cost_0 = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2+weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
     model.cost_expr_ext_cost = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2 +weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
     model.cost_expr_ext_cost_e = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2
+    model.cost_expr_ext_cost_e=terminal_multiplier*model.cost_expr_ext_cost_e
     # Define model struct
     params = types.SimpleNamespace()
     model.f_impl_expr = xdot - f_expl
