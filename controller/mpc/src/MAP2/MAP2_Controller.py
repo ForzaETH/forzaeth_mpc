@@ -41,8 +41,7 @@ class MAP2_Controller:
         self.GP_model_load=self.conf_params["GP_model_load"]
         self.GP_model_update=self.conf_params["GP_model_update"]
         self.GP_model_update_flag=self.GP_model_update
-        if self.GP_model_load:
-            self.gp_model=load(self.model_file)
+        self.gp_model=load(self.model_file)
 
         self.GP_beta_comp=0
 
@@ -237,8 +236,8 @@ class MAP2_Controller:
         self.lat_acc_0 = acc_sd[time_delay_step]
 
         self.lat_acc = self.lat_acc_0
-        map2_target_speed = mpc_sd[1,3]
-        acceleration = u_sd[0,0]
+        map2_target_speed = mpc_sd[time_delay_step+1,3]
+        acceleration = u_sd[time_delay_step,0]
 
         # If the solver did not converge, switch to MAP
         if status != 0:

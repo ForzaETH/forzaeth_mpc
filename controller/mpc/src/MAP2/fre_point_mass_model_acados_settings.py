@@ -196,18 +196,18 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
     ns=ns
     ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((ns,))
     ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((ns,))
-    ocp.cost.zl_0 = cfg_dict['Zl'] * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
-    ocp.cost.zu_0 = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl_0 = cfg_dict['zl'] * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
+    ocp.cost.zu_0 = cfg_dict['zu'] * np.ones((ns,))
     # # from 1 to N-1
     ocp.cost.Zl = cfg_dict['Zl'] * np.ones((ns,))
     ocp.cost.Zu = cfg_dict['Zu'] * np.ones((ns,))
-    ocp.cost.zl = cfg_dict['Zl'] * np.ones((ns,))
-    ocp.cost.zu = cfg_dict['Zu'] * np.ones((ns,))
+    ocp.cost.zl = cfg_dict['zl'] * np.ones((ns,))
+    ocp.cost.zu = cfg_dict['zu'] * np.ones((ns,))
     # # at stage N
     ocp.cost.Zl_e = cfg_dict['Zl'] * np.ones((nsh,))
     ocp.cost.Zu_e = cfg_dict['Zu'] * np.ones((nsh,))
-    ocp.cost.zl_e = cfg_dict['Zl'] * np.ones((nsh,))
-    ocp.cost.zu_e = cfg_dict['Zu'] * np.ones((nsh,))
+    ocp.cost.zl_e = cfg_dict['zl'] * np.ones((nsh,))
+    ocp.cost.zu_e = cfg_dict['zu'] * np.ones((nsh,))
 
     # set intial condition
     ocp.constraints.x0 = model.x0
