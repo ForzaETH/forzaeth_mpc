@@ -119,7 +119,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
     )
     ocp.constraints.idxbx = np.array([3])
 
-    #bound constraints
+    #bound constraints at the stage N
     Nonlinear_constraint_min = np.array(
         [
             model.n_min,
@@ -133,11 +133,12 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
             model.n_max,
         ]
     )
-    #bound constraints
+    #bound constraints from stage 1 to N-1
     Nonlinear_constraint_min_1 = np.array(
         [
             model.n_min,
             model.n_min,
+            0,
         ]
     )
     Nonlinear_constraint_max_1 = np.array(
@@ -145,15 +146,17 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
 
             model.n_max,
             model.n_max,
+            1,
         ]
     )
 
     Nonlinear_soft_min_value=np.zeros(2)
     Nonlinear_soft_max_value=np.zeros(2) + np.array([1, 1])
-    Nonlinear_soft_min_value_1=np.zeros(2)
-    Nonlinear_soft_max_value_1=np.zeros(2) + np.array([1, 1])
-    Nonlinear_constraint_index_1 = np.array([0,1])
     Nonlinear_constraint_index = np.array([0,1])
+    Nonlinear_soft_min_value_1=np.zeros(3)
+    Nonlinear_soft_max_value_1=np.zeros(3) + np.array([1, 1, 1000])
+    Nonlinear_constraint_index_1 = np.array([0,1,2])
+
     # # at stage 0
     ocp.constraints.lh_0 = Nonlinear_constraint_min_1
     ocp.constraints.uh_0 = Nonlinear_constraint_max_1
@@ -193,7 +196,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
 
     # # Slack penalty function is Z_l*s_l**2 + Z_u*s_u**2
     # # at stage 0
-    ns=ns
+    ns=ns+1
     ocp.cost.Zl_0 = cfg_dict['Zl'] * np.ones((ns,))
     ocp.cost.Zu_0 = cfg_dict['Zu'] * np.ones((ns,))
     ocp.cost.zl_0 = cfg_dict['zl'] * np.ones((ns,))  # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)

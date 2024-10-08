@@ -123,11 +123,13 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 0])
 
-    # define constraints struct
+    # define nonlinear constraints struct
+    a_lat=v**2/(3)
+    combined_constraints=(accel_x/10)**2+(a_lat/15)**2
     # also need soft constraint
     constraint.pathlength = pathlength
-    constraint.expr_0 = vertcat(n_inner_bound, n_outer_bound)
-    constraint.expr = vertcat(n_inner_bound, n_outer_bound)
+    constraint.expr_0 = vertcat(n_inner_bound, n_outer_bound,combined_constraints)
+    constraint.expr = vertcat(n_inner_bound, n_outer_bound,combined_constraints)
     constraint.expr_e = vertcat(n_inner_bound, n_outer_bound)
     # dynamics
     #simple approximation of beta plus GP correction
