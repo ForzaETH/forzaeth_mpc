@@ -154,7 +154,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, cfg_dict:dict):
     Nonlinear_soft_max_value=np.zeros(2) + np.array([1, 1])
     Nonlinear_constraint_index = np.array([0,1])
     Nonlinear_soft_min_value_1=np.zeros(3)
-    Nonlinear_soft_max_value_1=np.zeros(3) + np.array([1, 1, 1000])
+    Nonlinear_soft_max_value_1=np.zeros(3) + np.array([1, 1, 1])
     Nonlinear_constraint_index_1 = np.array([0,1,2])
 
     # # at stage 0
