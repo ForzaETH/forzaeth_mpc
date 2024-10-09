@@ -149,9 +149,10 @@ class MAP2_Controller:
 
 
     # main loop
-    def main_loop(self, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time,opponent):
+    def main_loop(self, machine_state, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time,opponent):
         position_in_map = position_in_map.squeeze() #squeeze dim
         # Desired speed at waypoint closest to car
+        self.state=machine_state
         self.waypoint_array_in_map=waypoint_array_in_map
         target_speed = waypoint_array_in_map[0][2] # local waypoint: x, y, speed, d, s, kappa, psi, ax
         self.comp_time = comp_time
@@ -381,7 +382,7 @@ class MAP2_Controller:
 
     def trailing_controller(self, global_speed):
 
-        self.gap = (self.opponent[0] - self.position_in_map_frenet[0])%self.track_length # gap to opponent
+        self.gap = (self.opponent[0] - self.position_in_map_frenet[0])%self.spline.track_length # gap to opponent
         # prev_gap = self.gap if self.gap_actual is None else self.gap_actual
         self.gap_actual = self.gap
         if self.trailing_config.trailing_mode:
