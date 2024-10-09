@@ -244,6 +244,7 @@ def get_parameters(cfg: dict) -> np.ndarray:
         cfg["weight_yaw_rate"],
         cfg["Init_track_speed"],
         0,
+        0,
     ]).astype(float)
     return params
 

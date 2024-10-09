@@ -5,6 +5,7 @@ import numpy as np
 import rospy
 from steering_lookup.lookup_steer_angle import LookupSteerAngle
 from . fre_point_mass_model_acados_settings  import acados_settings
+from pbl_config import  TrailingConfig
 from .utils.splinify import SplineTrack
 from f110_msgs.msg import WpntArray
 
@@ -31,6 +32,7 @@ class MAP2_Controller:
         ## initialize for the lower controller:MAP
         map_init_params = kwargs['map_controller_param']
         map2_init_params = kwargs['map2_online_param']
+        self.trailing_config: TrailingConfig = kwargs['trailing_config']
         self.map2_init_params(*map2_init_params)
         self.map_init_params(*map_init_params)
 
@@ -90,6 +92,7 @@ class MAP2_Controller:
         self.weight_vx=weight_vx
         self.weight_yaw_rate=weight_yaw_rate
         self.lat_acc=0
+        self.overtake_d=0
 
     def mpc_init_params(self, kwargs) -> None:
         self.racecar_version = kwargs['racecar_version']
@@ -112,6 +115,15 @@ class MAP2_Controller:
         self.mpc_sd = np.zeros((self.N + 1, 4))
         self.pre_s =0
         self.lap_counter=0
+
+        #initial trailing parameter
+        self.loop_rate = 40
+        self.gap = None
+        self.gap_should = None
+        self.gap_error = None
+        self.gap_actual = None
+        self.v_diff = None
+        self.i_gap = 0
 
 
 
@@ -137,7 +149,7 @@ class MAP2_Controller:
 
 
     # main loop
-    def main_loop(self, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time):
+    def main_loop(self, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time,opponent):
         position_in_map = position_in_map.squeeze() #squeeze dim
         # Desired speed at waypoint closest to car
         self.waypoint_array_in_map=waypoint_array_in_map
@@ -149,6 +161,7 @@ class MAP2_Controller:
         self.position_in_map = position_in_map
         self.position_in_map_frenet = position_in_map_frenet
         self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
+        self.opponent = opponent
 
         ### MAP2 ###
         #Upper curvature mpc:
@@ -193,7 +206,8 @@ class MAP2_Controller:
 
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-            traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+            # traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+
             # GP conpensation for the mpc
             if self.GP_model_load:
                 if i<self.N:
@@ -202,7 +216,20 @@ class MAP2_Controller:
                     self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i,0]%self.spline.track_length))
             else:
                 self.GP_beta_comp=0
-            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,traget_v_speed,self.GP_beta_comp],dtype=np.float64)
+
+            # head to head racing
+            # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
+            if(self.state == "TRAILING"): #Trailing controller
+                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
+                self.overtake_d=0
+            else:
+                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+                self.overtake_d=0
+                # head to head overtaking
+                if(self.state == "OVERTAKE"):
+                    self.overtake_d=self.waypoint_array_in_map[idx,3]
+
+            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp,0],dtype=np.float64)
 
             self.acados_solver.set(i,"p",online_parameters)
         # Solve optimal upper layer control problem
@@ -351,4 +378,30 @@ class MAP2_Controller:
             d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
+
+    def trailing_controller(self, global_speed):
+
+        self.gap = (self.opponent[0] - self.position_in_map_frenet[0])%self.track_length # gap to opponent
+        # prev_gap = self.gap if self.gap_actual is None else self.gap_actual
+        self.gap_actual = self.gap
+        if self.trailing_config.trailing_mode:
+            self.gap_should = self.trailing_config.trailing_gap
+        else:
+            self.gap_should = self.position_in_map_frenet[2] * self.trailing_config.trailing_gap
+
+        self.gap_error = self.gap_should - self.gap_actual
+        self.v_diff =  self.position_in_map_frenet[2] - self.opponent[2]
+        self.i_gap = np.clip(self.i_gap + self.gap_error/self.loop_rate, -10, 10)
+
+        p_value = self.gap_error * self.trailing_config.trailing_p_gain
+        d_value = self.v_diff * self.trailing_config.trailing_d_gain
+        i_value = self.i_gap * self.trailing_config.trailing_i_gain
+
+
+        self.trailing_command = np.clip(self.opponent[2] - p_value - i_value - d_value, 0, global_speed)
+        if not self.opponent[4] and self.gap_actual > self.gap_should:
+            self.trailing_command = max(self.trailing_config.blind_trailing_speed, self.trailing_command)
+
+        return self.trailing_command
+
 

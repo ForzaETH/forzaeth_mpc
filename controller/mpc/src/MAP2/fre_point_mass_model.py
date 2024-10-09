@@ -101,7 +101,8 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
     track_speed = MX.sym("track_speed")
     weight_vx=MX.sym("weight_vx")
     GP_beta_comp=MX.sym("GP_beta_comp")
-    p = vertcat(weight_qn,weight_theta,weight_accel_x,weight_beta,weight_vx,weight_yaw_rate,track_speed,GP_beta_comp)
+    overtake_d=MX.sym("overtake_d")
+    p = vertcat(weight_qn,weight_theta,weight_accel_x,weight_beta,weight_vx,weight_yaw_rate,track_speed,GP_beta_comp,overtake_d)
 
     s_mod = mod(s, pathlength)
 
@@ -158,9 +159,9 @@ def fre_point_mass_model(s0: list, kapparef: list, vx_ref: list, d_left: list, d
 
     #cost
     terminal_multiplier = 10
-    model.cost_expr_ext_cost_0 = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2+weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
-    model.cost_expr_ext_cost = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2 +weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
-    model.cost_expr_ext_cost_e = weight_qn*(n)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2
+    model.cost_expr_ext_cost_0 = weight_qn*(n-overtake_d)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2+weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
+    model.cost_expr_ext_cost = weight_qn*(n-overtake_d)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2 +weight_yaw_rate*(yawrate)**2+ weight_accel_x*accel_x**2+weight_beta*beta**2
+    model.cost_expr_ext_cost_e = weight_qn*(n-overtake_d)**2 + weight_theta*theta**2+weight_vx*(v-track_speed)**2
     model.cost_expr_ext_cost_e=terminal_multiplier*model.cost_expr_ext_cost_e
     # Define model struct
     params = types.SimpleNamespace()
