@@ -194,11 +194,14 @@ class MAP2_Controller:
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
             traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+            # GP conpensation for the mpc
             if self.GP_model_load:
                 if i<self.N:
                     self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i+1,0]%self.spline.track_length))
                 else:
                     self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i,0]%self.spline.track_length))
+            else:
+                self.GP_beta_comp=0
             online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,traget_v_speed,self.GP_beta_comp],dtype=np.float64)
 
             self.acados_solver.set(i,"p",online_parameters)
