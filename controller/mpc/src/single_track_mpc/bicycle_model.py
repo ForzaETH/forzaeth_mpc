@@ -140,7 +140,7 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     # single track model definition with pacejka tire model
     # tire model
     # side slip angle
-    v_0 = 0.1
+    v_0 = 0.5
     func_v = v_x * (1 / (1 + cs.exp(-v_x / v_0))) - v_x * \
         (1 / (1 + cs.exp(v_x / v_0))) + v_0 * (1 / (cs.cosh(v_x / v_0)))
     alpha_f = (cs.atan2((-v_y - (lf * yaw_rate)), v_x + v_0) + delta)
