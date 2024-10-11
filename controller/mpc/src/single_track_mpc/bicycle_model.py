@@ -229,7 +229,6 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
         a_lat = v_y_dot
     else:
         a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
-    a_lat = v_y_dot
     constraint.pathlength = pathlength
     # TODO: introduce asymmetric constraints (now you can just over constrain breaking) with a_long_min
     if stmpc_config.combined_constraints == "ellipse":
