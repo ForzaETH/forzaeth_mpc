@@ -7,6 +7,8 @@ import rospy
 import yaml
 from f110_msgs.msg import WpntArray
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
+from dynamic_reconfigure.client import Client
+from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
 from plotting_fnc import *
 from std_msgs.msg import Float64MultiArray
@@ -45,6 +47,8 @@ class tireNode:
         self.d_right_pub = rospy.Publisher("/mpc_controller/d_right", MarkerArray, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
 
+        self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
+
         self._initialize_path()
 
     def _init_params(self,) -> None:
@@ -60,7 +64,7 @@ class tireNode:
         self.car_config.lf = self.car_config.lf
 
         # Just for cost function testing
-        self.track_safety_margin = self.stmpc_config.track_safety_margin
+        self.stmpc_config.track_safety_margin
         t_delay = self.stmpc_config.t_delay
         self.t_MPC = 1 / self.stmpc_config.MPC_freq
 
@@ -68,6 +72,17 @@ class tireNode:
         self.t_delay = t_delay + self.t_MPC
         self.states=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
         self.states_k_1=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
+
+    def stmpc_config_cb(self, params: Config):
+        """
+        Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
+        Values from .yaml file are set in mpc_online_params_server
+        """
+        for k, v in params.items():
+            if k != "groups":
+                setattr(self.stmpc_config, k, v)
+
+        self.stmpc_config = self.stmpc_config
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -172,9 +187,9 @@ class tireNode:
                 # store predicted position
                 mpc_sd.append(x_[:2])
 
-                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.track_safety_margin).reshape(2)
+                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.stmpc_config.track_safety_margin).reshape(2)
                 boundaries[stage,1,0:2] = self.fren_conv.get_cartesian(s_mod, 0).reshape(2)
-                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.track_safety_margin).reshape(2)
+                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.stmpc_config.track_safety_margin).reshape(2)
 
             self.publish_waypoint_markers(boundaries[:,0,:], "d_right")
             self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
