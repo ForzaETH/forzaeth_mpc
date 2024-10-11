@@ -20,8 +20,8 @@ class STMPCConfigDyn(BaseModel):
     """Limits on the lateral deviation cost"""
     qalpha: Tuple[float, float]
     """Limits on the heading deviation cost"""
-    qac: Tuple[float, float]
-    """Limits on the acceleration cost"""
+    qjerk: Tuple[float, float]
+    """Limits on the jerk cost"""
     qddelta: Tuple[float, float]
     """Limits on the steering angle rate cost"""
     alat_max: Tuple[float, float]

@@ -3,7 +3,6 @@ import yaml
 import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
 from typing import Union
-import logging
 
 class STMPCConfig(BaseModel):
     """Single track MPC configuration class"""
@@ -27,8 +26,8 @@ class STMPCConfig(BaseModel):
 
 
     # Cost function settings #
-    qac: float
-    """acceleration cost weight"""
+    qjerk: float
+    """jerk cost weight"""
     qddelta: float
     """steering angle rate cost weight"""
     qadv: float
@@ -84,6 +83,10 @@ class STMPCConfig(BaseModel):
     combined_constraints: str
     """ellipse/diamond/anything else for None"""
 
+    # model flags
+    load_transfer : bool
+    """If true, load transfer is considered"""
+
 def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
     """Loads the MPC config from the yaml file
 
@@ -104,12 +107,12 @@ def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
             for error in e.errors():
                 if error["type"] == "missing":
                     for missing_key in error["loc"]:
-                        logging.warning(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
+                        print(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
                 elif error["type"] == "extra_forbidden":
                     for extra_key in error["loc"]:
-                        logging.warning(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
+                        print(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
                 else:
-                    logging.warning(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
+                    print(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
                     raise e
             return None
 

@@ -52,14 +52,12 @@ def acados_settings(s0, kapparef, d_left, d_right,
 
     # define acados ODE
     model_ac = AcadosModel()
-    model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
     # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
     model_ac.con_h_expr_0 = constraint.expr
     model_ac.con_h_expr = constraint.expr
     model_ac.con_h_expr_e = constraint.expr_e
     model_ac.x = model.x
-    model_ac.xdot = model.xdot
     model_ac.u = model.u
     model_ac.z = model.z
     model_ac.p = model.p
@@ -72,8 +70,8 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.parameter_values = p
 
     # dimensions
-    nx = model.x.size()[0]
-    nu = model.u.size()[0]
+    nx = model.n_x
+    nu = model.n_u
     ny = nx + nu
     ny_e = nx
 
@@ -87,6 +85,8 @@ def acados_settings(s0, kapparef, d_left, d_right,
     # discretization
     ocp.dims.N = stmpc_config.N
 
+    ocp.dims.nx = nx
+    ocp.dims.nu = nu
     ocp.dims.ny = 0
     ocp.dims.ny_e = 0
 
@@ -120,16 +120,16 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.cost.zu_e = stmpc_config.zu * np.ones((nsh_e,))
 
     # input constraint
-    ocp.constraints.lbu_0 = np.array([model.a_min, model.ddelta_min])
-    ocp.constraints.ubu_0 = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.lbu_0 = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu_0 = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu_0 = np.array([0, 1])
 
-    ocp.constraints.lbu_e = np.array([model.a_min, model.ddelta_min])
-    ocp.constraints.ubu_e = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.lbu_e = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu_e = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu_e = np.array([0, 1])
 
-    ocp.constraints.lbu = np.array([model.a_min, model.ddelta_min])
-    ocp.constraints.ubu = np.array([model.a_max, model.ddelta_max])
+    ocp.constraints.lbu = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu = np.array([0, 1])
 
     # state constraint
@@ -137,17 +137,20 @@ def acados_settings(s0, kapparef, d_left, d_right,
         [
             constraint.v_x_min,
             model.delta_min,
+            model.a_min
         ]
     )
     state_constraint_max = np.array(
         [
             constraint.v_x_max,
             model.delta_max,
+            model.a_max
         ]
     )
     state_constraint_index = np.array([
         StateIndex.VELOCITY_V_X.value,
-        StateIndex.STEERING_ANGLE_DELTA.value,])
+        StateIndex.STEERING_ANGLE_DELTA.value,
+        StateIndex.ACCEL.value])
 
     ocp.constraints.lbx_0 = state_constraint_min
     ocp.constraints.ubx_0 = state_constraint_max
@@ -205,7 +208,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     # ocp.constraints.ush_e = Nonlinear_soft_max_value
     ocp.constraints.idxsh_e = Nonlinear_constraint_index[:nsh_e]
 
-    # set intial condition
+    # set to make intial condition necessary (otherwise lbx_0 owerwrites this)
     ocp.constraints.x0 = model.x0
 
     # set QP solver and integration
@@ -233,13 +236,13 @@ def get_parameters(cfg: STMPCConfig) -> np.ndarray:
         cfg.qv,
         cfg.qn,
         cfg.qalpha,
-        cfg.qac,
+        cfg.qjerk,
         cfg.qddelta,
         cfg.alat_max,
         cfg.a_min,
         cfg.a_max,
         cfg.track_safety_margin,
-        cfg.overtake_d,
+        cfg.overtake_d
     ]).astype(float)
 
     return params

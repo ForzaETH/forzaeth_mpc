@@ -90,6 +90,7 @@ class Single_track_MPC_Controller:
         self.apply_warm_start(pose_frenet=pose_frenet)  # TODO uniform general mpc input to a MPCstate
 
         self.kappa = kapparef
+        self.prev_acc = 0
 
     def apply_warm_start(self, pose_frenet: np.ndarray):
         """Applies a warm start to the MPC solver.
@@ -99,11 +100,12 @@ class Single_track_MPC_Controller:
         """
         warm_start_trajectory = self.get_warm_start(pose_frenet=pose_frenet, const_acc=1, const_steer_vel=0.0)
         for i in range(self.stmpc_config.N + 1):
-            self.acados_solver.set(i, "x", warm_start_trajectory[i][:7])
+            self.acados_solver.set(i, "x", warm_start_trajectory[i][:8]) # TODO: remove hardcoded nx
             if i < self.stmpc_config.N:
-                self.acados_solver.set(i, "u", warm_start_trajectory[i][7:])
+                self.acados_solver.set(i, "u", warm_start_trajectory[i][8:]) # TODO: remove hardcoded nx
 
      # main loop
+
     def main_loop(
             self,
             state,
@@ -149,7 +151,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle_buf[-1], self.yaw_rate], dtype=np.float64)
+                      self.steering_angle_buf[-1], self.yaw_rate, self.prev_acc], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
@@ -187,7 +189,7 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.qv,
                                               self.stmpc_config.qn,
                                               self.stmpc_config.qalpha,
-                                              self.stmpc_config.qac,
+                                              self.stmpc_config.qjerk,
                                               multiplier * self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
@@ -201,7 +203,7 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.qv,
                                               self.stmpc_config.qn,
                                               self.stmpc_config.qalpha,
-                                              self.stmpc_config.qac,
+                                              self.stmpc_config.qjerk,
                                               self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
@@ -213,11 +215,11 @@ class Single_track_MPC_Controller:
             self.acados_solver.set(i, "p", online_parameters)
 
             if i < self.stmpc_config.N:
-                self.acados_solver.set(i, "lbu", np.array([self.stmpc_config.a_min, self.stmpc_config.ddelta_min]))
-                self.acados_solver.set(i, "ubu", np.array([self.stmpc_config.a_max, self.stmpc_config.ddelta_max]))
+                self.acados_solver.set(i, "lbu", np.array([-50, self.stmpc_config.ddelta_min]))
+                self.acados_solver.set(i, "ubu", np.array([50, self.stmpc_config.ddelta_max]))
                 # do not change i+1 to i since mpc needs the initial state
-                self.acados_solver.set(i + 1, "lbx", np.array([self.stmpc_config.v_min, self.stmpc_config.delta_min]))
-                self.acados_solver.set(i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max]))
+                self.acados_solver.set(i + 1, "lbx", np.array([self.stmpc_config.v_min, self.stmpc_config.delta_min, self.stmpc_config.a_min]))
+                self.acados_solver.set(i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max, self.stmpc_config.a_max]))
 
         # Solve OCP
         status = self.acados_solver.solve()
@@ -228,12 +230,15 @@ class Single_track_MPC_Controller:
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
+        self.prev_acc = self.acados_solver.get(0, "x")[7] # TODO: remove hardcoding
         delayed_index = self.stmpc_config.steps_delay + 1
         self.pred_x = self.acados_solver.get(delayed_index, "x")
         self.steering_angle = self.pred_x[5]  # propagated_x[5] + self.u0[1]/40 #
         self.speed = self.pred_x[3]  # propagated_x[3] + self.u0[0]/40 #
-        self.acceleration = self.u0[0]
-        self.jerk = 0
+        self.acceleration = self.prev_acc + self.u0[0]/40 # TODO: remove hardcoding should be controller_frequency
+        self.prev_acc = self.acceleration
+        self.jerk = self.u0[0]
+
         # steering buffer
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
@@ -266,9 +271,9 @@ class Single_track_MPC_Controller:
 
         Returns: np.array    : Warm start trajectory
         """
-        warm_start = np.zeros((self.stmpc_config.N + 1, 9))
+        warm_start = np.zeros((self.stmpc_config.N + 1, 10))
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
-                                 1, 0, 0, 0, const_acc, const_steer_vel])
+                                 1, 0, 0, 0, const_acc, 0, const_steer_vel])
         for i in range(1, self.stmpc_config.N + 1):
             der_state = self._dynamics_of_car(0, warm_start[i - 1])
             warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
@@ -378,11 +383,12 @@ class Single_track_MPC_Controller:
         yaw_rate = x0[6]
         accel = x0[7]
         derDelta = x0[8]
+        jerk = x0[9]
         xdot = self.model.f_expl_func(
-            s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, self.model_params.p)
+            s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, jerk, self.model_params.p)
 
         xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-            float(xdot[4]), float(xdot[5]), float(xdot[6]), accel, derDelta]
+            float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), derDelta, jerk]
 
         return xdot
     def trailing_controller(self, global_speed):

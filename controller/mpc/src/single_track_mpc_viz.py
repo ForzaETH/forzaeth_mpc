@@ -66,8 +66,8 @@ class tireNode:
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        self.states=np.zeros(7*(self.stmpc_config.N+1))
-        self.states_k_1=np.zeros(7*(self.stmpc_config.N+1))
+        self.states=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
+        self.states_k_1=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -166,7 +166,7 @@ class tireNode:
             boundaries = np.zeros((self.stmpc_config.N, 3, 3))
             mpc_sd = []
             for stage in range(self.stmpc_config.N ):
-                x_ = self.states[7*stage:7*(stage+1)-1]
+                x_ = self.states[8*stage:8*(stage+1)-1] # TODO: hardcoded nx
                 s_ = x_[0]
                 s_mod = s_ % self.spline.track_length
                 # store predicted position
