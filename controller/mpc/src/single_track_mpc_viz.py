@@ -70,8 +70,6 @@ class tireNode:
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        self.states=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
-        self.states_k_1=np.zeros(8*(self.stmpc_config.N+1)) # TODO: hardcoded nx
 
     def stmpc_config_cb(self, params: Config):
         """
@@ -108,6 +106,9 @@ class tireNode:
 
 
         self.model, self.constraint, self.params = bicycle_model(self.s_ref, kapparef ,d_left, d_right, self.stmpc_config, self.car_config, self.tire_config)
+
+        self.states=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
+        self.states_k_1=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
 
         # visualize the boundaries of the map
         map_boundaries = np.zeros((len(self.s_ref),2,2))
