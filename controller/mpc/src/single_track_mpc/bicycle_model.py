@@ -96,8 +96,6 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     yaw_rate_dot = MX.sym("yaw_ratedot")
     accel_dot = MX.sym("accel_dot")
 
-    # xdot = vertcat(s_dot, n_dot, theta_dot, v_x_dot, v_y_dot, delta_dot, yaw_rate_dot, accel_dot)
-
     # algebraic variables
     z = vertcat([])
 
@@ -227,7 +225,11 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     n_left_bound = n - left_bound_s(s_mod) + safety_margin
 
     # nonlinear constraints
-    a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
+    if stmpc_config.correct_v_y_dot:
+        a_lat = v_y_dot
+    else:
+        a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
+    a_lat = v_y_dot
     constraint.pathlength = pathlength
     # TODO: introduce asymmetric constraints (now you can just over constrain breaking) with a_long_min
     if stmpc_config.combined_constraints == "ellipse":

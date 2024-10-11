@@ -90,6 +90,8 @@ class STMPCConfig(BaseModel):
     # model flags
     load_transfer : bool
     """If true, load transfer is considered"""
+    correct_v_y_dot: bool
+    """If true, the lateral velocity derivative is from the model and not approximated"""
 
 def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
     """Loads the MPC config from the yaml file
