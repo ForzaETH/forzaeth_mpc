@@ -120,31 +120,31 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.cost.zu_e = stmpc_config.zu * np.ones((nsh_e,))
 
     # input constraint
-    ocp.constraints.lbu_0 = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
-    ocp.constraints.ubu_0 = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
+    ocp.constraints.lbu_0 = np.array([constraint.jerk_min, constraint.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu_0 = np.array([constraint.jerk_max, constraint.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu_0 = np.array([0, 1])
 
-    ocp.constraints.lbu_e = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
-    ocp.constraints.ubu_e = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
+    ocp.constraints.lbu_e = np.array([constraint.jerk_min, constraint.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu_e = np.array([constraint.jerk_max, constraint.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu_e = np.array([0, 1])
 
-    ocp.constraints.lbu = np.array([-50, model.ddelta_min]) # TODO: hardocoded jerkmin
-    ocp.constraints.ubu = np.array([50, model.ddelta_max]) # TODO: hardocoded jerkmax
+    ocp.constraints.lbu = np.array([constraint.jerk_min, constraint.ddelta_min]) # TODO: hardocoded jerkmin
+    ocp.constraints.ubu = np.array([constraint.jerk_max, constraint.ddelta_max]) # TODO: hardocoded jerkmax
     ocp.constraints.idxbu = np.array([0, 1])
 
     # state constraint
     state_constraint_min = np.array(
         [
             constraint.v_x_min,
-            model.delta_min,
-            model.a_min
+            constraint.delta_min,
+            constraint.a_min
         ]
     )
     state_constraint_max = np.array(
         [
             constraint.v_x_max,
-            model.delta_max,
-            model.a_max
+            constraint.delta_max,
+            constraint.a_max
         ]
     )
     state_constraint_index = np.array([

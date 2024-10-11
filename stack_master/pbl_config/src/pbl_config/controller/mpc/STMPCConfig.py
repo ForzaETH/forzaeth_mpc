@@ -58,16 +58,20 @@ class STMPCConfig(BaseModel):
     """Minimum velocity"""
     v_max: float
     """Maximum velocity"""
+    a_min: float
+    """Minimum acceleration (Maximum Breaking)"""
+    a_max: float
+    """Maximum acceleration"""
 
     # input bounds
     ddelta_min: float
     """Minimum steering angle rate"""
     ddelta_max: float
     """Maximum steering angle rate"""
-    a_min: float
-    """Minimum acceleration (Maximum Breaking)"""
-    a_max: float
-    """Maximum acceleration"""
+    jerk_min: float
+    """Minimum jerk"""
+    jerk_max: float
+    """Maximum jerk"""
 
     # nonlinear constraint
     alat_max: float

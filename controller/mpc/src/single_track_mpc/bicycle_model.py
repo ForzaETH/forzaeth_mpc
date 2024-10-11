@@ -245,16 +245,18 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     # read the parameters range from the yaml file
 
     # state bounds
-    model.delta_min = stmpc_config.delta_min  # minimum steering angle [rad]
-    model.delta_max = stmpc_config.delta_max  # maximum steering angle [rad]
+    constraint.delta_min = stmpc_config.delta_min  # minimum steering angle [rad]
+    constraint.delta_max = stmpc_config.delta_max  # maximum steering angle [rad]
     constraint.v_x_min = stmpc_config.v_min  # minimum velocity [m/s]
     constraint.v_x_max = stmpc_config.v_max  # maximum velocity [m/s]
-    model.a_min = stmpc_config.a_min  # minimum velocity change rate
-    model.a_max = stmpc_config.a_max  # maximum velocity change rate
+    constraint.a_min = stmpc_config.a_min  # minimum velocity change rate
+    constraint.a_max = stmpc_config.a_max  # maximum velocity change rate
 
     # input bounds
-    model.ddelta_min = stmpc_config.ddelta_min  # minimum change rate of stering angle [rad/s]
-    model.ddelta_max = stmpc_config.ddelta_max  # maximum change rate of steering angle [rad/s]
+    constraint.ddelta_min = stmpc_config.ddelta_min  # minimum change rate of stering angle [rad/s]
+    constraint.ddelta_max = stmpc_config.ddelta_max  # maximum change rate of steering angle [rad/s]
+    constraint.jerk_min = stmpc_config.jerk_min  # minimum jerk [m/s^3]
+    constraint.jerk_max = stmpc_config.jerk_max  # maximum jerk [m/s^3]
 
     # Define model struct
     params = types.SimpleNamespace()

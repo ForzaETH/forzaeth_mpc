@@ -351,8 +351,8 @@ class Single_track_MPC_Controller:
 
         solution = [x[-1] for x in solution.y]
         # Constraint on max. steering angle
-        if abs(solution[5]) > self.model.delta_max:
-            solution[5] = np.sign(solution[5]) * self.model.delta_max
+        if abs(solution[5]) > self.constraint.delta_max:
+            solution[5] = np.sign(solution[5]) * self.constraint.delta_max
 
         # Constraint on max. vel
         if abs(solution[3]) > self.constraint.v_x_max:
