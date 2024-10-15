@@ -9,7 +9,7 @@ import yaml
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
-from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
+from frenet_converter.frenet_converter import FrenetConverter
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
