@@ -1,25 +1,27 @@
 #! /usr/bin/env python3
 import os
 from typing import Tuple
+
 import numpy as np
 import rospkg
 import rospy
 import yaml
+from dynamic_reconfigure.client import Client
+from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
 from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
+from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
+                        load_STMPC_config_ros)
 from plotting_fnc import *
-from std_msgs.msg import Float64MultiArray
+from single_track_mpc.bicycle_model import bicycle_model
+from single_track_mpc.utils.indicies import StateIndex
 from single_track_mpc.utils.splinify import SplineTrack
+from std_msgs.msg import Float64MultiArray
 from visualization_msgs.msg import Marker, MarkerArray
 
-from frenet_converter.frenet_converter import FrenetConverter
-from single_track_mpc.bicycle_model import bicycle_model
-from pbl_config import load_STMPC_config_ros, load_car_config_ros, load_pacejka_tire_config_ros
-
-from single_track_mpc.utils.indicies import StateIndex
 
 class tireNode:
     def __init__(self,) -> None:
@@ -39,6 +41,7 @@ class tireNode:
 
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
 
+        self.v_x_pub = rospy.Publisher("/mpc_controller/v_x", Float64MultiArray, queue_size=10)
         self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
         self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
@@ -46,6 +49,11 @@ class tireNode:
         self.d_mid_pub = rospy.Publisher("/mpc_controller/d_mid", MarkerArray, queue_size=10)
         self.d_right_pub = rospy.Publisher("/mpc_controller/d_right", MarkerArray, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
+
+        self.acc_x_pub = rospy.Publisher("/mpc_controller/acc_x", Float64MultiArray, queue_size=10)
+        self.acc_y_pub = rospy.Publisher("/mpc_controller/acc_y", Float64MultiArray, queue_size=10)
+        self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float64MultiArray, queue_size=10)
+        self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float64MultiArray, queue_size=10)
 
         self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
 
@@ -109,6 +117,9 @@ class tireNode:
 
         self.states=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
         self.states_k_1=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
+        self.acc_x = np.zeros(self.stmpc_config.N)
+        self.acc_y = np.zeros(self.stmpc_config.N)
+        self.ellipse = np.zeros(self.stmpc_config.N)
 
         # visualize the boundaries of the map
         map_boundaries = np.zeros((len(self.s_ref),2,2))
@@ -201,6 +212,8 @@ class tireNode:
             pred_waypoints = [np.array([x, y]) for x, y in zip(pred_waypoints_x, pred_waypoints_y)]
 
             self.publish_waypoint_markers(pred_waypoints, type="pred")
+
+            self.pub_acc()
 
             rate.sleep()
     ##########################
@@ -323,6 +336,28 @@ class tireNode:
         msg.data = states
         self.tireforce__pub.publish(msg)
 
+    def pub_acc(self):
+        dummy_params = np.zeros(self.model.p.size()[0])
+        n = self.model.n_x
+        for i in range(self.stmpc_config.N):
+            theta = self.states[n*i+StateIndex.ORIENTATION_THETA]
+            v_x = self.states[n*i+StateIndex.VELOCITY_V_X]
+            v_y = self.states[n*i+StateIndex.VELOCITY_V_Y]
+            delta = self.states[n*i+StateIndex.STEERING_ANGLE_DELTA]
+            yaw_rate = self.states[n*i+StateIndex.YAW_RATE]
+            a_x = self.states[n*i+StateIndex.ACCEL]
+            x_dot = self.model.f_expl_func(0, 0, theta, v_x, v_y, delta, yaw_rate, a_x, 0, 0, dummy_params)
+            self.acc_x[i] = x_dot[3]
+            self.acc_y[i] = x_dot[4]
+            self.ellipse[i] = (x_dot[3]/self.stmpc_config.a_max)**2 + (x_dot[4]/self.stmpc_config.alat_max)**2
+
+        msg = Float64MultiArray()
+        msg.data = self.acc_x
+        self.acc_x_pub.publish(msg)
+        msg.data = self.acc_y
+        self.acc_y_pub.publish(msg)
+        msg.data = self.ellipse
+        self.ellipse_pub.publish(msg)
 if __name__ == "__main__":
     controller = tireNode()
 
