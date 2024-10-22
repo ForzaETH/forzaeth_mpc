@@ -173,7 +173,7 @@ class Single_track_MPC_Controller:
                 target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
             else:
                 idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+                target_v_speed=self.waypoint_array_in_map[idx,2]
                 self.overtake_d=0
                 # head to head overtaking
                 if(self.state == "OVERTAKE" and (self.opponent is not None)):
