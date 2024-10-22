@@ -20,6 +20,8 @@ class KMPCConfig(BaseModel):
     """Safety margin for the track"""
     track_max_width: float
     """Maximum width of the track"""
+    overtake_d: float
+    """Distance to overtake"""
 
 
     # Cost function settings #
@@ -85,6 +87,7 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
         try:
             config = KMPCConfig(**cfg_dict)
         except ValidationError as e:
+            print(e, 'AAAAAAAAAAAAAAAAAAAAAAAA')
             for error in e.errors():
                 if error["type"] == "missing":
                     for missing_key in error["loc"]:
