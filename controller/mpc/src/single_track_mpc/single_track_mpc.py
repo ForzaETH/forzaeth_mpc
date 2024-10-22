@@ -8,13 +8,14 @@ from f110_msgs.msg import WpntArray
 from single_track_mpc.acados_settings import acados_settings
 from single_track_mpc.utils.splinify import SplineTrack
 from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
+from ackermann_msgs.msg import AckermannDriveStamped
 
 
 class Single_track_MPC_Controller:
     def __init__(self, pose_frenet, racecar_version: str,
                  stmpc_config: STMPCConfig, car_config: CarConfig,
                  tire_config: PacejkaTireConfig,
-                 trailing_config:TrailingConfig) -> None:
+                 trailing_config: TrailingConfig) -> None:
         """
         Initialise MPC object.
         """
@@ -29,6 +30,9 @@ class Single_track_MPC_Controller:
 
         # Init the solver
         self.mpc_initialize_solver(pose_frenet)
+
+        rospy.Subscriber('/vesc/high_level/ackermann_cmd_mux/input/nav_1',
+                         AckermannDriveStamped, self.ackermann_callback)
 
     def mpc_init_params(self) -> None:
         # upper layer parameters: MPC
@@ -50,7 +54,7 @@ class Single_track_MPC_Controller:
         self.previous_frenet_s = 0
         # Initial time
         self.comp_time = 0
-        #Initial overtake lateral distance
+        # Initial overtake lateral distance
         self.overtake_d = self.stmpc_config.overtake_d
         self.loop_rate = 40
         self.gap = None
@@ -60,7 +64,9 @@ class Single_track_MPC_Controller:
         self.v_diff = None
         self.i_gap = 0
 
-
+        # RL stuff
+        self.steering_angle = 0
+        self.speed = 0
 
     def mpc_initialize_solver(self, pose_frenet: np.ndarray) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -102,6 +108,10 @@ class Single_track_MPC_Controller:
             self.acados_solver.set(i, "x", warm_start_trajectory[i][:7])
             if i < self.stmpc_config.N:
                 self.acados_solver.set(i, "u", warm_start_trajectory[i][7:])
+
+    def ackermann_callback(self, data: AckermannDriveStamped):
+        self.steering_angle = data.drive.steering_angle
+        self.speed = data.drive.speed
 
      # main loop
     def main_loop(
@@ -149,7 +159,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle_buf[-1], self.yaw_rate], dtype=np.float64)
+                      self.steering_angle, self.yaw_rate], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
@@ -169,15 +179,15 @@ class Single_track_MPC_Controller:
         for i in range(self.stmpc_config.N + 1):
             # head to head racing
             # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
-            if(self.state == "TRAILING" and (self.opponent is not None)): #Trailing controller
-                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
+            if (self.state == "TRAILING" and (self.opponent is not None)):  # Trailing controller
+                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
             else:
-                idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-                self.overtake_d=0
+                idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
+                target_v_speed = np.ones(1) * self.waypoint_array_in_map[idx, 2]
+                self.overtake_d = 0
                 # head to head overtaking
-                if(self.state == "OVERTAKE" and (self.opponent is not None)):
-                    self.overtake_d=self.waypoint_array_in_map[idx,3]
+                if (self.state == "OVERTAKE" and (self.opponent is not None)):
+                    self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
             if i < self.stmpc_config.steps_delay:
                 # NOTE: increase the weight of the the steering angle cost, to effectively keep it constant
@@ -382,12 +392,13 @@ class Single_track_MPC_Controller:
             s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, self.model_params.p)
 
         xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-            float(xdot[4]), float(xdot[5]), float(xdot[6]), accel, derDelta]
+                float(xdot[4]), float(xdot[5]), float(xdot[6]), accel, derDelta]
 
         return xdot
+
     def trailing_controller(self, global_speed):
 
-        self.gap = (self.opponent[0] - self.position_in_map_frenet[0])%self.track_length # gap to opponent
+        self.gap = (self.opponent[0] - self.position_in_map_frenet[0]) % self.track_length  # gap to opponent
         # prev_gap = self.gap if self.gap_actual is None else self.gap_actual
         self.gap_actual = self.gap
         if self.trailing_config.trailing_mode:
@@ -396,17 +407,15 @@ class Single_track_MPC_Controller:
             self.gap_should = self.position_in_map_frenet[2] * self.trailing_config.trailing_gap
 
         self.gap_error = self.gap_should - self.gap_actual
-        self.v_diff =  self.position_in_map_frenet[2] - self.opponent[2]
-        self.i_gap = np.clip(self.i_gap + self.gap_error/self.loop_rate, -10, 10)
+        self.v_diff = self.position_in_map_frenet[2] - self.opponent[2]
+        self.i_gap = np.clip(self.i_gap + self.gap_error / self.loop_rate, -10, 10)
 
         p_value = self.gap_error * self.trailing_config.trailing_p_gain
         d_value = self.v_diff * self.trailing_config.trailing_d_gain
         i_value = self.i_gap * self.trailing_config.trailing_i_gain
-
 
         self.trailing_command = np.clip(self.opponent[2] - p_value - i_value - d_value, 0, global_speed)
         if not self.opponent[4] and self.gap_actual > self.gap_should:
             self.trailing_command = max(self.trailing_config.blind_trailing_speed, self.trailing_command)
 
         return self.trailing_command
-
