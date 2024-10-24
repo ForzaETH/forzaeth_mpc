@@ -125,7 +125,7 @@ class Kinematic_MPC_Controller:
         # dynamically change the target speed, weight parameters and constraints
         for i in range(self.kmpc_config.N + 1):
             idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
-            traget_v_speed = np.ones(1) * self.waypoint_array_in_map[idx, 2]
+            traget_v_speed = self.waypoint_array_in_map[idx, 2]
             online_parameters = np.array([traget_v_speed,
                                           self.kmpc_config.qadv,
                                           self.kmpc_config.qv,
