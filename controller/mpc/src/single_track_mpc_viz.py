@@ -9,8 +9,9 @@ import yaml
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
-from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
 from frenet_converter.frenet_converter import FrenetConverter
+from dynamic_reconfigure.client import Client
+from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
 from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
                         load_STMPC_config_ros)
@@ -71,14 +72,23 @@ class tireNode:
         self.car_config.lf = self.car_config.lf
 
         # Just for cost function testing
-        self.track_safety_margin = self.stmpc_config.track_safety_margin
+        self.stmpc_config.track_safety_margin
         t_delay = self.stmpc_config.t_delay
         self.t_MPC = 1 / self.stmpc_config.MPC_freq
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        self.states=np.zeros(7*(self.stmpc_config.N+1))
-        self.states_k_1=np.zeros(7*(self.stmpc_config.N+1))
+
+    def stmpc_config_cb(self, params: Config):
+        """
+        Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
+        Values from .yaml file are set in mpc_online_params_server
+        """
+        for k, v in params.items():
+            if k != "groups":
+                setattr(self.stmpc_config, k, v)
+
+        self.stmpc_config = self.stmpc_config
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -183,15 +193,15 @@ class tireNode:
             boundaries = np.zeros((self.stmpc_config.N, 3, 3))
             mpc_sd = []
             for stage in range(self.stmpc_config.N ):
-                x_ = self.states[7*stage:7*(stage+1)-1]
+                x_ = self.states[8*stage:8*(stage+1)-1] # TODO: hardcoded nx
                 s_ = x_[0]
                 s_mod = s_ % self.spline.track_length
                 # store predicted position
                 mpc_sd.append(x_[:2])
 
-                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.track_safety_margin).reshape(2)
+                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.stmpc_config.track_safety_margin).reshape(2)
                 boundaries[stage,1,0:2] = self.fren_conv.get_cartesian(s_mod, 0).reshape(2)
-                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.track_safety_margin).reshape(2)
+                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.stmpc_config.track_safety_margin).reshape(2)
 
             self.publish_waypoint_markers(boundaries[:,0,:], "d_right")
             self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
