@@ -193,10 +193,6 @@ def bicycle_model(
     n_left_bound = left_bound_s(s_mod) + n + bound_inflation
     n_right_bound = right_bound_s(s_mod) - n - bound_inflation
 
-    # Clip that the boundaries don't overlap
-    n_left_bound = cs.fmax(n_left_bound, 0)
-    n_right_bound = cs.fmax(n_right_bound, 0)
-
     pos_s = MX.sym('pos_s')
     pos_n = MX.sym('pos_n')
     model.n_left_bound = Function('left_bound', [pos_s, pos_n], [left_bound_s(pos_s) + pos_n])
