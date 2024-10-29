@@ -128,6 +128,8 @@ class Single_track_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
+        self.measured_acc = single_track_state[2]
+        self.measured_steer = single_track_state[3]
         self.track_length = track_length
         self.comp_time = compute_time
         # update initial state from sensors
@@ -152,7 +154,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle_buf[-1], self.yaw_rate, self.prev_acc], dtype=np.float64)
+                      self.measured_steer, self.yaw_rate, self.measured_acc], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
