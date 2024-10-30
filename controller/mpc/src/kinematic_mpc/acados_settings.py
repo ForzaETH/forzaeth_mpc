@@ -51,7 +51,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     model_ac = AcadosModel()
     model_ac.f_impl_expr = model.f_impl_expr
     model_ac.f_expl_expr = model.f_expl_expr
-    model_ac.disc_dyn_expr = model.dyn_disc_fun  # use the discrete dynamics function by ourselves
+    model_ac.disc_dyn_expr = model.dyn_disc_fun  # use the di_screte dynamics function by ourselves
     # define constraint：[longitudinal force, lateral force, inner_bound, outer_bound]
     model_ac.con_h_expr_0 = constraint.expr
     model_ac.con_h_expr = constraint.expr
