@@ -1,21 +1,25 @@
 #! /usr/bin/env python3
 from typing import Tuple
+
 import numpy as np
 import rospy
-from scipy.integrate import solve_ivp
-from frenet_converter.frenet_converter import FrenetConverter
-from f110_msgs.msg import WpntArray
-from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.splinify import SplineTrack
-from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
 from ackermann_msgs.msg import AckermannDriveStamped
+from f110_msgs.msg import WpntArray
+from frenet_converter.frenet_converter import FrenetConverter
+from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+                        TrailingConfig)
+from scipy.integrate import solve_ivp
+from single_track_mpc.acados_settings import acados_settings
+from single_track_mpc.utils.indicies import StateIndex
+from single_track_mpc.utils.splinify import SplineTrack
 
 
 class Single_track_MPC_Controller:
     def __init__(self, pose_frenet, racecar_version: str,
                  stmpc_config: STMPCConfig, car_config: CarConfig,
                  tire_config: PacejkaTireConfig,
-                 trailing_config: TrailingConfig) -> None:
+                 trailing_config: TrailingConfig,
+                 controller_frequency: float) -> None:
         """
         Initialise MPC object.
         """
@@ -26,6 +30,7 @@ class Single_track_MPC_Controller:
         self.car_config: CarConfig = car_config
         self.tire_config: PacejkaTireConfig = tire_config
         self.trailing_config: TrailingConfig = trailing_config
+        self.controller_frequency = controller_frequency
         self.mpc_init_params()
 
         # Init the solver
@@ -65,8 +70,8 @@ class Single_track_MPC_Controller:
         self.i_gap = 0
 
         # RL stuff
-        self.steering_angle = 0
-        self.speed = 0
+        self.steering_angle_rl = 0
+        self.speed_rl = 0
 
     def mpc_initialize_solver(self, pose_frenet: np.ndarray) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -96,6 +101,7 @@ class Single_track_MPC_Controller:
         self.apply_warm_start(pose_frenet=pose_frenet)  # TODO uniform general mpc input to a MPCstate
 
         self.kappa = kapparef
+        self.prev_acc = 0
 
     def apply_warm_start(self, pose_frenet: np.ndarray):
         """Applies a warm start to the MPC solver.
@@ -105,15 +111,15 @@ class Single_track_MPC_Controller:
         """
         warm_start_trajectory = self.get_warm_start(pose_frenet=pose_frenet, const_acc=1, const_steer_vel=0.0)
         for i in range(self.stmpc_config.N + 1):
-            self.acados_solver.set(i, "x", warm_start_trajectory[i][:7])
+            self.acados_solver.set(i, "x", warm_start_trajectory[i][:self.model.n_x])
             if i < self.stmpc_config.N:
-                self.acados_solver.set(i, "u", warm_start_trajectory[i][7:])
+                self.acados_solver.set(i, "u", warm_start_trajectory[i][self.model.n_x:])
 
     def ackermann_callback(self, data: AckermannDriveStamped):
-        self.steering_angle = data.drive.steering_angle
-        self.speed = data.drive.speed
-
+        self.steering_angle_rl = data.drive.steering_angle
+        self.speed_rl = data.drive.speed
      # main loop
+
     def main_loop(
             self,
             state,
@@ -159,7 +165,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle, self.yaw_rate], dtype=np.float64)
+                      self.steering_angle_rl, self.yaw_rate, self.prev_acc], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
@@ -183,7 +189,7 @@ class Single_track_MPC_Controller:
                 target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
             else:
                 idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
-                target_v_speed = np.ones(1) * self.waypoint_array_in_map[idx, 2]
+                target_v_speed = self.waypoint_array_in_map[idx, 2]
                 self.overtake_d = 0
                 # head to head overtaking
                 if (self.state == "OVERTAKE" and (self.opponent is not None)):
@@ -197,7 +203,7 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.qv,
                                               self.stmpc_config.qn,
                                               self.stmpc_config.qalpha,
-                                              self.stmpc_config.qac,
+                                              self.stmpc_config.qjerk,
                                               multiplier * self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
@@ -211,7 +217,7 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.qv,
                                               self.stmpc_config.qn,
                                               self.stmpc_config.qalpha,
-                                              self.stmpc_config.qac,
+                                              self.stmpc_config.qjerk,
                                               self.stmpc_config.qddelta,
                                               self.stmpc_config.alat_max,
                                               self.stmpc_config.a_min,
@@ -223,11 +229,13 @@ class Single_track_MPC_Controller:
             self.acados_solver.set(i, "p", online_parameters)
 
             if i < self.stmpc_config.N:
-                self.acados_solver.set(i, "lbu", np.array([self.stmpc_config.a_min, self.stmpc_config.ddelta_min]))
-                self.acados_solver.set(i, "ubu", np.array([self.stmpc_config.a_max, self.stmpc_config.ddelta_max]))
+                self.acados_solver.set(i, "lbu", np.array([-50, self.stmpc_config.ddelta_min]))
+                self.acados_solver.set(i, "ubu", np.array([50, self.stmpc_config.ddelta_max]))
                 # do not change i+1 to i since mpc needs the initial state
-                self.acados_solver.set(i + 1, "lbx", np.array([self.stmpc_config.v_min, self.stmpc_config.delta_min]))
-                self.acados_solver.set(i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max]))
+                self.acados_solver.set(
+                    i + 1, "lbx", np.array([self.stmpc_config.v_min, self.stmpc_config.delta_min, self.stmpc_config.a_min]))
+                self.acados_solver.set(
+                    i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max, self.stmpc_config.a_max]))
 
         # Solve OCP
         status = self.acados_solver.solve()
@@ -238,12 +246,16 @@ class Single_track_MPC_Controller:
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
+        self.prev_acc = self.acados_solver.get(0, "x")[StateIndex.ACCEL.value]
         delayed_index = self.stmpc_config.steps_delay + 1
         self.pred_x = self.acados_solver.get(delayed_index, "x")
         self.steering_angle = self.pred_x[5]  # propagated_x[5] + self.u0[1]/40 #
         self.speed = self.pred_x[3]  # propagated_x[3] + self.u0[0]/40 #
-        self.acceleration = self.u0[0]
-        self.jerk = 0
+        # NOTE: Euler integration for accounting different frequencies controller/mpc time step
+        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
+        self.prev_acc = self.acceleration
+        self.jerk = self.u0[0]
+
         # steering buffer
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
@@ -276,9 +288,9 @@ class Single_track_MPC_Controller:
 
         Returns: np.array    : Warm start trajectory
         """
-        warm_start = np.zeros((self.stmpc_config.N + 1, 9))
+        warm_start = np.zeros((self.stmpc_config.N + 1, 10))
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
-                                 1, 0, 0, 0, const_acc, const_steer_vel])
+                                 1, 0, 0, 0, const_acc, 0, const_steer_vel])
         for i in range(1, self.stmpc_config.N + 1):
             der_state = self._dynamics_of_car(0, warm_start[i - 1])
             warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
@@ -356,8 +368,8 @@ class Single_track_MPC_Controller:
 
         solution = [x[-1] for x in solution.y]
         # Constraint on max. steering angle
-        if abs(solution[5]) > self.model.delta_max:
-            solution[5] = np.sign(solution[5]) * self.model.delta_max
+        if abs(solution[5]) > self.constraint.delta_max:
+            solution[5] = np.sign(solution[5]) * self.constraint.delta_max
 
         # Constraint on max. vel
         if abs(solution[3]) > self.constraint.v_x_max:
@@ -388,11 +400,12 @@ class Single_track_MPC_Controller:
         yaw_rate = x0[6]
         accel = x0[7]
         derDelta = x0[8]
+        jerk = x0[9]
         xdot = self.model.f_expl_func(
-            s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, self.model_params.p)
+            s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, jerk, self.model_params.p)
 
         xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-                float(xdot[4]), float(xdot[5]), float(xdot[6]), accel, derDelta]
+                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), derDelta, jerk]
 
         return xdot
 

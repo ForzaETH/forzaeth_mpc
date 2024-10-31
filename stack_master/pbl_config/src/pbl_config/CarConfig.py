@@ -36,7 +36,7 @@ class CarConfig(BaseModel):
     """Velocity-to-erpm Gain"""
     tau_steer: float
     """Steering Angle Time Constant"""
-    model_name: str
+    racecar_version: str
     """Name of the car model"""
 
 
