@@ -13,7 +13,10 @@ from f110_msgs.msg import WpntArray
 import os
 import rospkg
 from joblib import load
-from gp_mpc_node.gp import CustomGPRegression, CustomKernelFunctions
+import torch
+from gp_mpc_node.Sparse_GP_function import sparse_gp_model_predict
+from dynamic_reconfigure.client import Client
+
 
 class MAP2_Controller:
     def __init__(self, **kwargs):
@@ -36,14 +39,15 @@ class MAP2_Controller:
         self.map2_init_params(*map2_init_params)
         self.map_init_params(*map_init_params)
 
-        # # load the GP model
+        # # initialize the GP model
         rospack = rospkg.RosPack()
         package_path=rospack.get_path('gp_mpc_node')
-        self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/gp_model.pkl')
+        self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/sparse_gp_model.pth')
         self.GP_model_load=self.conf_params["GP_model_load"]
-        self.GP_model_update=self.conf_params["GP_model_update"]
-        self.GP_model_update_flag=self.GP_model_update
-        self.gp_model=load(self.model_file)
+
+        # update the GP model through dynamic reconfigure
+        self.MAP2_client = Client("MAP2_param_tuner", timeout=30)
+
 
         self.GP_beta_comp=0
 
@@ -196,27 +200,33 @@ class MAP2_Controller:
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
+        # Load and update the GP model
+        if self.GP_model_update:
+            checkpoint = torch.load(self.model_file)
+            self.likelihood_new = checkpoint['likelihood']
+            self.model_new = checkpoint['model']
+
+            # give a message to reset the flag
+            try:
+                self.MAP2_client.update_configuration({"GP_model_update": False})
+            except rospy.ROSException as e:
+                rospy.logerr(f"Failed to tell the message of updating GP model in MAP2 controller: {e}")
+
+            print("The GP model in the MAP2 controller has been updated")
+
+
+
         # GP conpensation for the mpc
         if self.GP_model_load:
-            if self.GP_model_update and not self.GP_model_update_flag:
-                self.gp_model=load(self.model_file)
-                self.GP_model_update_flag=True
-                print("update the GP model")
-            if not self.GP_model_update:
-                self.GP_model_update_flag = False
+            s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
+            s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
+            self.GP_beta_comp, _, _=sparse_gp_model_predict(self.model_new, self.likelihood_new, s_gp)
+        else:
+            self.GP_beta_comp=np.zeros(self.N+1)
+
 
         for i in range(self.N+1):
             idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-            # traget_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-
-            # GP conpensation for the mpc
-            if self.GP_model_load:
-                if i<self.N:
-                    self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i+1,0]%self.spline.track_length))
-                else:
-                    self.GP_beta_comp=self.gp_model.predict(np.array(self.mpc_sd[i,0]%self.spline.track_length))
-            else:
-                self.GP_beta_comp=0
 
             # head to head racing
             # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
@@ -230,7 +240,7 @@ class MAP2_Controller:
                 if(self.state == "OVERTAKE"):
                     self.overtake_d=self.waypoint_array_in_map[idx,3]
 
-            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp,0],dtype=np.float64)
+            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp[i],0],dtype=np.float64)
 
             self.acados_solver.set(i,"p",online_parameters)
         # Solve optimal upper layer control problem
