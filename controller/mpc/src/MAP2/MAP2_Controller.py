@@ -26,30 +26,93 @@ class MAP2_Controller:
         Input:  conf_file   : String containing the path to the MAP2_param_config.yaml file and MAP param
         """
         ## initialize for the upper mpc
-        # Init the mpc parameters
         self.mpc_init_params(kwargs)
-
         # Init the mpc solver
         self.mpc_initialize_solver()
 
-        ## initialize for the lower controller:MAP
+        ## initialize for the backup controller MAP
         map_init_params = kwargs['map_controller_param']
-        map2_init_params = kwargs['map2_online_param']
         self.trailing_config: TrailingConfig = kwargs['trailing_config']
-        self.map2_init_params(*map2_init_params)
         self.map_init_params(*map_init_params)
 
         # # initialize the GP model
         rospack = rospkg.RosPack()
         package_path=rospack.get_path('gp_mpc_node')
         self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/sparse_gp_model.pth')
-        self.GP_model_load=self.conf_params["GP_model_load"]
+        self.GP_model_load=False
+        self.GP_model_update=False
+        self.model_new=None
+        self.likelihood_new=None
+        self.GP_beta_comp=0
 
         # update the GP model through dynamic reconfigure
         self.MAP2_client = Client("MAP2_param_tuner", timeout=30)
 
+    def mpc_init_params(self, kwargs) -> None:
+        self.racecar_version = kwargs['racecar_version']
+        #MPC Params
+        self.conf_params = kwargs['conf_params']
 
-        self.GP_beta_comp=0
+        # upper layer parameters: MPC
+        self.N = self.conf_params['N']
+
+        # Initialize the weight parameters for the MPC
+        self.mpc_weight_params(self.conf_params)
+
+        # initial s
+        self.fre_s = 0
+        self.mpc_sd = np.zeros((self.N + 1, 4))
+        self.pre_s =0
+        self.lap_counter=0
+        self.states = np.zeros((self.N + 1, 4))
+
+        # head to head parameter
+        self.overtake_d=0
+
+        #initial trailing parameter
+        self.loop_rate = 40
+        self.gap = None
+        self.gap_should = None
+        self.gap_error = None
+        self.gap_actual = None
+        self.v_diff = None
+        self.i_gap = 0
+
+    def mpc_weight_params(self, conf_params) -> None:
+        # Parameters from manager
+        self.time_delay_step = conf_params['time_delay_step']
+        self.t_d_c = conf_params['t_d_c']
+        self.online_ac_y_max= conf_params['online_ac_y_max']
+        self.online_ac_x_max= conf_params['online_ac_x_max']
+        self.weight_qn= conf_params['weight_qn']
+        self.weight_theta= conf_params['weight_theta']
+        self.weight_accel_x= conf_params['weight_accel_x']
+        self.weight_beta= conf_params['weight_beta']
+        self.weight_vx= conf_params['weight_vx']
+        self.weight_yaw_rate= conf_params['weight_yaw_rate']
+
+
+
+    def mpc_initialize_solver(self) -> None:
+        """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
+
+        rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
+        mincurv_raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
+        rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
+
+        x, y = self._transform_waypoints_to_cartesian(mincurv_raceline.wpnts)
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords(mincurv_raceline.wpnts) # on f track trajectory is 81.803 m long.
+
+        self.spline = SplineTrack(coords_direct=coords_path)
+
+        self.nr_laps = 0
+
+        kapparef = [x.kappa_radpm for x in mincurv_raceline.wpnts]
+        vx_ref = [x.vx_mps for x in mincurv_raceline.wpnts]
+        self.s_ref = np.array([x.s_m for x in mincurv_raceline.wpnts])
+        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(self.s_ref, kapparef,vx_ref ,d_left, d_right, self.conf_params)
+        self.kappa = kapparef
+        self.lat_acc=0
 
     def map_init_params(self,
                 t_clip_min,
@@ -73,84 +136,6 @@ class MAP2_Controller:
         self.map_lat_acc=0
         self.steer_lookup = LookupSteerAngle(self.racecar_version, self.floor, "pacejka",self.logger_info)
 
-    def map2_init_params(self, time_delay_step,
-                         t_d_c,
-                         online_ac_y_max,
-                         online_ac_x_max,
-                         weight_qn,
-                         weight_theta,
-                         weight_accel_x,
-                         weight_beta,
-                         weight_vx,
-                         weight_yaw_rate,
-                         ) -> None:
-        # Parameters from manager
-        self.time_delay_step=time_delay_step
-        self.t_d_c=t_d_c
-        self.online_ac_y_max=online_ac_y_max
-        self.online_ac_x_max=online_ac_x_max
-        self.weight_qn=weight_qn
-        self.weight_theta=weight_theta
-        self.weight_accel_x=weight_accel_x
-        self.weight_beta=weight_beta
-        self.weight_vx=weight_vx
-        self.weight_yaw_rate=weight_yaw_rate
-        self.lat_acc=0
-        self.overtake_d=0
-
-    def mpc_init_params(self, kwargs) -> None:
-        self.racecar_version = kwargs['racecar_version']
-        #MPC Params
-        self.conf_params = kwargs['conf_params']
-
-        # upper layer parameters: MPC
-        self.N = self.conf_params['N']
-        t_delay = self.conf_params['t_delay']
-        self.t_MPC = 1 / self.conf_params['MPC_freq']
-        # time delay propagation
-        self.t_delay = t_delay
-        print(self.conf_params)
-
-        #Initial time
-        self.conp_time = 0
-
-        # initial s
-        self.fre_s = 0
-        self.mpc_sd = np.zeros((self.N + 1, 4))
-        self.pre_s =0
-        self.lap_counter=0
-
-        #initial trailing parameter
-        self.loop_rate = 40
-        self.gap = None
-        self.gap_should = None
-        self.gap_error = None
-        self.gap_actual = None
-        self.v_diff = None
-        self.i_gap = 0
-
-
-
-    def mpc_initialize_solver(self) -> None:
-        """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
-
-        rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        mincurv_raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
-        rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
-
-        x, y = self._transform_waypoints_to_cartesian(mincurv_raceline.wpnts)
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(mincurv_raceline.wpnts) # on f track trajectory is 81.803 m long.
-
-        self.spline = SplineTrack(coords_direct=coords_path)
-
-        self.nr_laps = 0
-
-        kapparef = [x.kappa_radpm for x in mincurv_raceline.wpnts]
-        vx_ref = [x.vx_mps for x in mincurv_raceline.wpnts]
-        self.s_ref = np.array([x.s_m for x in mincurv_raceline.wpnts])
-        self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(self.s_ref, kapparef,vx_ref ,d_left, d_right, self.conf_params)
-        self.kappa = kapparef
-
 
     # main loop
     def main_loop(self, machine_state, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time,opponent):
@@ -169,145 +154,33 @@ class MAP2_Controller:
         self.opponent = opponent
 
         ### MAP2 ###
-        #Upper curvature mpc:
-        # update initial state from sensors
-
-        # calculate the current alpha angle
-        self.yaw=self.position_in_map[2]
-        center_car_s = self.position_in_map_frenet[0] +self.conf_params["lr"]*np.cos(self.position_in_map_frenet[2])
-        deriv_center = self.spline.get_derivative(center_car_s)
-        alpha_center =  self.yaw  - np.arctan2(deriv_center[1],deriv_center[0])
-
-        # make aplha_center between -pi and pi
-        alpha_center = alpha_center % (2*np.pi)
-        if alpha_center > np.pi:
-            alpha_center = alpha_center - 2*np.pi
-
-        # continuous s
-        if center_car_s-self.pre_s < -0.5*self.spline.track_length:
-            if abs(center_car_s) < 1:
-                self.lap_counter += 1
-        self.pre_s = center_car_s
-        continue_s = center_car_s + self.lap_counter * self.spline.track_length
-
-        # update the initial state for the mpc
-        self.fre_s= continue_s
-        self.fre_d= self.position_in_map_frenet[1]
-        self.fre_alpha= alpha_center
-
         # set the initial state for the mpc
-        propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, self.v],dtype=np.float64)
+        propagated_x = self.get_initial_mpc_state()
+        # propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, self.v],dtype=np.float64)
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
-        # Load and update the GP model
-        if self.GP_model_update:
-            checkpoint = torch.load(self.model_file)
-            self.likelihood_new = checkpoint['likelihood']
-            self.model_new = checkpoint['model']
+        # GP model loads and compensates the error
+        self.sparse_gp_model_load_predict()
 
-            # give a message to reset the flag
-            try:
-                self.MAP2_client.update_configuration({"GP_model_update": False})
-            except rospy.ROSException as e:
-                rospy.logerr(f"Failed to tell the message of updating GP model in MAP2 controller: {e}")
+        # update the online parameters
+        self.update_online_parameters()
 
-            print("The GP model in the MAP2 controller has been updated")
-
-
-
-        # GP conpensation for the mpc
-        if self.GP_model_load:
-            s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
-            s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
-            self.GP_beta_comp, _, _=sparse_gp_model_predict(self.model_new, self.likelihood_new, s_gp)
-        else:
-            self.GP_beta_comp=np.zeros(self.N+1)
-
-
-        for i in range(self.N+1):
-            idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-
-            # head to head racing
-            # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
-            if(self.state == "TRAILING"): #Trailing controller
-                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
-                self.overtake_d=0
-            else:
-                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-                self.overtake_d=0
-                # head to head overtaking
-                if(self.state == "OVERTAKE"):
-                    self.overtake_d=self.waypoint_array_in_map[idx,3]
-
-            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp[i],0],dtype=np.float64)
-
-            self.acados_solver.set(i,"p",online_parameters)
         # Solve optimal upper layer control problem
         status = self.acados_solver.solve()
 
-        # Get the optimal state, control input, and lateral acceleration
-        mpc_sd = np.array([
-            self.acados_solver.get(j, "x")[:4] for j in range(self.N+1)
-        ])
-        self.mpc_sd=mpc_sd
-        u_sd = np.array([
-            self.acados_solver.get(j, "u")[:2] for j in range(self.N)
-        ])
-        acc_sd=np.array([
-            mpc_sd[j+1,3]*u_sd[j,1] for j in range(self.N)
-        ])
-
-        #MAP controller:
-        # Calculate lookahead distance
-        # Define lookahead distance as an affine function with  tuning parameter m and q
-        idx_nearest_waypoint = self.nearest_waypoint(position_in_map[:2], waypoint_array_in_map[:, :2])
-        lookahead_distance = self.q_map + target_speed * self.m_map
-        lookahead_distance = np.clip(lookahead_distance, self.t_clip_min, self.t_clip_max)
-        lookahead_point = self.waypoint_at_distance_infront_car(lookahead_distance, waypoint_array_in_map[:,:2], idx_nearest_waypoint)
-
-        # map lateral acceleration
-        # Vector from the current position to the point at lookahead distance
-        position_la_vector = np.array([lookahead_point[0] - position_in_map[0], lookahead_point[1] - position_in_map[1]])
-        yaw = position_in_map[2]
-        eta = np.arcsin(np.dot([-np.sin(yaw), np.cos(yaw)], position_la_vector)/np.linalg.norm(position_la_vector))
-        self.map_lat_acc = 2*target_speed**2 / lookahead_distance * np.sin(eta)
-
-        time_delay_step=round(self.time_delay_step)
-        self.lat_acc_0 = acc_sd[time_delay_step]
-
-        self.lat_acc = self.lat_acc_0
-        map2_target_speed = mpc_sd[time_delay_step+1,3]
-        acceleration = u_sd[time_delay_step,0]
-
-        # If the solver did not converge, switch to MAP
-        if status != 0:
-            self.logger_warn('[MAP2 Controller]: The solver did not converge. SWITCHING TO MAP')
-            self.lat_acc = self.map_lat_acc
-            map2_target_speed=target_speed
-            acceleration=0
-
-        steering_angle = self.steer_lookup.lookup_steer_angle(self.lat_acc, map2_target_speed)
-        speed = np.max(map2_target_speed, 0)  # no negative speed
-
-        # Publish mpc states for viz
         if status == 0:
-            states = []
-            for node in range(self.N+1):
-                result = self.acados_solver.get(node,"x").tolist()
-                for item in result:
-                    states.append(item)
-            self.states = states
-
-        # Prevent division by zero or very small numbers
-        if abs(self.vx_now) > 1e-6:  # Use a small threshold to avoid numerical instability
-            beta_real = np.arctan(self.vy_now / self.vx_now)
+            # run MAP2 controller
+            steering_angle, speed, acceleration = self.obtain_MAP2_control_command()
         else:
-            beta_real = 0  # When speed is too small, assume no slip angle
-        beta=np.arcsin(self.conf_params['lr']*u_sd[0,1]/(mpc_sd[0,3]+0.5))
-        self.states[2]=(center_car_s)
-        self.states[3]=(beta_real-beta)
-        return speed, acceleration, steering_angle, lookahead_point, lookahead_distance, idx_nearest_waypoint, self.states
+            # run MAP controller
+            # TODO : the MAP controller should be related with the warm start of the MPC
+            self.logger_warn('[MAP2 Controller]: The solver did not converge. SWITCHING TO MAP')
+            steering_angle, speed, acceleration = self.map_back_up_controller(
+                position_in_map, waypoint_array_in_map, target_speed)
+
+
+        return speed, acceleration, steering_angle,  self.states
 
     @staticmethod
     def distance(point1, point2):
@@ -359,6 +232,7 @@ class MAP2_Controller:
             dist = self.distance(waypoints[idx_waypoint_behind_car], waypoints[i])
 
         return np.array(waypoints[i])
+
     def _transform_waypoints_to_cartesian(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
 
@@ -372,6 +246,7 @@ class MAP2_Controller:
             x[idx] = wpnt.x_m
             y[idx] = wpnt.y_m
         return np.array(x), np.array(y)
+
     def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
 
@@ -389,6 +264,172 @@ class MAP2_Controller:
             d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
+
+    def get_initial_mpc_state(self):
+        """
+        Calculate and return the initial state for the MPC based on the current vehicle position.
+
+        Returns:
+            propagated_x (np.ndarray): The initial state for the MPC including s, d, alpha, and velocity.
+        """
+        self.yaw=self.position_in_map[2]
+        center_car_s = self.position_in_map_frenet[0] +self.conf_params["lr"]*np.cos(self.position_in_map_frenet[2])
+        deriv_center = self.spline.get_derivative(center_car_s)
+        alpha_center =  self.yaw  - np.arctan2(deriv_center[1],deriv_center[0])
+
+        # make aplha_center between -pi and pi
+        alpha_center = alpha_center % (2*np.pi)
+        if alpha_center > np.pi:
+            alpha_center = alpha_center - 2*np.pi
+
+        # continuous s
+        if center_car_s-self.pre_s < -0.5*self.spline.track_length:
+            if abs(center_car_s) < 1:
+                self.lap_counter += 1
+        self.pre_s = center_car_s
+        continue_s = center_car_s + self.lap_counter * self.spline.track_length
+
+        # update the initial state for the mpc
+        self.fre_s= continue_s
+        self.fre_d= self.position_in_map_frenet[1]
+        self.fre_alpha= alpha_center
+        self.center_car_s = center_car_s
+
+        propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, self.v],dtype=np.float64)
+
+        return propagated_x
+
+    def sparse_gp_model_load_predict(self):
+        """
+        Loads the GP model if required, updates it, and performs prediction for model compensation.
+
+        Attributes:
+        - GP_model_update (bool): Indicates whether the GP model should be updated.
+        - GP_model_load (bool): Indicates whether to load the GP model for compensation.
+        - MAP2_client (dynamic_reconfigure.Client): Client to interact with dynamic reconfigure to update flags.
+        - mpc_sd (np.ndarray): MPC state data used for generating predictions.
+        - N (int): Number of points for compensation in MPC.
+        """
+
+        # Load and update the GP model
+        if self.GP_model_update:
+            checkpoint = torch.load(self.model_file)
+            self.likelihood_new = checkpoint['likelihood']
+            self.model_new = checkpoint['model']
+
+            # give a message to reset the flag
+            try:
+                self.MAP2_client.update_configuration({"GP_model_update": False})
+            except rospy.ROSException as e:
+                rospy.logerr(f"Failed to tell the message of updating GP model in MAP2 controller: {e}")
+
+            print("The GP model in the MAP2 controller has been updated")
+
+        # GP conpensation for the mpc
+        if self.GP_model_load and self.model_new is not None:
+            s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
+            s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
+            self.GP_beta_comp, _, _=sparse_gp_model_predict(self.model_new, self.likelihood_new, s_gp)
+        else:
+            self.GP_beta_comp=np.zeros(self.N+1)
+
+    def update_online_parameters(self):
+        """
+        Update the online parameters for the MPC at each stafe.
+        It then sets these parameters in the acados solver to be used in the optimization problem.
+        """
+        for i in range(self.N+1):
+            idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
+
+            # head to head racing
+            # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
+            if(self.state == "TRAILING"): #Trailing controller
+                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
+                self.overtake_d=0
+            else:
+                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
+                self.overtake_d=0
+                # head to head overtaking
+                if(self.state == "OVERTAKE"):
+                    self.overtake_d=self.waypoint_array_in_map[idx,3]
+
+            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp[i],0],dtype=np.float64)
+
+            self.acados_solver.set(i,"p",online_parameters)
+
+    def obtain_MAP2_control_command(self):
+        """
+        Calculate and return the control command for the vehicle using the MPC solution.
+
+        The lateral acceleration is used to calculate the steering angle using the lookup table.
+
+        Returns:
+            steering_angle (float): The calculated steering angle.
+            speed (float): The target speed for the vehicle.
+            acceleration (float): The calculated acceleration.
+        """
+        # Get the optimal state, control input, and lateral acceleration
+        self.mpc_sd = np.array([
+            self.acados_solver.get(j, "x")[:4] for j in range(self.N+1)
+        ])
+        u_sd = np.array([
+            self.acados_solver.get(j, "u")[:2] for j in range(self.N)
+        ])
+        acc_sd=np.array([
+            self.mpc_sd[j+1,3]*u_sd[j,1] for j in range(self.N)
+        ])
+
+        time_delay_step=round(self.time_delay_step)
+        self.lat_acc = acc_sd[time_delay_step]
+
+        map2_target_speed = self.mpc_sd[time_delay_step+1,3]
+        acceleration = u_sd[time_delay_step,0]
+
+        steering_angle = self.steer_lookup.lookup_steer_angle(self.lat_acc, map2_target_speed)
+        speed = np.max(map2_target_speed, 0)  # no negative speed
+
+        # Publish mpc states for viz and publish gp model data
+        self.states = np.concatenate(
+            [ self.acados_solver.get(node, "x") for node in range(self.N + 1)
+            ]).tolist()
+
+        # TODO : the gp training data should be published in a single topic
+        # Prevent division by zero or very small numbers
+        if abs(self.vx_now) > 0.1:  # Use a small threshold to avoid numerical instability
+            beta_real = np.arctan(self.vy_now / self.vx_now)
+        else:
+            beta_real = 0  # When speed is too small, assume no slip angle
+        beta=np.arcsin(self.conf_params['lr']*u_sd[0,1]/(self.mpc_sd[0,3]+0.5))
+        self.states[2]=(self.center_car_s)
+        self.states[3]=(beta_real-beta)
+
+        return steering_angle, speed, acceleration
+
+
+    def map_back_up_controller(self, position_in_map, waypoint_array_in_map, target_speed):
+
+        #MAP controller:
+        # Calculate lookahead distance
+        # Define lookahead distance as an affine function with  tuning parameter m and q
+        idx_nearest_waypoint = self.nearest_waypoint(position_in_map[:2], waypoint_array_in_map[:, :2])
+        lookahead_distance = self.q_map + target_speed * self.m_map
+        lookahead_distance = np.clip(lookahead_distance, self.t_clip_min, self.t_clip_max)
+        lookahead_point = self.waypoint_at_distance_infront_car(lookahead_distance, waypoint_array_in_map[:,:2], idx_nearest_waypoint)
+
+
+        # map lateral acceleration
+        # Vector from the current position to the point at lookahead distance
+        position_la_vector = np.array([lookahead_point[0] - position_in_map[0], lookahead_point[1] - position_in_map[1]])
+        yaw = position_in_map[2]
+        eta = np.arcsin(np.dot([-np.sin(yaw), np.cos(yaw)], position_la_vector)/np.linalg.norm(position_la_vector))
+        self.map_lat_acc = 2*target_speed**2 / lookahead_distance * np.sin(eta)
+
+        steering_angle = self.steer_lookup.lookup_steer_angle(self.map_lat_acc, target_speed)
+        speed = np.max(target_speed, 0)  # no negative speed
+        acceleration = 0
+
+        return steering_angle, speed, acceleration
+
 
     def trailing_controller(self, global_speed):
 
