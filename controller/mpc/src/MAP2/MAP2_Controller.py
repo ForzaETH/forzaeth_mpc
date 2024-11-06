@@ -14,7 +14,7 @@ import os
 import rospkg
 from joblib import load
 import torch
-from gp_mpc_node.Sparse_GP_function import sparse_gp_model_predict
+from gp_mpc_node.Sparse_GP_function import sparse_gp_model_predict, sparse_gp_model_predict_fast
 from dynamic_reconfigure.client import Client
 
 
@@ -43,7 +43,7 @@ class MAP2_Controller:
         self.GP_model_update=False
         self.model_new=None
         self.likelihood_new=None
-        self.GP_beta_comp=0
+        self.GP_beta_comp=np.zeros(self.N+1)
 
         # update the GP model through dynamic reconfigure
         self.MAP2_client = Client("MAP2_param_tuner", timeout=30)
@@ -152,7 +152,8 @@ class MAP2_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
         self.opponent = opponent
-
+        #measure the time
+        start_time = rospy.get_time()
         ### MAP2 ###
         # set the initial state for the mpc
         propagated_x = self.get_initial_mpc_state()
@@ -160,6 +161,7 @@ class MAP2_Controller:
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
+        #measure the time
         # GP model loads and compensates the error
         self.sparse_gp_model_load_predict()
 
@@ -179,7 +181,8 @@ class MAP2_Controller:
             steering_angle, speed, acceleration = self.map_back_up_controller(
                 position_in_map, waypoint_array_in_map, target_speed)
 
-
+        end_time = rospy.get_time()-start_time
+        self.states[6] = end_time
         return speed, acceleration, steering_angle,  self.states
 
     @staticmethod
@@ -317,7 +320,10 @@ class MAP2_Controller:
             self.likelihood_new = checkpoint['likelihood']
             self.model_new = checkpoint['model']
 
-            # give a message to reset the flag
+            #warm start for the prediction
+            _ = sparse_gp_model_predict_fast(self.model_new, self.likelihood_new, np.array([0]))
+
+            # # give a message to reset the flag
             try:
                 self.MAP2_client.update_configuration({"GP_model_update": False})
             except rospy.ROSException as e:
@@ -326,10 +332,10 @@ class MAP2_Controller:
             print("The GP model in the MAP2 controller has been updated")
 
         # GP conpensation for the mpc
-        if self.GP_model_load and self.model_new is not None:
-            s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
-            s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
-            self.GP_beta_comp, _, _=sparse_gp_model_predict(self.model_new, self.likelihood_new, s_gp)
+        if self.GP_model_load and self.model_new is not None and self.GP_model_update is False: #when update the GP model, do not predict for saving the time
+                s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
+                s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
+                self.GP_beta_comp = sparse_gp_model_predict_fast(self.model_new, self.likelihood_new, s_gp)
         else:
             self.GP_beta_comp=np.zeros(self.N+1)
 
