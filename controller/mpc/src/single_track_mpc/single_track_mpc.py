@@ -128,8 +128,13 @@ class Single_track_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
-        self.measured_acc = single_track_state[2]
-        self.measured_steer = single_track_state[3]
+        if self.racecar_version in ["HERBIE", "GOKART"]:
+            self.measured_acc = single_track_state[2]
+            self.measured_steer = single_track_state[3]
+        else:
+            self.measured_steer = self.steering_angle_buf[-1]
+            # TODO: improve acceleration estimation for f110 car, eg lowpass filter
+            self.measured_acc = self.prev_acc
         self.track_length = track_length
         self.comp_time = compute_time
         # update initial state from sensors
