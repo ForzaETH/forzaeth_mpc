@@ -16,7 +16,8 @@ class Single_track_MPC_Controller:
                  stmpc_config: STMPCConfig, car_config: CarConfig,
                  tire_config: PacejkaTireConfig,
                  trailing_config: TrailingConfig,
-                 controller_frequency: float) -> None:
+                 controller_frequency: float,
+                 using_gokart: bool) -> None:
         """
         Initialise MPC object.
         """
@@ -28,6 +29,7 @@ class Single_track_MPC_Controller:
         self.tire_config: PacejkaTireConfig = tire_config
         self.trailing_config: TrailingConfig = trailing_config
         self.controller_frequency = controller_frequency
+        self.using_gokart = using_gokart
         self.mpc_init_params()
 
         # Init the solver
@@ -128,7 +130,7 @@ class Single_track_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
-        if self.racecar_version in ["HERBIE", "GOKART"]:
+        if self.using_gokart:
             self.measured_acc = single_track_state[2]
             self.measured_steer = single_track_state[3]
         else:
