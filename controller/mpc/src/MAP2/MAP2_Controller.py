@@ -339,7 +339,11 @@ class MAP2_Controller:
             if self.gp_model.GP_model_load and self.gp_model.model is not None and self.gp_model.likelihood is not None:
                 s_gp = np.array(self.mpc_sd[1:, 0] % self.spline.track_length)
                 s_gp = np.append(s_gp, self.mpc_sd[self.N, 0] % self.spline.track_length)
-                self.GP_beta_comp = sparse_gp_model_predict_fast(self.gp_model.model, self.gp_model.likelihood, s_gp)
+                try:
+                    self.GP_beta_comp = sparse_gp_model_predict_fast(self.gp_model.model, self.gp_model.likelihood, s_gp)
+                except Exception as e:
+                    print("GP model prediction failed")
+                    self.GP_beta_comp = np.zeros(self.N + 1)
             else:
                 self.GP_beta_comp = np.zeros(self.N + 1)
         else:

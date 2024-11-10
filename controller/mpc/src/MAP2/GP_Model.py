@@ -27,8 +27,8 @@ class GPModel:
         self.model = None
         self.likelihood = None
         self.sampling_rate = 40
-        self.Initial_data_size = 800 #TODO these parameters initial values needed to be obtained from the yaml file
-        self.Max_data_size = 1200
+        self.Initial_data_size = 600 #TODO these parameters initial values needed to be obtained from the yaml file
+        self.Max_data_size = 800
         self.data_duration = self.Initial_data_size / self.sampling_rate
         self.timesteps = self.data_duration * self.sampling_rate
         self.pbar = None
@@ -154,7 +154,7 @@ class GPModel:
             print("The GP model is initialized.")
             self.Initial_gp = False
             self.update_gp = True
-            self.GP_predict_viz_Initial = True
+            # self.GP_predict_viz_Initial = True
 
     def online_GP_model_update(self):
         """Update the Gaussian Process (GP) model with new training data."""

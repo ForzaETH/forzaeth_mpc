@@ -85,8 +85,11 @@ def sparse_gp_model_predict(model, likelihood, xtest):
     # Get into evaluation (predictive posterior) mode
     model.eval()
     likelihood.eval()
-    xtest_torch = torch.from_numpy(xtest).float()
+
+    xtest_torch = torch.from_numpy(xtest+0.001).float() # TODO there is bug in gpytorch, if xtext is close to the training data, it will raise error
     xtest_torch = (xtest_torch - model.X_mean) / model.X_std
+    noise = 1e-5 * torch.randn_like(xtest_torch)
+    xtest_torch = xtest_torch + noise
 
     with torch.no_grad(), gpytorch.settings.fast_pred_var():
         observed_pred = likelihood(model(xtest_torch))

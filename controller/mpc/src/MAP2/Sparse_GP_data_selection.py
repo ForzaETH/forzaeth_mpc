@@ -331,11 +331,17 @@ def data_selection(model, likelihood, x, y, x_incoming, y_incoming, target_size,
 
 
     # Step 2: Check if data lies within the old GP’s 95% confidence interval if current size > 2/3 of target size
-    new_x_gp_mean, new_x_gp_std, inducing_points = sparse_gp_model_predict(model, likelihood, x_incoming_filtered)
-    if len(x) > (2 * target_size) / 3:
-        within_confidence = filter_by_confidence_interval(y_incoming_filtered, new_x_gp_mean, new_x_gp_std)
-        x_incoming_filtered = x_incoming_filtered[within_confidence]
-        y_incoming_filtered = y_incoming_filtered[within_confidence]
+    try:
+        # Attempt to execute the sparse GP model prediction
+        new_x_gp_mean, new_x_gp_std, inducing_points = sparse_gp_model_predict(model, likelihood, x_incoming_filtered)
+        if len(x) > (2 * target_size) / 3:
+            within_confidence = filter_by_confidence_interval(y_incoming_filtered, new_x_gp_mean, new_x_gp_std)
+            x_incoming_filtered = x_incoming_filtered[within_confidence]
+            y_incoming_filtered = y_incoming_filtered[within_confidence]
+    except Exception as e:
+        # _, _, inducing_points = sparse_gp_model_predict(model, likelihood, x_incoming_filtered[:1])
+        print("there is a bug in gpytorch, data selection will be skipped")
+        return x, y
 
 
     # # Step 3: Retain data points with measure distance higher than the mean variance of the training data
