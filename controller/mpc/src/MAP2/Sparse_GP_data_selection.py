@@ -355,9 +355,6 @@ def data_selection(model, likelihood, x, y, x_incoming, y_incoming, target_size,
         x_incoming_filtered, y_incoming_filtered, new_x_gp_dis, mean_dis_train
     )
 
-    # x_incoming_final, y_incoming_final = x_incoming_filtered, y_incoming_filtered
-
-
     # # Combine old and new data
     x_incoming_final = x_incoming_final.reshape(-1, 1)  # Reshape to be a column vector
     y_incoming_final = y_incoming_final.reshape(-1, 1)  # Reshape to be a column vector

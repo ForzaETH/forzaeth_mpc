@@ -50,6 +50,8 @@ class GPModel:
         self.GP_predict_viz = False
         self.GP_predict_viz_Initial = False
         self.GP_predict_viz_update = False
+        self.gp_train_time = 0
+        self.gp_selction_time = 0
         #save model
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -147,8 +149,8 @@ class GPModel:
             self.X_train, self.y_train, _ = filter_by_range(self.X_train, self.y_train, self.y_min, self.y_max)
             self.model, self.likelihood = sparse_gp_model_train(self.X_train, self.y_train, self.inducing_points_number,
                                                                 self.sgp_training_iterations, predic_warmup=True, train_viz_disable=True)
-            end_time = rospy.get_time() - start_time
-            print(f"GP model Initial training time: {end_time}")
+            self.gp_train_time= rospy.get_time() - start_time
+            print(f"GP model Initial training time: {self.gp_train_time}")
             print("The GP model is initialized.")
             self.Initial_gp = False
             self.update_gp = True
@@ -163,10 +165,13 @@ class GPModel:
         self.X_train, self.y_train = data_selection(self.model, self.likelihood, self.X_train, self.y_train,
                                                     self.new_x, self.new_y, self.Max_data_size, self.y_min, self.y_max,
                                                     selection_mode="inducing_cluster")
+        start_train_time = rospy.get_time()
+        self.gp_selction_time = start_train_time - start_time
         print("Data selection is completed. The current data size: ", len(self.X_train))
         self.model, self.likelihood = sparse_gp_model_train(self.X_train, self.y_train, self.inducing_points_number,
                                                             self.sgp_training_iterations, predic_warmup=True, train_viz_disable=True)
-        print("The time for updating the GP model: ", rospy.get_time() - start_time)
+        self.gp_train_time = rospy.get_time() - start_train_time
+        print("The time for updating the GP model: ", self.gp_train_time+self.gp_selction_time)
 
 
     def gp_model_viz(self):

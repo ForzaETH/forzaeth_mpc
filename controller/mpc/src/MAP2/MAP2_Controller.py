@@ -149,6 +149,7 @@ class MAP2_Controller:
     # main loop
     def main_loop(self, machine_state, position_in_map, waypoint_array_in_map,state,position_in_map_frenet,comp_time,opponent):
         position_in_map = position_in_map.squeeze() #squeeze dim
+
         # Desired speed at waypoint closest to car
         self.state=machine_state
         self.waypoint_array_in_map=waypoint_array_in_map
@@ -161,6 +162,7 @@ class MAP2_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
         self.opponent = opponent
+
 
         ### MAP2 ### #TODO: there is a lot of space to reduce the computation time. I guess around 5~6ms plus gp around 8ms
         # set the initial state for the mpc
@@ -191,7 +193,6 @@ class MAP2_Controller:
 
         # viz the gp model
         self.gp_model.gp_model_viz()
-
         return speed, acceleration, steering_angle,  self.states
 
     @staticmethod
@@ -350,24 +351,33 @@ class MAP2_Controller:
         Update the online parameters for the MPC at each stafe.
         It then sets these parameters in the acados solver to be used in the optimization problem.
         """
-        for i in range(self.N+1):
-            idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
+        # Precompute the target point indices for each mpc_sd value, reducing calculations inside the loop
+        target_points = self.mpc_sd[:, 0] % self.spline.track_length
+        indices = np.abs(self.waypoint_array_in_map[:, 4][:, None] - target_points).argmin(axis=0)
 
-            # head to head racing
-            # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
-            if(self.state == "TRAILING"): #Trailing controller
-                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0,2])
-                self.overtake_d=0
-            else:
-                target_v_speed=np.ones(1)*self.waypoint_array_in_map[idx,2]
-                self.overtake_d=0
-                # head to head overtaking
-                if(self.state == "OVERTAKE"):
-                    self.overtake_d=self.waypoint_array_in_map[idx,3]
+        # Determine target speed and overtaking distance based on the current state
+        if self.state == "TRAILING":
+            # In trailing mode, set speed based on the trailing controller
+            target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
+            self.overtake_d = 0
+        elif self.state == "OVERTAKE":
+            # In overtaking mode, get speed and distance values from waypoint data
+            target_v_speed = self.waypoint_array_in_map[indices, 2]
+            self.overtake_d = self.waypoint_array_in_map[indices, 3]
+        else:
+            # For normal operation, get speed from waypoint data and set overtaking distance to zero
+            target_v_speed = self.waypoint_array_in_map[indices, 2]
+            self.overtake_d = 0
 
-            online_parameters=np.array([self.weight_qn,self.weight_theta,self.weight_accel_x,self.weight_beta,self.weight_vx,self.weight_yaw_rate,target_v_speed,self.GP_beta_comp[i],0],dtype=np.float64)
+        # Prepare the constant weights array
+        weights = np.array([self.weight_qn, self.weight_theta, self.weight_accel_x, self.weight_beta,
+                            self.weight_vx, self.weight_yaw_rate], dtype=np.float64)
 
-            self.acados_solver.set(i,"p",online_parameters)
+        # Set parameters for each timestep in a vectorized way
+        for i in range(self.N + 1):
+            # Concatenate weights, target speed, and GP compensation terms for each step
+            online_parameters = np.hstack((weights, target_v_speed[i], self.GP_beta_comp[i], self.overtake_d))
+            self.acados_solver.set(i, "p", online_parameters)
 
     def obtain_MAP2_control_command(self):
         """
@@ -418,9 +428,12 @@ class MAP2_Controller:
         # update the gp model
         self.gp_model.center_car_s = self.center_car_s
         self.gp_model.beta_error = self.beta_error
+        self.gp_model.new_data_available = True
+        # data saving for rosbag
         self.states[2]=(self.center_car_s)
         self.states[3]=(self.beta_error)
-        self.gp_model.new_data_available = True
+        self.states[6]=(self.gp_model.gp_train_time)
+        self.states[7]=(self.gp_model.gp_selction_time)
 
         return steering_angle, speed, acceleration
 
