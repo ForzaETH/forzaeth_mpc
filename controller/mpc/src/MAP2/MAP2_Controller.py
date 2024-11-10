@@ -10,16 +10,9 @@ from .utils.splinify import SplineTrack
 from f110_msgs.msg import WpntArray
 
 # for the GP_for_MPC_node
-import os
-import rospkg
-from joblib import load
-import torch
-from MAP2.Sparse_GP_function import sparse_gp_model_train, sparse_gp_model_predict, sparse_gp_model_predict_fast, sparse_gp_plot
-from MAP2.Sparse_GP_data_selection import data_selection, filter_by_range
-from dynamic_reconfigure.client import Client
-from tqdm import tqdm
-import warnings
-import matplotlib.pyplot as plt
+from MAP2.GP_Model import GPModel  # Import GPModel class
+from MAP2.Sparse_GP_function import  sparse_gp_model_predict_fast
+
 
 
 class MAP2_Controller:
@@ -29,209 +22,40 @@ class MAP2_Controller:
 
         Input:  conf_file   : String containing the path to the MAP2_param_config.yaml file and MAP param
         """
-        ## initialize for the upper mpc
+
+        # Initialize MPC and MAP parameters
+        self.initialize_mpc(kwargs)
+        self.initialize_map(kwargs)
+
+        # Initialize the GP prediction values
+        self.GP_beta_comp=np.zeros(self.N+1)
+        self.beta_error = None #gp train y
+        self.center_car_s = None # gp train x
+        self.gp_model = GPModel()  # Instantiate GPModel
+
+        # Initialize timers and other configurations
+        self.gp_compute_timer = rospy.timer.Timer(rospy.Duration(1/40), self.gp_model.gp_callback)
+
+    def initialize_mpc(self, kwargs):
+        """
+        Initialize MPC parameters and solver.
+
+        Args:
+            kwargs: Dictionary containing parameters for the MPC initialization.
+        """
         self.mpc_init_params(kwargs)
-        # Init the mpc solver
         self.mpc_initialize_solver()
 
-        ## initialize for the backup controller MAP
+    def initialize_map(self, kwargs):
+        """
+        Initialize MAP controller parameters.
+
+        Args:
+            kwargs: Dictionary containing parameters for the MAP initialization.
+        """
         map_init_params = kwargs['map_controller_param']
         self.trailing_config: TrailingConfig = kwargs['trailing_config']
         self.map_init_params(*map_init_params)
-
-        # # initialize the GP model
-        rospack = rospkg.RosPack()
-        package_path=rospack.get_path('gp_mpc_node')
-        self.model_file = os.path.join(package_path, 'src/gp_mpc_node/save_model/sparse_gp_model.pth')
-        self.GP_model_load=False
-        self.GP_beta_comp=np.zeros(self.N+1)
-
-        # update the GP model through dynamic reconfigure
-        self.MAP2_client = Client("MAP2_param_tuner", timeout=30)
-        self.sampling_rate = 40
-        self.Initial_data_size = 800
-        self.Max_data_size = 1200
-        self.data_duration = self.Initial_data_size / self.sampling_rate
-        self.timesteps = self.data_duration * self.sampling_rate
-        self.pbar = tqdm(total=self.timesteps, desc='Collecting data', ascii=True)
-        self.X_train = np.array([])
-        self.y_train = np.array([])
-        self.new_X = np.array([])
-        self.new_Y = np.array([])
-        self.inducing_points_number = 50
-        self.sgp_training_iterations = 30
-        self.y_min = -0.1
-        self.y_max = 0.1
-        self.beta_error = None #gp train y
-        self.center_car_s = None # gp train x
-        self.new_data_available = False
-        self.counter = 0
-        self.Initial_gp = False
-        self.update_gp = False
-        self.lap_flag = False
-        self.gp_ready_preidct = False
-        self.GP_predict_viz = False
-        self.GP_predict_viz_Initial = False
-        self.GP_predict_viz_update = False
-        # Initialize the GP parameters
-        warnings.filterwarnings("ignore", category=UserWarning, module="gpytorch")
-        self.gp_compute_timer = rospy.timer.Timer(rospy.Duration(1/40), self.gp_callback)
-
-
-    def gp_callback(self, event):
-
-        self.loop_logistic()
-
-        # Create the initial GP model
-        if self.Initial_gp == True and self.update_gp == False:
-            self.Initial_GP_model_train()
-            self.gp_ready_preidct = True
-
-        # Update the GP model with new data
-        if self.lap_flag == True and self.update_gp == True:
-            self.gp_ready_preidct = False
-            self.online_GP_model_update()
-            self.gp_ready_preidct = True
-
-    def loop_logistic(self):
-        """
-        Manage the loop and data collection logistics for the GP model update.
-        """
-
-        if self.lap_counter>1 and self.update_gp == False:
-            self.Initial_gp = True
-
-        # collect data to update the gp
-        self.collect_lap_data()
-
-    def collect_lap_data(self):
-
-        # Append the current data point
-        self.new_X = np.append(self.new_X, self.center_car_s)
-        self.new_Y = np.append(self.new_Y, self.beta_error)
-
-        # If a new lap is detected, store the collected data and reset
-        if self.lap_flag:
-            # Store the current lap data
-            self.new_x = self.new_X.copy()  # Use .copy() to prevent reference issues
-            self.new_y = self.new_Y.copy()
-
-            # Reset the data for the next lap
-            self.new_X = np.array([])  # Reset to an empty NumPy array
-            self.new_Y = np.array([])
-
-    def collect_Initial_GP_data(self):
-        """
-        Collects data during simulation.
-
-        Adds the current state to the data array and updates the counter.
-        Closes the progress bar and logs a message if data collection is complete.
-        """
-        if self.new_data_available:
-            if self.center_car_s is not None and self.beta_error is not None:
-                self.X_train = np.append(self.X_train, self.center_car_s)
-                self.y_train = np.append(self.y_train, self.beta_error)
-                self.counter += 1
-                self.pbar.update(1)
-                if self.counter == self.timesteps + 1:
-                    self.pbar.close()
-                    rospy.loginfo("Initial Data collection for GP is completed.")
-                self.new_data_available = False
-
-    def Initial_GP_model_train(self):
-        """
-        Train the initial Gaussian Process (GP) model.
-
-        This function collects initial training data and trains the GP model once a
-        sufficient number of timesteps have been reached. It then updates the model
-        and visualizes the results using a non-blocking plot.
-
-        Steps:
-        1. Collects initial GP training data.
-        2. Checks if the number of collected data points is equal to the specified timesteps.
-        3. Reshapes the training data and fits the GP model using the provided training data.
-        4. Updates the model and sets flags to indicate that the initial training is complete.
-        5. Generates a plot of the GP predictions and displays it using a non-blocking pause.
-
-        Returns:
-        None
-
-        """
-
-        self.collect_Initial_GP_data()
-
-        if self.counter == self.timesteps + 1:
-                    #measure the time
-                    start_time = rospy.get_time()
-                    self.X_train = self.X_train.reshape(-1, 1)
-                    self.y_train = self.y_train.reshape(-1, 1)
-                    # Filter the training data by the specified range
-                    self.X_train, self.y_train, _ =filter_by_range(self.X_train, self.y_train, self.y_min, self.y_max)
-                    # Fit the GP regression model to the training data
-                    self.model, self.likelihood = sparse_gp_model_train(self.X_train, self.y_train, self.inducing_points_number,
-                                                                        self.sgp_training_iterations, predic_warmup=True, train_viz_disable=True)
-                    end_time = rospy.get_time()-start_time
-                    print(f"GP model Initial training time: {end_time}")
-                    print("The GP model is  initialized.")
-                    # start to update GP
-                    self.Initial_gp = False
-                    self.update_gp = True
-                    # First GP fit is infored to be viz
-                    self.GP_predict_viz_Initial = True
-
-    def online_GP_model_update(self):
-        """
-        Update the Gaussian Process (GP) model with new training data.
-
-        This function performs the following steps:
-        1. Reshapes the existing training data to the required format.
-        2. Selects new data points to be added to the training dataset, ensuring the data size is within the specified limit.
-        3. Fits the GP regression model to the updated training data.
-        4. Optionally visualizes the updated GP model predictions in a non-blocking plot.
-
-        Steps:
-        - Data selection: Filters and updates the training data using a selection method.
-        - Model fitting: Retrains the GP model with the updated training data.
-        - Visualization: If enabled, plots the updated GP predictions.
-
-
-        Returns:
-        None
-        """
-        #data selection
-        print("data selection is implementing. The size of new data: ", len(self.new_x))
-        #measure the time
-        start_time = rospy.get_time()
-        self.X_train = self.X_train.reshape(-1, 1)
-        self.y_train = self.y_train.reshape(-1, 1)
-        self.X_train, self.y_train = data_selection(self.model, self.likelihood, self.X_train, self.y_train,
-                        self.new_x, self.new_y, self.Max_data_size, self.y_min, self.y_max,
-                        selection_mode="inducing_cluster")
-        print("data selection is completed. The current data size: ", len(self.X_train))
-        # Fit the GP regression model to the training data
-        self.model, self.likelihood = sparse_gp_model_train(self.X_train, self.y_train, self.inducing_points_number,
-                                                            self.sgp_training_iterations, predic_warmup=True, train_viz_disable=True)
-        print("The time for updating the GP model: ", rospy.get_time() - start_time)
-        # viz flag
-        plt.close('all')
-        self.GP_predict_viz_update = True
-
-
-    def gp_model_viz(self):
-
-        if self.GP_predict_viz_Initial == True or (self.GP_predict_viz_update == True and self.GP_predict_viz == True):
-            if  self.model is not None:
-                xtest = np.linspace(min(self.X_train), max(self.X_train), len(self.X_train)).reshape(-1, 1)
-                gp_mean, gp_var, gp_inducing = sparse_gp_model_predict(self.model, self.likelihood, xtest)
-                plt.close('all')
-                fig, ax = plt.subplots(1, 1, figsize=(8, 6))
-                sparse_gp_plot(self.X_train, self.y_train, xtest, gp_mean, gp_var, gp_inducing, ax)
-                plt.tight_layout()
-                plt.pause(0.01) # Pause to update the plot without blocking the code
-                self.GP_predict_viz_Initial = False
-                self.GP_predict_viz_update = False
-
-
 
     def mpc_init_params(self, kwargs) -> None:
         self.racecar_version = kwargs['racecar_version']
@@ -338,7 +162,7 @@ class MAP2_Controller:
         self.v=np.sqrt(self.vx_now**2+self.vy_now**2)
         self.opponent = opponent
 
-        ### MAP2 ###
+        ### MAP2 ### #TODO: there is a lot of space to reduce the computation time. I guess around 5~6ms plus gp around 8ms
         # set the initial state for the mpc
         propagated_x = self.get_initial_mpc_state()
         # propagated_x=np.array([self.fre_s, self.fre_d, self.fre_alpha, self.v],dtype=np.float64)
@@ -348,6 +172,7 @@ class MAP2_Controller:
         #measure the time
         # GP model loads and compensates the error
         self.sparse_gp_model_predict_for_mpc()
+
         # update the online parameters
         self.update_online_parameters()
 
@@ -359,14 +184,13 @@ class MAP2_Controller:
             steering_angle, speed, acceleration = self.obtain_MAP2_control_command()
         else:
             # run MAP controller
-            # TODO : the MAP controller should be related with the warm start of the MPC
+            # TODO : the MAP controller should be replaced with the warm start of the MPC
             self.logger_warn('[MAP2 Controller]: The solver did not converge. SWITCHING TO MAP')
             steering_angle, speed, acceleration = self.map_back_up_controller(
                 position_in_map, waypoint_array_in_map, target_speed)
 
         # viz the gp model
-        self.gp_model_viz()
-
+        self.gp_model.gp_model_viz()
 
         return speed, acceleration, steering_angle,  self.states
 
@@ -474,11 +298,13 @@ class MAP2_Controller:
         if center_car_s-self.pre_s < -0.5*self.spline.track_length:
             if abs(center_car_s) < 1:
                 self.lap_counter += 1
-                self.lap_flag = True
+                # Update the lap counter in the GPModel
+                self.gp_model.lap_counter = self.lap_counter
+                self.gp_model.lap_flag = True
             else:
-                self.lap_flag = False
+                self.gp_model.lap_flag = False
         else:
-                self.lap_flag = False
+                self.gp_model.lap_flag = False
 
         self.pre_s = center_car_s
         continue_s = center_car_s + self.lap_counter * self.spline.track_length
@@ -505,19 +331,19 @@ class MAP2_Controller:
         Returns:
         - Updates `self.GP_beta_comp`: If the GP model is available, it contains compensation values; otherwise, it is set to a zero array.
         """
-        # only preidc when the GP model is not updated
-        if self.gp_ready_preidct == True:
+        # Only predict when the GP model is updated and ready
+        if self.gp_model.gp_ready_preidct:
 
-            # GP conpensation for the mpc
-            if self.GP_model_load and self.model is not None and self.likelihood is not None:
-                    s_gp = np.array(self.mpc_sd[1:,0]%self.spline.track_length)
-                    s_gp = np.append(s_gp, self.mpc_sd[self.N,0]%self.spline.track_length)
-                    self.GP_beta_comp = sparse_gp_model_predict_fast(self.model, self.likelihood, s_gp)
+            # GP compensation for the MPC
+            if self.gp_model.GP_model_load and self.gp_model.model is not None and self.gp_model.likelihood is not None:
+                s_gp = np.array(self.mpc_sd[1:, 0] % self.spline.track_length)
+                s_gp = np.append(s_gp, self.mpc_sd[self.N, 0] % self.spline.track_length)
+                self.GP_beta_comp = sparse_gp_model_predict_fast(self.gp_model.model, self.gp_model.likelihood, s_gp)
             else:
-                self.GP_beta_comp=np.zeros(self.N+1)
+                self.GP_beta_comp = np.zeros(self.N + 1)
         else:
+            self.GP_beta_comp = np.zeros(self.N + 1)
 
-            self.GP_beta_comp=np.zeros(self.N+1)
 
     def update_online_parameters(self):
         """
@@ -555,6 +381,7 @@ class MAP2_Controller:
             acceleration (float): The calculated acceleration.
         """
         # Get the optimal state, control input, and lateral acceleration
+        # TODO there seems to be a confilct between the acados solver and the first gpytorch training
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:4] for j in range(self.N+1)
         ])
@@ -585,11 +412,16 @@ class MAP2_Controller:
             beta_real = np.arctan(self.vy_now / self.vx_now)
         else:
             beta_real = 0  # When speed is too small, assume no slip angle
+
         beta=np.arcsin(self.conf_params['lr']*u_sd[0,1]/(self.mpc_sd[0,3]+0.5))
         self.beta_error = beta_real-beta
+        # update the gp model
+        self.gp_model.center_car_s = self.center_car_s
+        self.gp_model.beta_error = self.beta_error
         self.states[2]=(self.center_car_s)
         self.states[3]=(self.beta_error)
-        self.new_data_available = True
+        self.gp_model.new_data_available = True
+
         return steering_angle, speed, acceleration
 
 
