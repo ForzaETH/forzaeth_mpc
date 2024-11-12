@@ -262,7 +262,9 @@ class Single_track_MPC_Controller:
                 for item in result:
                     states.append(item)
             self.states = states
-        return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+            return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+        else:
+            return 0, 0, 0, self.measured_steer , self.states
 
     #############
     # Utilities #
