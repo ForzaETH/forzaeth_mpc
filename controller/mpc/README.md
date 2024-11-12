@@ -1,5 +1,5 @@
 # MPC
-A suggested visualization tool for MPC is plotjuggler
+A suggested visualization tool for MPC is plotjuggler 
 
 ## Visualization-Test
 
@@ -34,7 +34,7 @@ step 2: start the mpc controller
 roslaunch stack_master time_trials.launch ctrl_algo:=STMPC
 ```
 
-step 3: open plotjuggler
+step 3: open plotjuggler 
 
 ```bash
 plotjuggler-ros
@@ -55,11 +55,11 @@ roslaunch stack_master base_system.launch map_name:=f racecar_version:=NUC5 sim:
 2. Start the MPC controller with the time trials launch:
 ```bash
 # for single-track mpc
-roslaunch stack_master time_trials.launch ctrl_algo:=STMPC
+roslaunch stack_master time_trials.launch ctrl_algo:=STMPC                          
 ```
 or
 ```bash
 # for kinematic mpc
-roslaunch stack_master time_trials.launch ctrl_algo:=KMPC
+roslaunch stack_master time_trials.launch ctrl_algo:=KMPC                          
 ```
 **NOTE**: the parameters are implicitly chosen using the `racecar_version` and the `floor` in the `base_system.launch` step.
