@@ -71,6 +71,20 @@ class Kinematic_MPC_Controller:
 
         self.kappa = kapparef
 
+
+    def apply_warm_start(self, pose_frenet: np.ndarray):
+        """Applies a warm start to the MPC solver.
+
+        Args:
+            pose_frenet (np.ndarray): _description_
+        """
+        warm_start_trajectory = self.get_warm_start(pose_frenet=pose_frenet, const_v=1, const_steer_vel=0.0)
+        for i in range(self.kmpc_config.N + 1):
+            self.acados_solver.set(i, "x", warm_start_trajectory[i][:self.model.n_x])
+            if i < self.kmpc_config.N:
+                self.acados_solver.set(i, "u", warm_start_trajectory[i][self.model.n_x:])
+
+
     def main_loop(
             self,
             state,
@@ -148,6 +162,11 @@ class Kinematic_MPC_Controller:
 
         # Solve OCP
         status = self.acados_solver.solve()
+        if status != 0:
+            # if the solver fails, apply warm start again
+            # the initial warm start is a bit rough, but it does the job
+            print("Solver failed, applying warm start")
+            self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
 
         # get solution
         # time delay step for the prediction
@@ -182,6 +201,23 @@ class Kinematic_MPC_Controller:
     #############
     # Utilities #
     #############
+    def get_warm_start(self, pose_frenet: np.ndarray, const_v: float, const_steer_vel: float) -> np.array:
+        """
+        Returns a warm start trajectory for the MPC. This is done by propagating the current state with a constant velocity and steering angle.
+
+        Input:  const_v   : Constant velocity
+                const_steer : Constant steering angle
+
+        Returns: np.array    : Warm start trajectory
+        """
+        warm_start = np.zeros((self.kmpc_config.N + 1, 7))
+        warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
+                                 1, const_steer_vel, 0, 0])
+        for i in range(1, self.kmpc_config.N + 1):
+            der_state = self._dynamics_of_car(0, warm_start[i - 1])
+            warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
+        return warm_start
+
     def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
 
