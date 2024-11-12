@@ -87,7 +87,6 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
         try:
             config = KMPCConfig(**cfg_dict)
         except ValidationError as e:
-            print(e, 'AAAAAAAAAAAAAAAAAAAAAAAA')
             for error in e.errors():
                 if error["type"] == "missing":
                     for missing_key in error["loc"]:
