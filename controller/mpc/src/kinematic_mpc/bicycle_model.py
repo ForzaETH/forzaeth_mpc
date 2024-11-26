@@ -89,11 +89,12 @@ def bicycle_model(
     delta = MX.sym("delta")
 
     x = vertcat(s, n, alpha, v, delta)
-
+    n_x = x.size()[0]
     # controls
     der_v = MX.sym("der_v")
     derDelta = MX.sym("derDelta")
     u = vertcat(der_v, derDelta)
+    n_u = u.size()[0]
 
     # xdot
     sdot = MX.sym("sdot")
@@ -236,8 +237,10 @@ def bicycle_model(
     model.f_expl_expr = f_expl
     model.dyn_disc_fun = f_disc
     model.x = x
+    model.n_x = n_x
     model.xdot = xdot
     model.u = u
+    model.n_u = n_u
     model.z = z
     model.p = p
     model.name = model_name
