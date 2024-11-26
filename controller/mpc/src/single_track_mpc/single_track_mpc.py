@@ -16,7 +16,8 @@ class Single_track_MPC_Controller:
                  stmpc_config: STMPCConfig, car_config: CarConfig,
                  tire_config: PacejkaTireConfig,
                  trailing_config: TrailingConfig,
-                 controller_frequency: float) -> None:
+                 controller_frequency: float,
+                 using_gokart: bool) -> None:
         """
         Initialise MPC object.
         """
@@ -28,6 +29,7 @@ class Single_track_MPC_Controller:
         self.tire_config: PacejkaTireConfig = tire_config
         self.trailing_config: TrailingConfig = trailing_config
         self.controller_frequency = controller_frequency
+        self.using_gokart = using_gokart
         self.mpc_init_params()
 
         # Init the solver
@@ -128,6 +130,13 @@ class Single_track_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
+        if self.using_gokart:
+            self.measured_acc = single_track_state[2]
+            self.measured_steer = single_track_state[3]
+        else:
+            self.measured_steer = self.steering_angle_buf[-1]
+            # TODO: improve acceleration estimation for f110 car, eg lowpass filter
+            self.measured_acc = self.prev_acc
         self.track_length = track_length
         self.comp_time = compute_time
         # update initial state from sensors
@@ -152,7 +161,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle_buf[-1], self.yaw_rate, self.prev_acc], dtype=np.float64)
+                      self.measured_steer, self.yaw_rate, self.measured_acc], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
@@ -260,7 +269,9 @@ class Single_track_MPC_Controller:
                 for item in result:
                     states.append(item)
             self.states = states
-        return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+            return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+        else:
+            return 0, 0, 0, self.measured_steer , self.states
 
     #############
     # Utilities #
