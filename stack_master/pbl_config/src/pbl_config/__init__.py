@@ -7,8 +7,11 @@ from pbl_config.controller.mpc.STMPCConfig import (STMPCConfig,
                                                    load_STMPC_config_ros)
 from pbl_config.controller.mpc.STMPCConfigDyn import (
     STMPCConfigDyn, create_STMPC_dynamic_parameters)
-from pbl_config.PacejkaTireConfig import (PacejkaTireConfig,
+from pbl_config.controller.steer_pid.SteerPidConfig import (
+    SteerPidConfig, load_steer_pid_config)
+from pbl_config.controller.steer_pid.SteerPidConfigDyn import (
+    SteerPidConfigDyn, create_steer_pid_dynamic_parameters)
+from pbl_config.PacejkaTireConfig import (NotExistingFloor, PacejkaTireConfig,
                                           load_pacejka_tire_config_ros,
-                                          save_pacejka_tire_config,
-                                          NotExistingFloor)
+                                          save_pacejka_tire_config)
 from pbl_config.TrailingConfig import TrailingConfig, load_trailing_config_ros
