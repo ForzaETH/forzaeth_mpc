@@ -191,13 +191,8 @@ def bicycle_model(
 
     # constraint on lateral erros
     # distance to border
-    n_left_bound = left_bound_s(s_mod) + n + bound_inflation
-    n_right_bound = right_bound_s(s_mod) - n - bound_inflation
-
-    pos_s = MX.sym('pos_s')
-    pos_n = MX.sym('pos_n')
-    model.n_left_bound = Function('left_bound', [pos_s, pos_n], [left_bound_s(pos_s) + pos_n])
-    model.n_right_bound = Function('right_bound', [pos_s, pos_n], [right_bound_s(pos_s) - pos_n])
+    n_right_bound = n + right_bound_s(s_mod) - bound_inflation
+    n_left_bound = n - left_bound_s(s_mod) + bound_inflation
 
     # nonlinear constraints
     constraint.alat = Function("a_lat", [x, u], [a_lat])
@@ -211,7 +206,7 @@ def bicycle_model(
     constraint.expr_e = constraint.expr
     # read the parameters range from the yaml file
     # Model bounds
-    model.n_min = kmpc_config.track_safety_margin  # width of the track [m]
+    model.n_min = 0  # width of the track [m]
     model.n_max = kmpc_config.track_max_width  # width of the track [m]
     # state bounds
 

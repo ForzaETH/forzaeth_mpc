@@ -50,22 +50,22 @@ class Kinematic_MPC_Controller:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
 
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        shortest_path = rospy.wait_for_message("/global_waypoints", WpntArray)
+        raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
-        x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
+        x, y = self._transform_waypoints_to_cartesian(raceline.wpnts)
         self.fren_conv = FrenetConverter(x, y)
 
         # on f track trajectory is 81.803 m long.
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts)
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords(raceline.wpnts)
 
         self.spline = SplineTrack(coords_direct=coords_path)
 
         self.nr_laps = 0
 
-        kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
-        vx_ref = [x.vx_mps for x in shortest_path.wpnts]
-        self.s_ref = np.array([x.s_m for x in shortest_path.wpnts])
+        kapparef = [x.kappa_radpm for x in raceline.wpnts]
+        vx_ref = [x.vx_mps for x in raceline.wpnts]
+        self.s_ref = np.array([x.s_m for x in raceline.wpnts])
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(
             self.s_ref, kapparef, vx_ref, d_left, d_right, self.kmpc_config, self.car_config)
 
@@ -231,8 +231,8 @@ class Kinematic_MPC_Controller:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1], waypoints[:-1], boundaries[:-1]])
         return d_left, res_coords, d_right
 

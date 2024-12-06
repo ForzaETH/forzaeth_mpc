@@ -152,8 +152,8 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
         [
             0,
             -100,
-            model.n_min,
-            model.n_min,
+            0,
+            -model.n_max,
         ]
     )
     Nonlinear_constraint_max = np.array(
@@ -161,7 +161,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
             100,
             0,
             model.n_max,
-            model.n_max,
+            0,
         ]
     )
     Nonlinear_constraint_index = np.array([num for num in range(nsh)])
