@@ -30,6 +30,10 @@ class KMPCConfigDyn(BaseModel):
     """Limits on the minimum acceleration (Maximum Breaking)"""
     a_max: Tuple[float, float]
     """Limits on the maximum acceleration"""
+    v_min: Tuple[float, float]
+    """Limits on the minimum velocity"""
+    v_max: Tuple[float, float]
+    """Limits on the maximum velocity"""
     track_safety_margin: Tuple[float, float]
     """Limits on the track safety margin"""
 

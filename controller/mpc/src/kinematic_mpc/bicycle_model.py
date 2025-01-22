@@ -89,11 +89,12 @@ def bicycle_model(
     delta = MX.sym("delta")
 
     x = vertcat(s, n, alpha, v, delta)
-
+    n_x = x.size()[0]
     # controls
     der_v = MX.sym("der_v")
     derDelta = MX.sym("derDelta")
     u = vertcat(der_v, derDelta)
+    n_u = u.size()[0]
 
     # xdot
     sdot = MX.sym("sdot")
@@ -190,17 +191,8 @@ def bicycle_model(
 
     # constraint on lateral erros
     # distance to border
-    n_left_bound = left_bound_s(s_mod) + n + bound_inflation
-    n_right_bound = right_bound_s(s_mod) - n - bound_inflation
-
-    # Clip that the boundaries don't overlap
-    n_left_bound = cs.fmax(n_left_bound, 0)
-    n_right_bound = cs.fmax(n_right_bound, 0)
-
-    pos_s = MX.sym('pos_s')
-    pos_n = MX.sym('pos_n')
-    model.n_left_bound = Function('left_bound', [pos_s, pos_n], [left_bound_s(pos_s) + pos_n])
-    model.n_right_bound = Function('right_bound', [pos_s, pos_n], [right_bound_s(pos_s) - pos_n])
+    n_right_bound = n + right_bound_s(s_mod) - bound_inflation
+    n_left_bound = n - left_bound_s(s_mod) + bound_inflation
 
     # nonlinear constraints
     constraint.alat = Function("a_lat", [x, u], [a_lat])
@@ -214,7 +206,7 @@ def bicycle_model(
     constraint.expr_e = constraint.expr
     # read the parameters range from the yaml file
     # Model bounds
-    model.n_min = kmpc_config.track_safety_margin  # width of the track [m]
+    model.n_min = 0  # width of the track [m]
     model.n_max = kmpc_config.track_max_width  # width of the track [m]
     # state bounds
 
@@ -240,8 +232,10 @@ def bicycle_model(
     model.f_expl_expr = f_expl
     model.dyn_disc_fun = f_disc
     model.x = x
+    model.n_x = n_x
     model.xdot = xdot
     model.u = u
+    model.n_u = n_u
     model.z = z
     model.p = p
     model.name = model_name

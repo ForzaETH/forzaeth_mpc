@@ -12,6 +12,8 @@ from scipy.integrate import solve_ivp
 from single_track_mpc.acados_settings import acados_settings
 from single_track_mpc.utils.indicies import StateIndex
 from single_track_mpc.utils.splinify import SplineTrack
+from single_track_mpc.utils.indicies import StateIndex
+from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
 
 
 class Single_track_MPC_Controller:
@@ -19,7 +21,8 @@ class Single_track_MPC_Controller:
                  stmpc_config: STMPCConfig, car_config: CarConfig,
                  tire_config: PacejkaTireConfig,
                  trailing_config: TrailingConfig,
-                 controller_frequency: float) -> None:
+                 controller_frequency: float,
+                 using_gokart: bool) -> None:
         """
         Initialise MPC object.
         """
@@ -31,6 +34,7 @@ class Single_track_MPC_Controller:
         self.tire_config: PacejkaTireConfig = tire_config
         self.trailing_config: TrailingConfig = trailing_config
         self.controller_frequency = controller_frequency
+        self.using_gokart = using_gokart
         self.mpc_init_params()
 
         # Init the solver
@@ -68,10 +72,6 @@ class Single_track_MPC_Controller:
         self.gap_actual = None
         self.v_diff = None
         self.i_gap = 0
-
-        # RL stuff
-        self.steering_angle_rl = 0
-        self.speed_rl = 0
 
     def mpc_initialize_solver(self, pose_frenet: np.ndarray) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
@@ -141,6 +141,13 @@ class Single_track_MPC_Controller:
         self.position_in_map_frenet = position_in_map_frenet
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
+        if self.using_gokart:
+            self.measured_acc = single_track_state[2]
+            self.measured_steer = single_track_state[3]
+        else:
+            self.measured_steer = self.steering_angle_buf[-1]
+            # TODO: improve acceleration estimation for f110 car, eg lowpass filter
+            self.measured_acc = self.prev_acc
         self.track_length = track_length
         self.comp_time = compute_time
         # update initial state from sensors
@@ -165,7 +172,7 @@ class Single_track_MPC_Controller:
         self.fre_alpha = alpha_center
 
         x0 = np.array([self.fre_s, self.fre_d, self.fre_alpha, speed_now, self.vel_y,
-                      self.steering_angle_rl, self.yaw_rate, self.prev_acc], dtype=np.float64)
+                      self.measured_steer, self.yaw_rate, self.measured_acc], dtype=np.float64)
 
         # time delat compensation
         self.t_delay = self.comp_time
@@ -188,9 +195,9 @@ class Single_track_MPC_Controller:
             if (self.state == "TRAILING" and (self.opponent is not None)):  # Trailing controller
                 target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
             else:
-                idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
-                target_v_speed = self.waypoint_array_in_map[idx, 2]
-                self.overtake_d = 0
+                idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
+                target_v_speed=self.waypoint_array_in_map[idx,2]
+                self.overtake_d=0
                 # head to head overtaking
                 if (self.state == "OVERTAKE" and (self.opponent is not None)):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
@@ -251,8 +258,7 @@ class Single_track_MPC_Controller:
         self.pred_x = self.acados_solver.get(delayed_index, "x")
         self.steering_angle = self.pred_x[5]  # propagated_x[5] + self.u0[1]/40 #
         self.speed = self.pred_x[3]  # propagated_x[3] + self.u0[0]/40 #
-        # NOTE: Euler integration for accounting different frequencies controller/mpc time step
-        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
+        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency # NOTE: Euler integration for accounting different frequencies controller/mpc time step
         self.prev_acc = self.acceleration
         self.jerk = self.u0[0]
 
@@ -274,7 +280,9 @@ class Single_track_MPC_Controller:
                 for item in result:
                     states.append(item)
             self.states = states
-        return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+            return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states
+        else:
+            return 0, 0, 0, self.measured_steer , self.states
 
     #############
     # Utilities #

@@ -50,26 +50,40 @@ class Kinematic_MPC_Controller:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
 
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        shortest_path = rospy.wait_for_message("/global_waypoints", WpntArray)
+        raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
-        x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
+        x, y = self._transform_waypoints_to_cartesian(raceline.wpnts)
         self.fren_conv = FrenetConverter(x, y)
 
         # on f track trajectory is 81.803 m long.
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts)
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords(raceline.wpnts)
 
         self.spline = SplineTrack(coords_direct=coords_path)
 
         self.nr_laps = 0
 
-        kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
-        vx_ref = [x.vx_mps for x in shortest_path.wpnts]
-        self.s_ref = np.array([x.s_m for x in shortest_path.wpnts])
+        kapparef = [x.kappa_radpm for x in raceline.wpnts]
+        vx_ref = [x.vx_mps for x in raceline.wpnts]
+        self.s_ref = np.array([x.s_m for x in raceline.wpnts])
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(
             self.s_ref, kapparef, vx_ref, d_left, d_right, self.kmpc_config, self.car_config)
 
         self.kappa = kapparef
+
+
+    def apply_warm_start(self, pose_frenet: np.ndarray):
+        """Applies a warm start to the MPC solver.
+
+        Args:
+            pose_frenet (np.ndarray): _description_
+        """
+        warm_start_trajectory = self.get_warm_start(pose_frenet=pose_frenet, const_v=1, const_steer_vel=0.0)
+        for i in range(self.kmpc_config.N + 1):
+            self.acados_solver.set(i, "x", warm_start_trajectory[i][:self.model.n_x])
+            if i < self.kmpc_config.N:
+                self.acados_solver.set(i, "u", warm_start_trajectory[i][self.model.n_x:])
+
 
     def main_loop(
             self,
@@ -148,6 +162,11 @@ class Kinematic_MPC_Controller:
 
         # Solve OCP
         status = self.acados_solver.solve()
+        if status != 0:
+            # if the solver fails, apply warm start again
+            # the initial warm start is a bit rough, but it does the job
+            print("Solver failed, applying warm start")
+            self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
 
         # get solution
         # time delay step for the prediction
@@ -182,6 +201,23 @@ class Kinematic_MPC_Controller:
     #############
     # Utilities #
     #############
+    def get_warm_start(self, pose_frenet: np.ndarray, const_v: float, const_steer_vel: float) -> np.array:
+        """
+        Returns a warm start trajectory for the MPC. This is done by propagating the current state with a constant velocity and steering angle.
+
+        Input:  const_v   : Constant velocity
+                const_steer : Constant steering angle
+
+        Returns: np.array    : Warm start trajectory
+        """
+        warm_start = np.zeros((self.kmpc_config.N + 1, 7))
+        warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
+                                 1, const_steer_vel, 0, 0])
+        for i in range(1, self.kmpc_config.N + 1):
+            der_state = self._dynamics_of_car(0, warm_start[i - 1])
+            warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
+        return warm_start
+
     def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
 
@@ -195,8 +231,8 @@ class Kinematic_MPC_Controller:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1], waypoints[:-1], boundaries[:-1]])
         return d_left, res_coords, d_right
 

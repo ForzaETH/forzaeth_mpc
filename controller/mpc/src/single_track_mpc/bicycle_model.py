@@ -240,8 +240,15 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
     # TODO fix the n constraint with a single constraint
     # NOTE: easiest when non-terminal constraints have the extra constraints
     # only at the end, otherwise need to change acados_settings.py
-    constraint.expr = vertcat(n_right_bound, n_left_bound, combined_constraints)
-    constraint.expr_e = vertcat(n_right_bound, n_left_bound)
+    constraint.expr = vertcat(
+        n_right_bound,
+        n_left_bound,
+        combined_constraints
+    )
+    constraint.expr_e = vertcat(
+        n_right_bound,
+        n_left_bound
+    )
 
     # read the parameters range from the yaml file
 
