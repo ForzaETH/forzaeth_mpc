@@ -1,16 +1,11 @@
 #! /usr/bin/env python3
 from typing import Tuple
-
 import numpy as np
 import rospy
-from ackermann_msgs.msg import AckermannDriveStamped
-from f110_msgs.msg import WpntArray
-from frenet_converter.frenet_converter import FrenetConverter
-from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
-                        TrailingConfig)
 from scipy.integrate import solve_ivp
+from frenet_converter.frenet_converter import FrenetConverter
+from f110_msgs.msg import WpntArray
 from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.indicies import StateIndex
 from single_track_mpc.utils.splinify import SplineTrack
 from single_track_mpc.utils.indicies import StateIndex
 from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
@@ -39,9 +34,6 @@ class Single_track_MPC_Controller:
 
         # Init the solver
         self.mpc_initialize_solver(pose_frenet)
-
-        rospy.Subscriber('/vesc/high_level/ackermann_cmd_mux/input/nav_1',
-                         AckermannDriveStamped, self.ackermann_callback)
 
     def mpc_init_params(self) -> None:
         # upper layer parameters: MPC
@@ -115,9 +107,6 @@ class Single_track_MPC_Controller:
             if i < self.stmpc_config.N:
                 self.acados_solver.set(i, "u", warm_start_trajectory[i][self.model.n_x:])
 
-    def ackermann_callback(self, data: AckermannDriveStamped):
-        self.steering_angle_rl = data.drive.steering_angle
-        self.speed_rl = data.drive.speed
      # main loop
 
     def main_loop(
