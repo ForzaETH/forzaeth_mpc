@@ -23,7 +23,7 @@ make examples_c
 make run_examples_c
 
 # Install Python interface
-pip install -e $ACADOS_ROOT/interfaces/acados_template
+pip install $ACADOS_ROOT/interfaces/acados_template
 
 # Add environment variables to .bashrc and/or .zshrc
 echo "export ACADOS_SOURCE_DIR=$ACADOS_ROOT" >> ~/.bashrc

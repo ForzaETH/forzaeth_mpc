@@ -1,28 +1,33 @@
 #! /usr/bin/env python3
 import os
 from typing import Tuple
+
 import numpy as np
 import rospkg
 import rospy
 import yaml
+from dynamic_reconfigure.client import Client
+from dynamic_reconfigure.msg import Config
 from f110_msgs.msg import WpntArray
-from frenet_conversion.srv import Frenet2Glob, Glob2Frenet
+from frenet_converter.frenet_converter import FrenetConverter
+from dynamic_reconfigure.client import Client
+from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
-from f110_msgs.msg import kinematic_mpc_param
+from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
+                        load_STMPC_config_ros)
 from plotting_fnc import *
+from single_track_mpc.bicycle_model import bicycle_model
+from single_track_mpc.utils.indicies import StateIndex
+from single_track_mpc.utils.splinify import SplineTrack
 from std_msgs.msg import Float64MultiArray
-from utils.indecies import  State
-from utils.splinify import SplineTrack
 from visualization_msgs.msg import Marker, MarkerArray
 
-from frenet_converter.frenet_converter import FrenetConverter
-from single_track_mpc.bicycle_model import bicycle_model
 
 class tireNode:
     def __init__(self,) -> None:
         """
         Initialise MPC object.
-        
+
         Input:  conf_file   : String containing the path to the param_config.yaml file
         """
 
@@ -31,13 +36,13 @@ class tireNode:
         self._init_params()
 
         self.vel_x = 0
-        self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
-        self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
+        # self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
+        # self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
 
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
 
+        self.v_x_pub = rospy.Publisher("/mpc_controller/v_x", Float64MultiArray, queue_size=10)
         self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
-        self.mpc_param_pub = rospy.Publisher("/mpc_controller/param", kinematic_mpc_param, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
         self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
         self.d_left_pub = rospy.Publisher("/mpc_controller/d_left", MarkerArray, queue_size=10)
@@ -45,81 +50,85 @@ class tireNode:
         self.d_right_pub = rospy.Publisher("/mpc_controller/d_right", MarkerArray, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
 
+        self.acc_x_pub = rospy.Publisher("/mpc_controller/acc_x", Float64MultiArray, queue_size=10)
+        self.acc_y_pub = rospy.Publisher("/mpc_controller/acc_y", Float64MultiArray, queue_size=10)
+        self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float64MultiArray, queue_size=10)
+        self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float64MultiArray, queue_size=10)
+
+        self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
+
         self._initialize_path()
 
     def _init_params(self,) -> None:
         dir_path = rospkg.RosPack().get_path("stack_master")
         self.racecar_version = rospy.get_param("/racecar_version")
-        file_path = 'single_track_mpc_params.yaml'
-        self.conf_file = os.path.join(dir_path, "config", self.racecar_version, file_path)
-        with open(self.conf_file, "r") as conf_file:
-            self.conf_params = yaml.safe_load(conf_file)
-                
-        self.N = self.conf_params['N']
+        self.floor = rospy.get_param("/floor")
+        self.stmpc_config = load_STMPC_config_ros(self.racecar_version)
+        self.car_config = load_car_config_ros(self.racecar_version)
+        self.tire_config = load_pacejka_tire_config_ros(self.racecar_version, self.floor)
 
-        self.lf = self.conf_params['lf']
-        self.lr = self.conf_params['lr']
-        self.m = self.conf_params['m']
-        self.g = 9.8
-        self.Iz= self.conf_params['Iz']
-        
+        self.stmpc_config.N = self.stmpc_config.N
+
+        self.car_config.lf = self.car_config.lf
+
         # Just for cost function testing
-        self.track_safety_margin = self.conf_params['track_safety_margin']
-        t_delay = self.conf_params['t_delay']
-        self.t_MPC = 1 / self.conf_params['MPC_freq']
+        self.stmpc_config.track_safety_margin
+        t_delay = self.stmpc_config.t_delay
+        self.t_MPC = 1 / self.stmpc_config.MPC_freq
 
         # time delay propagation
         self.t_delay = t_delay + self.t_MPC
-        self.states=np.zeros(7*(self.N+1))
-        self.states_k_1=np.zeros(7*(self.N+1))
+
+    def stmpc_config_cb(self, params: Config):
+        """
+        Here the mpc parameters are updated if changed with rqt (dyn reconfigure)
+        Values from .yaml file are set in mpc_online_params_server
+        """
+        for k, v in params.items():
+            if k != "groups":
+                setattr(self.stmpc_config, k, v)
+
+        self.stmpc_config = self.stmpc_config
 
     def _initialize_path(self) -> None:
         """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
-        
+
         rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        shortest_path = rospy.wait_for_message("/global_waypoints", WpntArray)
+        raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
         rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
 
-        x, y = self._transform_waypoints_to_cartesian(shortest_path.wpnts)
+        x, y = self._transform_waypoints_to_cartesian(raceline.wpnts)
         self.fren_conv = FrenetConverter(x, y)
-        
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(shortest_path.wpnts) # on f track trajectory is 81.803 m long.
-        
+
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords(raceline.wpnts) # on f track trajectory is 81.803 m long.
+
         self.spline = SplineTrack(coords_direct=coords_path)
-        s0 = self.spline.params
-        self.pathlength =s0[-1]
 
         # create the mpc contro ller struct to use the function
 
-        kapparef = [x.kappa_radpm for x in shortest_path.wpnts]
-        vx_ref =[x.vx_mps for x in shortest_path.wpnts]
+        kapparef = [x.kappa_radpm for x in raceline.wpnts]
+        vx_ref =[x.vx_mps for x in raceline.wpnts]
         self.max_v_target = max(vx_ref)
-        self.s_ref = [x.s_m for x in shortest_path.wpnts]
-        s0 = self.spline.params
-        
-        
-        self.model, self.constraint, self.params = bicycle_model(s0, kapparef ,d_left, d_right, self.conf_params)
-        
-        #basic mpc param to run plot
-        mpc_param=kinematic_mpc_param()
-        mpc_param.N= self.N
-        mpc_param.track_safety_margin= self.track_safety_margin
-        mpc_param.delta_min= self.conf_params["delta_min"]
-        mpc_param.delta_max= self.conf_params["delta_max"]
-        mpc_param.v_x_min= self.conf_params["v_min"]
-        mpc_param.v_x_max= self.conf_params["v_max"]
-        mpc_param.track_length=self.spline.track_length
-        mpc_param.control_period=1/self.conf_params["MPC_freq"]
-        self.mpc_param=mpc_param
+        self.s_ref = np.array([x.s_m for x in raceline.wpnts])
+        self.pathlength = self.s_ref[-1]
+
+
+        self.model, self.constraint, self.params = bicycle_model(self.s_ref, kapparef ,d_left, d_right, self.stmpc_config, self.car_config, self.tire_config)
+
+        self.states=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
+        self.states_k_1=np.zeros(self.model.n_x*(self.stmpc_config.N+1))
+        self.acc_x = np.zeros(self.stmpc_config.N)
+        self.acc_y = np.zeros(self.stmpc_config.N)
+        self.ellipse = np.zeros(self.stmpc_config.N)
 
         # visualize the boundaries of the map
-        map_boundaries = np.zeros((len(self.spline.params),2,2))
-        for stage in range(len(self.spline.params)):
-            map_boundaries[stage,0,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage], -self.model.outer_bound_s(self.spline.params[stage])]))
-            map_boundaries[stage,1,:] = self.convert_frenet_to_cartesian(np.array([self.spline.params[stage],  self.model.inner_bound_s(self.spline.params[stage])]))  
+        map_boundaries = np.zeros((len(self.s_ref),2,2))
+        for stage in range(len(self.s_ref)):
+            map_boundaries[stage,0,:] = self.fren_conv.get_cartesian(self.s_ref[stage], -self.model.right_bound_s(self.s_ref[stage])).reshape(2)
+            map_boundaries[stage,1,:] = self.fren_conv.get_cartesian(self.s_ref[stage],  self.model.left_bound_s(self.s_ref[stage])).reshape(2)
 
         self.map_boundaries=map_boundaries
-        
+
     #############
     # Callbacks #
     #############
@@ -127,17 +136,17 @@ class tireNode:
         """slip angle callback callback. Normally not used."""
         self.states_k_1 = self.states
         self.states= states.data
-    
+
 
     #############
     # Utilities #
     #############
     def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
@@ -145,17 +154,17 @@ class tireNode:
         boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion 
-            d_right[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion 
+            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
+            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
         res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
         return d_left, res_coords, d_right
-    
+
     def _transform_waypoints_to_cartesian(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-        
+
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
-        
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries     
+
+        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
         x = np.zeros(len(data))
         y = np.zeros(len(data))
@@ -164,32 +173,6 @@ class tireNode:
             y[idx] = wpnt.y_m
         return np.array(x), np.array(y)
 
-    def convert_frenet_to_cartesian(self,frenet_coords)->np.array:
-        """
-        Converts frenet coordinates to cartesian coordinates.
-
-        Input:  frenet_coords   : Either a np.array or a np.arrray of np.arrays holding the frenet coordinates
-        Returns: np.array       : Cartesian coordinates in the shape of the input.
-        
-        """
-
-        co, si = np.cos(-np.pi/2), np.sin(-np.pi/2)
-        R = np.array(((co, -si), (si, co)))
-
-        frenet_coords = np.array(frenet_coords, dtype=np.float32)
-        # print("heyo", frenet_coords, frenet_coords.shape)
-
-        if frenet_coords.shape[0] > 2:
-            return np.array([self.spline.get_coordinate(s) + d*self.spline.get_derivative(s).reshape(1,2) @ R for s, d in frenet_coords]).reshape(-1,2)                
-        
-        else:
-            
-            s = frenet_coords[0]
-            d = frenet_coords[1]
-
-            return self.spline.get_coordinate(s) + d*self.spline.get_derivative(s) @ R
-
-   
     #############
     # Main Loop #
     #############
@@ -197,35 +180,40 @@ class tireNode:
         """Main loop. The control procedure is implemented here."""
 
         rate = rospy.Rate(1/self.t_MPC)
-       
+
         while not rospy.is_shutdown():
 
 
             # publish mpc param and map boundaries
-            self.mpc_param_pub.publish(self.mpc_param)
-            self.publish_waypoint_markers(self.map_boundaries[:,0,:], "map_b_left")
-            self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_right")
+            # self.mpc_param_pub.publish(self.mpc_param)
+            self.publish_waypoint_markers(self.map_boundaries[:,0,:], "map_b_right")
+            self.publish_waypoint_markers(self.map_boundaries[:,1,:], "map_b_left")
 
             # # publish trajectory bounds
-            boundaries = np.zeros((self.N, 3, 3))
+            boundaries = np.zeros((self.stmpc_config.N, 3, 3))
             mpc_sd = []
-            for stage in range(self.N ):
-                x_ = self.states[7*stage:7*(stage+1)-1]
+            for stage in range(self.stmpc_config.N ):
+                x_ = self.states[8*stage:8*(stage+1)-1] # TODO: hardcoded nx
                 s_ = x_[0]
                 s_mod = s_ % self.spline.track_length
                 # store predicted position
                 mpc_sd.append(x_[:2])
-                
-                boundaries[stage,0,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, -self.model.outer_bound_s(s_mod) + self.track_safety_margin]))
-                boundaries[stage,2,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, self.model.inner_bound_s(s_mod) - self.track_safety_margin]))
-                boundaries[stage,1,0:2] = self.convert_frenet_to_cartesian(np.array([s_mod, 0]))
 
-            self.publish_waypoint_markers(boundaries[:,0,:], "d_left")
+                boundaries[stage,0,0:2] = self.fren_conv.get_cartesian(s_mod, -self.model.right_bound_s(s_mod) + self.stmpc_config.track_safety_margin).reshape(2)
+                boundaries[stage,1,0:2] = self.fren_conv.get_cartesian(s_mod, 0).reshape(2)
+                boundaries[stage,2,0:2] = self.fren_conv.get_cartesian(s_mod, self.model.left_bound_s(s_mod) - self.stmpc_config.track_safety_margin).reshape(2)
+
+            self.publish_waypoint_markers(boundaries[:,0,:], "d_right")
             self.publish_waypoint_markers(boundaries[:,1,:], "d_mid")
-            self.publish_waypoint_markers(boundaries[:,2,:], "d_right")           
-            pred_waypoints = self.convert_frenet_to_cartesian(mpc_sd)
+            self.publish_waypoint_markers(boundaries[:,2,:], "d_left")
+            mpc_s_coords = np.array([el[0]%self.spline.track_length for el in mpc_sd])
+            mpc_d_coords = np.array([el[1] for el in mpc_sd])
+            pred_waypoints_x, pred_waypoints_y = self.fren_conv.get_cartesian(mpc_s_coords, mpc_d_coords)
+            pred_waypoints = [np.array([x, y]) for x, y in zip(pred_waypoints_x, pred_waypoints_y)]
 
             self.publish_waypoint_markers(pred_waypoints, type="pred")
+
+            self.pub_acc()
 
             rate.sleep()
     ##########################
@@ -259,7 +247,7 @@ class tireNode:
         msg = Float64MultiArray()
         msg.data = states
         self.states_pub.publish(msg)
-    
+
     def publish_propagated_states(self, states: list) -> None:
         """Publishes propagated state into /mpc_controller/states_propagated"""
         msg = Float64MultiArray()
@@ -339,7 +327,7 @@ class tireNode:
         position = Odometry()
         position.header.stamp = rospy.Time.now()
         position.header.frame_id = "base_link"
-        position.pose.pose.position.y = state[State.MIN_DIST_TO_CENTER_LINE_N]
+        position.pose.pose.position.y = state[StateIndex.MIN_DIST_TO_CENTER_LINE_N]
         self.pos_n_pub.publish(position)
 
     def publish_tireforce(self, states: list) -> None:
@@ -348,6 +336,28 @@ class tireNode:
         msg.data = states
         self.tireforce__pub.publish(msg)
 
+    def pub_acc(self):
+        dummy_params = np.zeros(self.model.p.size()[0])
+        n = self.model.n_x
+        for i in range(self.stmpc_config.N):
+            theta = self.states[n*i+StateIndex.ORIENTATION_THETA]
+            v_x = self.states[n*i+StateIndex.VELOCITY_V_X]
+            v_y = self.states[n*i+StateIndex.VELOCITY_V_Y]
+            delta = self.states[n*i+StateIndex.STEERING_ANGLE_DELTA]
+            yaw_rate = self.states[n*i+StateIndex.YAW_RATE]
+            a_x = self.states[n*i+StateIndex.ACCEL]
+            x_dot = self.model.f_expl_func(0, 0, theta, v_x, v_y, delta, yaw_rate, a_x, 0, 0, dummy_params)
+            self.acc_x[i] = x_dot[3]
+            self.acc_y[i] = x_dot[4]
+            self.ellipse[i] = (x_dot[3]/self.stmpc_config.a_max)**2 + (x_dot[4]/self.stmpc_config.alat_max)**2
+
+        msg = Float64MultiArray()
+        msg.data = self.acc_x
+        self.acc_x_pub.publish(msg)
+        msg.data = self.acc_y
+        self.acc_y_pub.publish(msg)
+        msg.data = self.ellipse
+        self.ellipse_pub.publish(msg)
 if __name__ == "__main__":
     controller = tireNode()
 
