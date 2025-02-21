@@ -287,7 +287,7 @@ class Single_track_MPC_Controller:
         """
         warm_start = np.zeros((self.stmpc_config.N + 1, 10))
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
-                                 1, 0, 0, 0, const_acc, 0, const_steer_vel])
+                                 1, 0, 0, 0, const_acc, 0, const_steer_vel]) # TODO setting the velocity to current actual velocity might remove slowing down
         for i in range(1, self.stmpc_config.N + 1):
             der_state = self._dynamics_of_car(0, warm_start[i - 1])
             warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
