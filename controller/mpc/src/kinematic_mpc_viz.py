@@ -48,7 +48,7 @@ class tireNode:
         rospy.Subscriber("/car_state/odom", Odometry, self._odom_cb)
         rospy.Subscriber("/car_state/odom_frenet", Odometry, self._odom_frenet_cb)
         rospy.Subscriber("/car_state/pose", PoseStamped, self._pose_cb)
-        rospy.Subscriber("/vesc/high_level/ackermann_cmd_mux/input/nav_1", AckermannDriveStamped, self._input_cb)
+        rospy.Subscriber("/drive", AckermannDriveStamped, self._input_cb)
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
         rospy.Subscriber("/slip_angle", Float32, self._slip_angle)
         rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)

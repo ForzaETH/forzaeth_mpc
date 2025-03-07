@@ -102,7 +102,7 @@
    <max_array_size value="5000"/>
    <boolean_strings_to_number value="true"/>
    <remove_suffix_from_strings value="true"/>
-   <selected_topics value="/centerline_waypoints;/global_waypoints;/mpc_controller/comp_time;/mpc_controller/current_position;/mpc_controller/d_left;/mpc_controller/d_right;/mpc_controller/map_left_bound;/mpc_controller/map_right_bound;/mpc_controller/param;/mpc_controller/predicted_position;/mpc_controller/states;/vesc/high_level/ackermann_cmd_mux/input/nav_1;/global_waypoints_scaled"/>
+   <selected_topics value="/centerline_waypoints;/global_waypoints;/mpc_controller/comp_time;/mpc_controller/current_position;/mpc_controller/d_left;/mpc_controller/d_right;/mpc_controller/map_left_bound;/mpc_controller/map_right_bound;/mpc_controller/param;/mpc_controller/predicted_position;/mpc_controller/states;/drive;/global_waypoints_scaled"/>
   </plugin>
   <plugin ID="UDP Server"/>
   <plugin ID="WebSocket Server"/>
