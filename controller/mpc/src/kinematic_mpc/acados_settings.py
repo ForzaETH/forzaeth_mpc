@@ -225,6 +225,7 @@ def get_parameters(cfg: KMPCConfig) -> np.ndarray:
         cfg.qddelta,
         cfg.alat_max,
         cfg.track_safety_margin,
+        cfg.overtake_d,
     ]).astype(float)
 
     return params

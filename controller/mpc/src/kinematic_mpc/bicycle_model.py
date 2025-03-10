@@ -123,6 +123,7 @@ def bicycle_model(
     a_lat_max = MX.sym('a_lat_max')
     # dynamic boundary inflation
     bound_inflation = MX.sym('boundary_inflation')
+    overtake_d = MX.sym('overtake_d')
 
     p = vertcat(
         V_target,
@@ -133,7 +134,8 @@ def bicycle_model(
         weight_qac,
         weight_ddelta,
         a_lat_max,
-        bound_inflation)  # boundary inflation
+        bound_inflation, # boundary inflation
+        overtake_d)
 
     # calculate the index
     s_mod = fmod(s, pathlength)
@@ -181,10 +183,10 @@ def bicycle_model(
     model.x0 = np.array([-2, 0, 0, 0, 0])
 
     # Definition of external cost function
-    model.cost_expr_ext_cost = -weight_adv * sdota / freq + weight_qn * n**2 + weight_qalpha * \
+    model.cost_expr_ext_cost = -weight_adv * sdota / freq + weight_qn * (n - overtake_d)**2 + weight_qalpha * \
         alpha**2 + weight_qv * (v - V_target)**2 + weight_qac * der_v**2 + weight_ddelta * derDelta**2
     model.cost_expr_ext_cost_e = -weight_adv * sdota / freq + weight_qn * \
-        n**2 + weight_qalpha * alpha**2 + weight_qv * (v - V_target)**2
+        (n - overtake_d)**2 + weight_qalpha * alpha**2 + weight_qv * (v - V_target)**2
 
     # constraint on forces
     a_lat = v * v * cs.tan(delta) / (lr + lf)
