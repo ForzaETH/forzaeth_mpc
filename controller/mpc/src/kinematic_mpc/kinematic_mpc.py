@@ -155,7 +155,7 @@ class Kinematic_MPC_Controller:
             else:
                 idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
                 target_v_speed=self.waypoint_array_in_map[idx,2]
-                self.overtake_d=0
+                self.overtake_d = 0
                 # head to head overtaking
                 if (self.state == "OVERTAKE" and (self.opponent is not None)):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
@@ -168,7 +168,8 @@ class Kinematic_MPC_Controller:
                                           self.kmpc_config.qac,
                                           self.kmpc_config.qddelta,
                                           self.kmpc_config.alat_max,
-                                          self.kmpc_config.track_safety_margin],
+                                          self.kmpc_config.track_safety_margin,
+                                          self.overtake_d],
                                          dtype=np.float64)
 
             self.acados_solver.set(i, "p", online_parameters)
