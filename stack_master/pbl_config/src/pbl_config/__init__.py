@@ -15,3 +15,4 @@ from pbl_config.PacejkaTireConfig import (NotExistingFloor, PacejkaTireConfig,
                                           load_pacejka_tire_config_ros,
                                           save_pacejka_tire_config)
 from pbl_config.TrailingConfig import TrailingConfig, load_trailing_config_ros
+from pbl_config.planner.MultiOppSplinerConfig import MultiOppSplinerConfig, load_multi_opp_spline_config_ros
