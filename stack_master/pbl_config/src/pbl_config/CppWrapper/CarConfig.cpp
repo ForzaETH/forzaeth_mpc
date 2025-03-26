@@ -24,5 +24,6 @@ void CarConfig::load_config(std::string racecar_version) {
     C_0v = config_dict["C_0v"].cast<double>();
     C_v = config_dict["C_v"].cast<double>();
     tau_steer = config_dict["tau_steer"].cast<double>();
+    max_steering_angle = config_dict["max_steering_angle"].cast<double>();
     racecar_version = config_dict["racecar_version"].cast<std::string>();
 }

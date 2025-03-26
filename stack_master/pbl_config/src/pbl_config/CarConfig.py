@@ -1,6 +1,7 @@
-import yaml
 import rospkg
+import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
+
 
 class CarConfig(BaseModel):
     """Car Parameters configuration class"""
@@ -14,12 +15,19 @@ class CarConfig(BaseModel):
     """Distance from the center of mass to the front axle"""
     lr: float
     """Distance from the center of mass to the rear axle"""
+    wheelbase: float
+    """Wheelbase of the car"""
     h_cg: float
     """Height of the center of gravity"""
     a_max: float
     """Maximum acceleration"""
     a_min: float
     """Minimum acceleration (maximum deceleration)"""
+    v_max: float
+    """Maximum velocity"""
+    v_min: float
+    """Minimum velocity"""
+
     C_0d: float
     """Steering Angle-to-Servo Offset"""
     C_d: float
@@ -34,8 +42,13 @@ class CarConfig(BaseModel):
     """Velocity-to-erpm Offset"""
     C_v: float
     """Velocity-to-erpm Gain"""
+
     tau_steer: float
     """Steering Angle Time Constant"""
+    max_steering_angle: float
+    """Maximum Steering Angle in radians"""
+    max_steering_velocity: float
+    """Maximum Steering Velocity"""
     racecar_version: str
     """Name of the car model"""
 
