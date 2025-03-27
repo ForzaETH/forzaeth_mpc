@@ -31,6 +31,8 @@ class Single_track_MPC_Controller:
         self.controller_frequency = controller_frequency
         self.using_gokart = using_gokart
         self.mpc_init_params()
+        if self.stmpc_config.MPC_freq != self.controller_frequency:
+            rospy.logwarn("[MPC Controller] Controller frequency and MPC frequency are not equal. Warm start update will not be applied.")
 
         # Init the solver
         self.mpc_initialize_solver(pose_frenet)
@@ -233,6 +235,10 @@ class Single_track_MPC_Controller:
                 self.acados_solver.set(
                     i + 1, "ubx", np.array([self.stmpc_config.v_max, self.stmpc_config.delta_max, self.stmpc_config.a_max]))
 
+        # Update Warm Start
+        # if self.stmpc_config.MPC_freq == self.controller_frequency:
+        #     self.update_warm_start()
+
         # Solve OCP
         status = self.acados_solver.solve()
         if status != 0:
@@ -285,13 +291,40 @@ class Single_track_MPC_Controller:
 
         Returns: np.array    : Warm start trajectory
         """
-        warm_start = np.zeros((self.stmpc_config.N + 1, 10))
+        warm_start = np.zeros((self.stmpc_config.N + 1, 10)) # TODO: hardcoded state space dimension
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
                                  1, 0, 0, 0, const_acc, 0, const_steer_vel]) # TODO setting the velocity to current actual velocity might remove slowing down
         for i in range(1, self.stmpc_config.N + 1):
-            der_state = self._dynamics_of_car(0, warm_start[i - 1])
-            warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
+            xdot = self._dynamics_of_car(0, warm_start[i - 1])
+            warm_start[i] = warm_start[i-1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
         return warm_start
+
+    def update_warm_start(self) -> np.array:
+        """
+        Updates the warm start trajectory for the MPC. This is done by propagating the current states with the given inputs and reapplying the last input.
+        """
+        for i in range(self.stmpc_config.N + 1):
+            # Get the current state and input
+            current_state = self.acados_solver.get(i, "x")
+            if i < self.stmpc_config.N:
+                current_input = self.acados_solver.get(i, "u")
+            else:
+                current_input = np.zeros(self.model.n_u)  # Use zeros for the last step input
+
+            # Concatenate state and input for dynamics computation
+            state_with_input = np.concatenate((current_state, current_input))
+
+            # Compute the state derivative
+            xdot = self._dynamics_of_car(0, state_with_input)
+
+            # Update the state using Euler integration
+            updated_state = current_state + np.array(xdot)[:self.model.n_x] / self.controller_frequency
+            self.acados_solver.set(i, "x", updated_state)
+
+            # Update the input for the next state
+            if i < self.stmpc_config.N - 1:
+                next_inputs = self.acados_solver.get(i + 1, "u")
+                self.acados_solver.set(i, "u", next_inputs)
 
     def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
