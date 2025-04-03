@@ -236,7 +236,7 @@ class Kinematic_MPC_Controller:
                                  1, const_steer_vel, 0, 0])
         for i in range(1, self.kmpc_config.N + 1):
             der_state = self._dynamics_of_car(0, warm_start[i - 1])
-            warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
+            warm_start[i] = warm_start[i-1] + np.array(der_state) / self.kmpc_config.MPC_freq  # ugly euler integration
         return warm_start
 
     def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

@@ -63,16 +63,17 @@ def bicycle_model(
     s0 = np.append([s0[:length - 1] - s0[length - 1]], s0)
 
     kapparef = np.append(kapparef, kapparef[1:length])
-    kapparef = np.append([kapparef[:length - 1] - kapparef[length - 1]], kapparef)
+    kapparef = np.append(kapparef[:length - 1], kapparef)
+
 
     vx_ref = np.append(vx_ref, vx_ref[1:length])
-    vx_ref = np.append([vx_ref[:length - 1] - vx_ref[length - 1]], vx_ref)
+    vx_ref = np.append(vx_ref[:length - 1], vx_ref)
 
     d_left = np.append(d_left, d_left[1:length])
-    d_left = np.append([d_left[:length - 1] - d_left[length - 1]], d_left)
+    d_left = np.append(d_left[:length - 1], d_left)
 
     d_right = np.append(d_right, d_right[1:length])
-    d_right = np.append([d_right[:length - 1] - d_right[length - 1]], d_right)
+    d_right = np.append(d_right[:length - 1], d_right)
 
     # compute spline interpolations
     kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
