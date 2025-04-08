@@ -183,7 +183,7 @@ class Kinematic_MPC_Controller:
 
         # Solve OCP
         status = self.acados_solver.solve()
-        if status != 0:
+        if not (status == 0 or status == 2): #0 is sucess 2 is max iter, necesary for SQP
             # if the solver fails, apply warm start again
             # the initial warm start is a bit rough, but it does the job
             print("Solver failed, applying warm start")
@@ -210,7 +210,7 @@ class Kinematic_MPC_Controller:
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:2] for j in range(self.kmpc_config.N + 1)
         ])
-        if status == 0:
+        if status == 0 or status == 2: #0 is success 2 is max iter, necesary for SQP
             states = []
             for node in range(self.kmpc_config.N + 1):
                 result = self.acados_solver.get(node, "x").tolist()
