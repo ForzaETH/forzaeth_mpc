@@ -4,7 +4,7 @@
 ACADOS_ROOT=~/acados
 
 # Clone acados into the target folder
-git clone https://github.com/acados/acados.git $ACADOS_ROOT
+git clone --branch main https://github.com/acados/acados.git $ACADOS_ROOT
 cd $ACADOS_ROOT
 git submodule update --init --recursive
 
