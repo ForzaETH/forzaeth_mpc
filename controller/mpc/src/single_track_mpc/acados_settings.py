@@ -223,7 +223,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.solver_options.sim_method_num_steps = 3
     ocp.solver_options.tol = 1e-2
     ocp.solver_options.print_level = 0
-    ocp.solver_options.__nlp_solver_max_iter = 3 # For SQP methods, RTI is limited to 1 anyways
+    ocp.solver_options.nlp_solver_max_iter = 3 # For SQP methods, RTI is limited to 1 anyways
 
     # create solver
     acados_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
