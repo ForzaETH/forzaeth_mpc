@@ -9,6 +9,7 @@ from single_track_mpc.acados_settings import acados_settings
 from single_track_mpc.utils.splinify import SplineTrack
 from single_track_mpc.utils.indicies import StateIndex
 from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
+from std_msgs.msg import Float32
 
 
 class Single_track_MPC_Controller:
@@ -21,6 +22,8 @@ class Single_track_MPC_Controller:
         """
         Initialise MPC object.
         """
+        # Initialize a ROS publisher for the loss
+        self.loss_publisher = rospy.Publisher("/mpc_loss", Float32, queue_size=10)
 
         # Init the parameters
         self.racecar_version = racecar_version
@@ -239,6 +242,21 @@ class Single_track_MPC_Controller:
             # if the solver fails, apply warm start again
             # the initial warm start is a bit rough, but it does the job
             self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
+
+        # Retrieve the cost for the current time step
+        current_cost = self.acados_solver.get_cost()
+        rospy.loginfo(f"[MPC Controller] Current Cost: {current_cost}")
+
+        # Publish the loss
+        self.loss_publisher.publish(current_cost)
+        # # Retrieve and log the stage costs and terminal cost
+        # stage_costs = [self.acados_solver.get_cost(i) for i in range(self.stmpc_config.N)]
+        # terminal_cost = self.acados_solver.get_cost(self.stmpc_config.N)
+        # total_loss = sum(stage_costs) + terminal_cost
+
+        # rospy.loginfo(f"[MPC Controller] Stage Costs: {stage_costs}")
+        # rospy.loginfo(f"[MPC Controller] Terminal Cost: {terminal_cost}")
+        # rospy.loginfo(f"[MPC Controller] Total Loss: {total_loss}")
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
