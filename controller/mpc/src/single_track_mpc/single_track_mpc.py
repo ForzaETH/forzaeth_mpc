@@ -244,7 +244,7 @@ class Single_track_MPC_Controller:
             self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
 
         # Retrieve the cost for the current time step
-        current_cost = self.acados_solver.get_cost()
+        current_cost = self.acados_solver.get_cost(0)
         # rospy.loginfo(f"[MPC Controller] Current Cost: {current_cost}")
 
         # Publish the loss
