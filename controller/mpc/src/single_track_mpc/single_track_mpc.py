@@ -245,7 +245,7 @@ class Single_track_MPC_Controller:
 
         # Retrieve the cost for the current time step
         current_cost = self.acados_solver.get_cost()
-        rospy.loginfo(f"[MPC Controller] Current Cost: {current_cost}")
+        # rospy.loginfo(f"[MPC Controller] Current Cost: {current_cost}")
 
         # Publish the loss
         self.loss_publisher.publish(current_cost)
