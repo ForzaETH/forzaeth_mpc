@@ -197,7 +197,8 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
 
     # ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES'
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    ocp.solver_options.nlp_solver_type = "SQP_RTI"  # SQP_RTI
+    # ocp.solver_options.nlp_solver_type = "SQP_RTI"  # SQP_RTI
+    ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type = "DISCRETE"  # use discrete time model by ourselves
     # continuous time integrator
@@ -206,6 +207,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     ocp.solver_options.tol = 1e-2
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_tol_comp = 1e-1
+    ocp.solver_options.nlp_solver_max_iter = 3 # For SQP methods, RTI is limited to 1 anyways
 
     # create solver
     acados_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")

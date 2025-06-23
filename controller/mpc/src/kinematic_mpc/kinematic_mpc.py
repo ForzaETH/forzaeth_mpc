@@ -183,7 +183,7 @@ class Kinematic_MPC_Controller:
 
         # Solve OCP
         status = self.acados_solver.solve()
-        if status != 0:
+        if not (status == 0 or status == 2): #0 is sucess 2 is max iter, necesary for SQP
             # if the solver fails, apply warm start again
             # the initial warm start is a bit rough, but it does the job
             print("Solver failed, applying warm start")
@@ -210,7 +210,7 @@ class Kinematic_MPC_Controller:
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:2] for j in range(self.kmpc_config.N + 1)
         ])
-        if status == 0:
+        if status == 0 or status == 2: #0 is success 2 is max iter, necesary for SQP
             states = []
             for node in range(self.kmpc_config.N + 1):
                 result = self.acados_solver.get(node, "x").tolist()
@@ -236,7 +236,7 @@ class Kinematic_MPC_Controller:
                                  1, const_steer_vel, 0, 0])
         for i in range(1, self.kmpc_config.N + 1):
             der_state = self._dynamics_of_car(0, warm_start[i - 1])
-            warm_start[i] = warm_start[0] + np.array(der_state) / 20  # ugly euler integration
+            warm_start[i] = warm_start[i-1] + np.array(der_state) / self.kmpc_config.MPC_freq  # ugly euler integration
         return warm_start
 
     def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
