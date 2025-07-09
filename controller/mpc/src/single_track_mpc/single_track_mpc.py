@@ -253,9 +253,6 @@ class Single_track_MPC_Controller:
         # Retrieve the cost for the current time step
         current_cost = self.acados_solver.get_cost()
 
-        # Publish the loss
-        self.mpc_cost_pub.publish(current_cost)
-
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
         self.prev_acc = self.acados_solver.get(0, "x")[StateIndex.ACCEL.value]
