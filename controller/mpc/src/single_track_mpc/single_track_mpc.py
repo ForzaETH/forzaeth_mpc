@@ -1,14 +1,17 @@
 #! /usr/bin/env python3
 from typing import Tuple
+
 import numpy as np
 import rospy
-from scipy.integrate import solve_ivp
-from frenet_converter.frenet_converter import FrenetConverter
 from f110_msgs.msg import WpntArray
+from frenet_converter.frenet_converter import FrenetConverter
+from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+                        TrailingConfig)
+from scipy.integrate import solve_ivp
 from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.splinify import SplineTrack
 from single_track_mpc.utils.indicies import StateIndex
-from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig, TrailingConfig
+from single_track_mpc.utils.splinify import SplineTrack
+from std_msgs.msg import Float32
 
 
 class Single_track_MPC_Controller:
@@ -21,7 +24,6 @@ class Single_track_MPC_Controller:
         """
         Initialise MPC object.
         """
-
         # Init the parameters
         self.racecar_version = racecar_version
         self.stmpc_config: STMPCConfig = stmpc_config
@@ -32,7 +34,8 @@ class Single_track_MPC_Controller:
         self.using_gokart = using_gokart
         self.mpc_init_params()
         if self.stmpc_config.MPC_freq != self.controller_frequency:
-            rospy.logwarn("[MPC Controller] Controller frequency and MPC frequency are not equal. Warm start update will not be applied.")
+            rospy.logwarn(
+                "[MPC Controller] Controller frequency and MPC frequency are not equal. Warm start update will not be applied.")
 
         # Init the solver
         self.mpc_initialize_solver(pose_frenet)
@@ -186,9 +189,9 @@ class Single_track_MPC_Controller:
             if (self.state == "TRAILING" and (self.opponent is not None)):  # Trailing controller
                 target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
             else:
-                idx = np.abs(self.waypoint_array_in_map[:,4]  - self.mpc_sd[i,0]%self.spline.track_length).argmin()
-                target_v_speed=self.waypoint_array_in_map[idx,2]
-                self.overtake_d=0
+                idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
+                target_v_speed = self.waypoint_array_in_map[idx, 2]
+                self.overtake_d = 0
                 # head to head overtaking
                 if (self.state == "OVERTAKE" and (self.opponent is not None)):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
@@ -241,12 +244,14 @@ class Single_track_MPC_Controller:
 
         # Solve OCP
         status = self.acados_solver.solve()
-        if not (status == 0 or status == 2): #0 is sucess 2 is max iter, necesary for SQP
+        if not (status == 0 or status == 2):  # 0 is sucess 2 is max iter, necesary for SQP
             # if the solver fails, apply warm start again
             # the initial warm start is a bit rough, but it does the job
             self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
             print(f"[MPC Controller] Solver failed with status {status}. Applying warm start again.")
-            
+
+        # Retrieve the cost for the current time step
+        current_cost = self.acados_solver.get_cost()
 
         # get solution
         self.u0 = self.acados_solver.get(0, "u")
@@ -255,7 +260,8 @@ class Single_track_MPC_Controller:
         self.pred_x = self.acados_solver.get(delayed_index, "x")
         self.steering_angle = self.pred_x[5]  # propagated_x[5] + self.u0[1]/40 #
         self.speed = self.pred_x[3]  # propagated_x[3] + self.u0[0]/40 #
-        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency # NOTE: Euler integration for accounting different frequencies controller/mpc time step
+        # NOTE: Euler integration for accounting different frequencies controller/mpc time step
+        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
         self.prev_acc = self.acceleration
         self.jerk = self.u0[0]
 
@@ -270,7 +276,7 @@ class Single_track_MPC_Controller:
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:2] for j in range(self.stmpc_config.N + 1)
         ])
-        if status == 0 or status == 2: #0 is success 2 is max iter, necesary for SQP
+        if status == 0 or status == 2:  # 0 is success 2 is max iter, necesary for SQP
             states = []
             for node in range(self.stmpc_config.N + 1):
                 result = self.acados_solver.get(node, "x").tolist()
@@ -279,7 +285,7 @@ class Single_track_MPC_Controller:
             self.states = states
             return self.speed, self.acceleration, self.jerk, self.steering_angle, self.states, status
         else:
-            return 0, 0, 0, self.measured_steer , self.states, status
+            return 0, 0, 0, self.measured_steer, self.states, status
 
     #############
     # Utilities #
@@ -293,12 +299,13 @@ class Single_track_MPC_Controller:
 
         Returns: np.array    : Warm start trajectory
         """
-        warm_start = np.zeros((self.stmpc_config.N + 1, 10)) # TODO: hardcoded state space dimension
+        warm_start = np.zeros((self.stmpc_config.N + 1, 10))  # TODO: hardcoded state space dimension
+        # TODO setting the velocity to current actual velocity might remove slowing down
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
-                                 1, 0, 0, 0, const_acc, 0, const_steer_vel]) # TODO setting the velocity to current actual velocity might remove slowing down
+                                 1, 0, 0, 0, const_acc, 0, const_steer_vel])
         for i in range(1, self.stmpc_config.N + 1):
             xdot = self._dynamics_of_car(0, warm_start[i - 1])
-            warm_start[i] = warm_start[i-1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
+            warm_start[i] = warm_start[i - 1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
         return warm_start
 
     def update_warm_start(self) -> np.array:
