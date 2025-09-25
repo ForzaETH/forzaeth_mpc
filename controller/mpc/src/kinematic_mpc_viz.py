@@ -168,7 +168,7 @@ class tireNode:
     #############
     # Utilities #
     #############
-    def _transform_waypoints_to_coords(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
 
         Input: data: WpntArray: Holds the data received from the globalwaypoints.
@@ -178,12 +178,17 @@ class tireNode:
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
         d_right = np.zeros(len(data))
-        boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-        res_coords = np.array([boundaries[:-1],waypoints[:-1],boundaries[:-1]])
+            d_left[idx] = wpnt.d_left
+            d_right[idx] = wpnt.d_right
+        waypoints = waypoints[:-1] # remove last point as it is equal to the first point
+        track_direction = np.roll(waypoints, -1, axis=0) - waypoints
+        track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
+        boundaries_left = waypoints + np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
+        boundaries_right = waypoints + np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
+        res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
+
         return d_left, res_coords, d_right
 
     def _transform_waypoints_to_cartesian(self, data: WpntArray)-> Tuple[np.ndarray, np.ndarray]:

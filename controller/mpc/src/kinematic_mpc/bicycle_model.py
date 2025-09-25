@@ -42,7 +42,7 @@ from pbl_config import KMPCConfig, CarConfig
 
 
 def bicycle_model(
-        s0: list,
+        s_coords: list,
         kapparef: list,
         vx_ref: list,
         d_left: list,
@@ -55,31 +55,23 @@ def bicycle_model(
 
     model_name = "Spatialbicycle_model"
 
-    length = len(s0)
-    pathlength = s0[-1]
+    length = len(s_coords)
+    pathlength = s_coords[-1]
     # copy loop to beginning and end
-    # Something wrong：s0[1:length]
-    s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
-    s0 = np.append([s0[:length - 1] - s0[length - 1]], s0)
+    # Something wrong：s_coords[1:length]
+    s_coords = np.concatenate([s_coords[:-1] - pathlength, s_coords, pathlength + s_coords[1:]])
+    kapparef = np.concatenate([kapparef[:-1], kapparef, kapparef[1:]])
 
-    kapparef = np.append(kapparef, kapparef[1:length])
-    kapparef = np.append(kapparef[:length - 1], kapparef)
+    vx_ref = np.concatenate([vx_ref[:-1], vx_ref, vx_ref[1:]])
 
-
-    vx_ref = np.append(vx_ref, vx_ref[1:length])
-    vx_ref = np.append(vx_ref[:length - 1], vx_ref)
-
-    d_left = np.append(d_left, d_left[1:length])
-    d_left = np.append(d_left[:length - 1], d_left)
-
-    d_right = np.append(d_right, d_right[1:length])
-    d_right = np.append(d_right[:length - 1], d_right)
+    d_left  = np.concatenate([d_left[:-1], d_left, d_left[1:]])
+    d_right = np.concatenate([d_right[:-1], d_right, d_right[1:]])
 
     # compute spline interpolations
-    kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
-    vx_ref_s = interpolant("vx_ref_s", "bspline", [s0], vx_ref)
-    left_bound_s = interpolant("left_bound_s", "bspline", [s0], d_left)
-    right_bound_s = interpolant("right_bound_s", "bspline", [s0], d_right)
+    kapparef_s = interpolant("kapparef_s", "bspline", [s_coords], kapparef)
+    vx_ref_s = interpolant("vx_ref_s", "bspline", [s_coords], vx_ref)
+    left_bound_s = interpolant("left_bound_s", "bspline", [s_coords], d_left)
+    right_bound_s = interpolant("right_bound_s", "bspline", [s_coords], d_right)
 
     # CasADi Model
     # set up states & controls
