@@ -122,9 +122,32 @@ class Single_track_MPC_Controller:
             speed_now,
             opponent,
             position_in_map_frenet,
+            alpha,
             single_track_state,
             track_length,
             compute_time):
+        """Iteration of the MPC (Model Predictive Control) controller.
+
+            Args:
+                state (str): Current state of the controller, e.g., "TRAILING" or "OVERTAKE".
+                position_in_map (np.ndarray): Current position of the vehicle in the map.
+                waypoint_array_in_map (np.ndarray): Array of waypoints in the map, including target speeds and other parameters.
+                speed_now (float): Current speed of the vehicle.
+                opponent (Optional[object]): Information about the opponent vehicle, if applicable.
+                position_in_map_frenet (np.ndarray): Frenet coordinates of the vehicle [s, d, v_s, v_d].
+                alpha (float): Orientation angle of the vehicle.
+                single_track_state (np.ndarray): Single track model state [vel_y, yaw_rate, (measured_acc, measured_steer)].
+                track_length (float): Length of the track.
+                compute_time (float): Computation time for the current iteration.
+
+                tuple:
+                    - speed (float): Predicted speed of the vehicle.
+                    - acceleration (float): Predicted acceleration of the vehicle.
+                    - jerk (float): Predicted jerk of the vehicle.
+                    - steering_angle (float): Predicted steering angle of the vehicle.
+                    - states (list): Entire MPC state vector for all prediction steps.
+                    - status (int): Solver status (0 for success, 2 for max iterations, other values indicate failure).
+        """
         # TODO: possibly rewrite
         # Updating parameters from manager
         self.state = state
@@ -133,6 +156,7 @@ class Single_track_MPC_Controller:
         self.speed_now = speed_now
         self.opponent = opponent
         self.position_in_map_frenet = position_in_map_frenet
+        self.alpha = alpha
         self.vel_y = single_track_state[0]
         self.yaw_rate = single_track_state[1]
         if self.using_gokart:
@@ -146,10 +170,12 @@ class Single_track_MPC_Controller:
         self.comp_time = compute_time
         # update initial state from sensors
         track_length = self.spline.track_length - 0.1  # Needed as values are not exact
-        center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.position_in_map_frenet[2])
+
+        # correct alpha as self.alpha is at the rear axle
+        center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
         alpha_center = self.position_in_map[0, 2] - np.arctan2(deriv_center[1], deriv_center[0])
-        # make aplha_center between -pi and pi
+        # make alpha_center between -pi and pi
         alpha_center = alpha_center % (2 * np.pi)
         if alpha_center > np.pi:
             alpha_center = alpha_center - 2 * np.pi
@@ -182,12 +208,17 @@ class Single_track_MPC_Controller:
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
+        if self.state == "TRAILING" and (self.opponent is not None):
+            trailing_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
+        else:
+            self.i_gap = 0 # reset integral term when not trailing
+
         # dynamically change the target speed, weight parameters and constraints
         for i in range(self.stmpc_config.N + 1):
             # head to head racing
             # for the trailing, MPC just needs to change the reference speed (get from the trailing controller)
             if (self.state == "TRAILING" and (self.opponent is not None)):  # Trailing controller
-                target_v_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
+                target_v_speed = trailing_speed
             else:
                 idx = np.abs(self.waypoint_array_in_map[:, 4] - self.mpc_sd[i, 0] % self.spline.track_length).argmin()
                 target_v_speed = self.waypoint_array_in_map[idx, 2]
@@ -345,12 +376,17 @@ class Single_track_MPC_Controller:
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
         d_right = np.zeros(len(data))
-        boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-        res_coords = np.array([boundaries[:-1], waypoints[:-1], boundaries[:-1]])
+            d_left[idx] = wpnt.d_left
+            d_right[idx] = wpnt.d_right
+        waypoints = waypoints[:-1] # remove last point as it is equal to the first point
+        track_direction = np.roll(waypoints, -1, axis=0) - waypoints
+        track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
+        boundaries_left = waypoints + np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
+        boundaries_right = waypoints + np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
+        res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
+
         return d_left, res_coords, d_right
 
     def _transform_waypoints_to_cartesian(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray]:
@@ -438,13 +474,14 @@ class Single_track_MPC_Controller:
         delta = x0[5]
         yaw_rate = x0[6]
         accel = x0[7]
-        derDelta = x0[8]
-        jerk = x0[9]
+        jerk = x0[8]
+        derDelta = x0[9]
         xdot = self.model.f_expl_func(
-            s, n, theta, v_x, v_y, delta, yaw_rate, accel, derDelta, jerk, self.model_params.p)
+            s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
 
+        # last two states are 0 assuming constant input
         xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), derDelta, jerk]
+                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), 0, 0]
 
         return xdot
 

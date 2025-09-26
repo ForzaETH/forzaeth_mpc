@@ -103,9 +103,44 @@ class Kinematic_MPC_Controller:
             speed_now,
             opponent,
             position_in_map_frenet,
+            alpha,
             acc_now,
             track_length,
             compute_time):
+        """
+        Main loop for the kinematic model predictive controller (MPC).
+
+        This function updates the controller's parameters, computes the initial state,
+        sets up the MPC problem, dynamically adjusts constraints and target parameters,
+        solves the optimal control problem (OCP), and retrieves the solution.
+
+        Args:
+            state (str): Current state of the controller, e.g., "TRAILING" or "OVERTAKE".
+            position_in_map (np.ndarray): Current position of the vehicle in the map.
+            waypoint_array_in_map (np.ndarray): Array of waypoints in the map.
+            speed_now (float): Current speed of the vehicle.
+            opponent (object): Information about the opponent vehicle, if any.
+            position_in_map_frenet (np.ndarray): Current position of the vehicle in Frenet coordinates.
+            alpha (float): Current orientation angle of the vehicle.
+            acc_now (float): Current acceleration of the vehicle.
+            track_length (float): Total length of the track.
+            compute_time (float): Time taken for computation.
+
+        Returns:
+            tuple: A tuple containing:
+                - speed (float): Predicted speed of the vehicle.
+                - acceleration (float): Predicted acceleration of the vehicle.
+                - jerk (float): Predicted jerk of the vehicle.
+                - steering_angle (float): Predicted steering angle of the vehicle.
+                - states (list or None): Predicted states of the vehicle over the MPC horizon, or None if the solver fails.
+
+        Notes:
+            - The function dynamically adjusts the target speed, weight parameters, and constraints
+                based on the current state and opponent information.
+            - If the solver fails, a warm start is applied to attempt recovery.
+            - Visualization data is generated for the predicted positions along the MPC horizon.
+            - Some parameters are hardcoded and should ideally be configurable via a YAML file.
+        """
         # Updating parameters from manager
         self.state = state
         self.position_in_map = position_in_map
@@ -113,12 +148,13 @@ class Kinematic_MPC_Controller:
         self.speed_now = speed_now
         self.opponent = opponent
         self.position_in_map_frenet = position_in_map_frenet
+        self.alpha = alpha
         self.acc_now = acc_now
         self.track_length = track_length
         self.conp_time = compute_time
         # update initial state from sensors
         track_length = self.spline.track_length - 0.1  # Needed as values are not exact
-        center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.position_in_map_frenet[2])
+        center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
         alpha_center = self.position_in_map[0, 2] - np.arctan2(deriv_center[1], deriv_center[0])
         # make aplha_center between -pi and pi
@@ -204,6 +240,7 @@ class Kinematic_MPC_Controller:
         # shift the elements in the buffer to the right and add the predicted steering angle
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
         self.steering_angle_buf[0] = self.pred_x[-1]
+        self.states = None
 
         ##### visualization #####
         # Creating waypoint array with predicted positions
@@ -249,12 +286,19 @@ class Kinematic_MPC_Controller:
         waypoints = np.zeros((len(data), 2))
         d_left = np.zeros(len(data))
         d_right = np.zeros(len(data))
-        boundaries = np.zeros((len(data), 2))
         for idx, wpnt in enumerate(data):
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_left              # Fix for boundaries due to frenet cartesian conversion
-            d_right[idx] = wpnt.d_right              # Fix for boundaries due to frenet cartesian conversion
-        res_coords = np.array([boundaries[:-1], waypoints[:-1], boundaries[:-1]])
+            d_left[idx] = wpnt.d_left
+            d_right[idx] = wpnt.d_right
+        waypoints = waypoints[:-1] # remove last point as it is equal to the first point
+        track_direction = np.roll(waypoints, -1, axis=0) - waypoints
+        track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
+        # obtain left and right boundaries by shifting the waypoints in the direction perpendicular to the track direction
+        # and multiplying with the distance to the left and right boundaries
+        boundaries_left = waypoints + np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
+        boundaries_right = waypoints + np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
+        res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
+
         return d_left, res_coords, d_right
 
     def _transform_waypoints_to_cartesian(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray]:
@@ -328,7 +372,8 @@ class Kinematic_MPC_Controller:
 
         xdot = self.model.f_expl_func(s, n, alpha, v, delta, derv, derDelta, self.model_params.p)
 
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]), derv, derDelta]
+        # last two states are 0 assuming constant input
+        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]), float(xdot[4]), 0, 0]
 
         return xdot
 

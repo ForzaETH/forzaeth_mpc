@@ -40,7 +40,7 @@ from casadi import MX, Function, cos, fmod, interpolant, sin, vertcat
 from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig
 
 
-def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
+def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
                   stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig):
     # define structs
     constraint = types.SimpleNamespace()
@@ -48,24 +48,20 @@ def bicycle_model(s0: list, kapparef: list, d_left: list, d_right: list,
 
     model_name = "Spatialbicycle_model"
 
-    length = len(s0)
-    pathlength = s0[-1]
+    length = len(s_coords)
+    pathlength = s_coords[-1]
+
     # copy loop to beginning and end
+    s_coords = np.concatenate([s_coords[:-1]-pathlength, s_coords, pathlength + s_coords[1:length]])
+    kapparef = np.concatenate([kapparef[:-1], kapparef, kapparef[1:length]])
 
-    s0 = np.append(s0, [s0[length - 1] + s0[1:length]])
-    s0 = np.append([s0[:length - 1] - s0[length - 1]], s0)
-    kapparef = np.append(kapparef, kapparef[1:length])
-    kapparef = np.append([kapparef[:length - 1] - kapparef[length - 1]], kapparef)
-
-    d_left = np.append(d_left, d_left[1:length])
-    d_left = np.append([d_left[:length - 1] - d_left[length - 1]], d_left)
-    d_right = np.append(d_right, d_right[1:length])
-    d_right = np.append([d_right[:length - 1] - d_right[length - 1]], d_right)
+    d_left = np.concatenate([d_left[:-1], d_left, d_left[1:length]])
+    d_right = np.concatenate([d_right[:-1], d_right, d_right[1:length]])
 
     # compute spline interpolations
-    kapparef_s = interpolant("kapparef_s", "bspline", [s0], kapparef)
-    left_bound_s = interpolant("left_bound_s", "bspline", [s0], d_left)
-    right_bound_s = interpolant("right_bound_s", "bspline", [s0], d_right)
+    kapparef_s = interpolant("kapparef_s", "bspline", [s_coords], kapparef)
+    left_bound_s = interpolant("left_bound_s", "bspline", [s_coords], d_left)
+    right_bound_s = interpolant("right_bound_s", "bspline", [s_coords], d_right)
 
     # CasADi Model
     # set up states & controls
