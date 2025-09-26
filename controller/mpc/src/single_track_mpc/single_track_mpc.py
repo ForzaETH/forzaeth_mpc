@@ -126,22 +126,27 @@ class Single_track_MPC_Controller:
             single_track_state,
             track_length,
             compute_time):
-        """Iteration of the MPC controller.
+        """Iteration of the MPC (Model Predictive Control) controller.
 
-        Args: TODO: add types and descriptions
-            state (_type_): _description_
-            position_in_map (_type_): _description_
-            waypoint_array_in_map (_type_): _description_
-            speed_now (_type_): _description_
-            opponent (_type_): _description_
-            position_in_map_frenet (_type_): s, d, v_s, v_d
-            alpha (_type_): _description_
-            single_track_state (_type_): _description_
-            track_length (_type_): _description_
-            compute_time (_type_): _description_
+            Args:
+                state (str): Current state of the controller, e.g., "TRAILING" or "OVERTAKE".
+                position_in_map (np.ndarray): Current position of the vehicle in the map.
+                waypoint_array_in_map (np.ndarray): Array of waypoints in the map, including target speeds and other parameters.
+                speed_now (float): Current speed of the vehicle.
+                opponent (Optional[object]): Information about the opponent vehicle, if applicable.
+                position_in_map_frenet (np.ndarray): Frenet coordinates of the vehicle [s, d, v_s, v_d].
+                alpha (float): Orientation angle of the vehicle.
+                single_track_state (np.ndarray): Single track model state [vel_y, yaw_rate, (measured_acc, measured_steer)].
+                track_length (float): Length of the track.
+                compute_time (float): Computation time for the current iteration.
 
-        Returns:
-            _type_: speed, acceleration, jerk, steering_angle, states (entire MPC state vecotr), status (solver status)
+                tuple:
+                    - speed (float): Predicted speed of the vehicle.
+                    - acceleration (float): Predicted acceleration of the vehicle.
+                    - jerk (float): Predicted jerk of the vehicle.
+                    - steering_angle (float): Predicted steering angle of the vehicle.
+                    - states (list): Entire MPC state vector for all prediction steps.
+                    - status (int): Solver status (0 for success, 2 for max iterations, other values indicate failure).
         """
         # TODO: possibly rewrite
         # Updating parameters from manager

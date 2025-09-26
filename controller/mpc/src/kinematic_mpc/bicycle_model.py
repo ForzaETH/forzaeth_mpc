@@ -58,7 +58,6 @@ def bicycle_model(
     length = len(s_coords)
     pathlength = s_coords[-1]
     # copy loop to beginning and end
-    # Something wrong：s_coords[1:length]
     s_coords = np.concatenate([s_coords[:-1] - pathlength, s_coords, pathlength + s_coords[1:]])
     kapparef = np.concatenate([kapparef[:-1], kapparef, kapparef[1:]])
 

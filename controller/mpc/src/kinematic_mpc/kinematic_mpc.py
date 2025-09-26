@@ -107,6 +107,40 @@ class Kinematic_MPC_Controller:
             acc_now,
             track_length,
             compute_time):
+        """
+        Main loop for the kinematic model predictive controller (MPC).
+
+        This function updates the controller's parameters, computes the initial state,
+        sets up the MPC problem, dynamically adjusts constraints and target parameters,
+        solves the optimal control problem (OCP), and retrieves the solution.
+
+        Args:
+            state (str): Current state of the controller, e.g., "TRAILING" or "OVERTAKE".
+            position_in_map (np.ndarray): Current position of the vehicle in the map.
+            waypoint_array_in_map (np.ndarray): Array of waypoints in the map.
+            speed_now (float): Current speed of the vehicle.
+            opponent (object): Information about the opponent vehicle, if any.
+            position_in_map_frenet (np.ndarray): Current position of the vehicle in Frenet coordinates.
+            alpha (float): Current orientation angle of the vehicle.
+            acc_now (float): Current acceleration of the vehicle.
+            track_length (float): Total length of the track.
+            compute_time (float): Time taken for computation.
+
+        Returns:
+            tuple: A tuple containing:
+                - speed (float): Predicted speed of the vehicle.
+                - acceleration (float): Predicted acceleration of the vehicle.
+                - jerk (float): Predicted jerk of the vehicle.
+                - steering_angle (float): Predicted steering angle of the vehicle.
+                - states (list or None): Predicted states of the vehicle over the MPC horizon, or None if the solver fails.
+
+        Notes:
+            - The function dynamically adjusts the target speed, weight parameters, and constraints
+                based on the current state and opponent information.
+            - If the solver fails, a warm start is applied to attempt recovery.
+            - Visualization data is generated for the predicted positions along the MPC horizon.
+            - Some parameters are hardcoded and should ideally be configurable via a YAML file.
+        """
         # Updating parameters from manager
         self.state = state
         self.position_in_map = position_in_map
@@ -259,6 +293,8 @@ class Kinematic_MPC_Controller:
         waypoints = waypoints[:-1] # remove last point as it is equal to the first point
         track_direction = np.roll(waypoints, -1, axis=0) - waypoints
         track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
+        # obtain left and right boundaries by shifting the waypoints in the direction perpendicular to the track direction
+        # and multiplying with the distance to the left and right boundaries
         boundaries_left = waypoints + np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
         boundaries_right = waypoints + np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
         res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
