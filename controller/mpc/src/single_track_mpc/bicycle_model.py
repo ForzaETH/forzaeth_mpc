@@ -32,12 +32,13 @@
 #
 
 import types
-# author: Daniel Kloeser
 
 import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, fmod, interpolant, sin, vertcat
-from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig
+from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
+
+# author: Daniel Kloeser
 
 
 def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
@@ -52,7 +53,7 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     pathlength = s_coords[-1]
 
     # copy loop to beginning and end
-    s_coords = np.concatenate([s_coords[:-1]-pathlength, s_coords, pathlength + s_coords[1:length]])
+    s_coords = np.concatenate([s_coords[:-1] - pathlength, s_coords, pathlength + s_coords[1:length]])
     kapparef = np.concatenate([kapparef[:-1], kapparef, kapparef[1:length]])
 
     d_left = np.concatenate([d_left[:-1], d_left, d_left[1:length]])
@@ -128,8 +129,13 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     a_long_max = MX.sym('a_long_max')
     safety_margin = MX.sym('safety_margin')
     overtake_d = MX.sym('overtake_d')
+
+    # --- NEW: μ as an online parameter ---
+    MU = MX.sym('MU')
+    terminal_multiplier = MX.sym('terminal_multiplier')
+
     p = vertcat(V_target, weight_adv, weight_qv, weight_qn, weight_qalpha, weight_qjerk, weight_ddelta,  # weights
-                a_lat_max, a_long_min, a_long_max, safety_margin, overtake_d)  # lateral acceleration constraints
+                a_lat_max, a_long_min, a_long_max, safety_margin, overtake_d, MU, terminal_multiplier)  # lateral acceleration constraints
 
     # calculate the index
     s_mod = fmod(s, pathlength)
@@ -145,15 +151,15 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
 
     # load transfer
     if stmpc_config.load_transfer:
-        F_zf = m * ((-accel*h_cg)+(g*lr))/(lf+lr)
-        F_zr = m * ((accel*h_cg)+(g*lf))/(lf+lr)
+        F_zf = m * ((-accel * h_cg) + (g * lr)) / (lf + lr)
+        F_zr = m * ((accel * h_cg) + (g * lf)) / (lf + lr)
     else:
         F_zf = m * g * lr / (lf + lr)
         F_zr = m * g * lf / (lf + lr)
 
     # lateral tire forces
-    F_yf = friction_coeff * Df * F_zf * sin(Cf * cs.atan(Bf * alpha_f - Ef * (Bf * alpha_f - cs.atan(Bf * alpha_f))))
-    F_yr = friction_coeff * Dr * F_zr * sin(Cr * cs.atan(Br * alpha_r - Er * (Br * alpha_r - cs.atan(Br * alpha_r))))
+    F_yf = MU * Df * F_zf * sin(Cf * cs.atan(Bf * alpha_f - Ef * (Bf * alpha_f - cs.atan(Bf * alpha_f))))
+    F_yr = MU * Dr * F_zr * sin(Cr * cs.atan(Br * alpha_r - Er * (Br * alpha_r - cs.atan(Br * alpha_r))))
 
     # motor force
     F_motor = accel * m
@@ -201,7 +207,6 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     # Define initial conditions
     model.x0 = np.zeros(n_x)
 
-    terminal_multiplier = 10
     model.cost_expr_ext_cost_0 = weight_qn * (n - overtake_d)**2 + weight_qalpha * theta**2 + weight_qv * \
         (v_x - V_target)**2 + weight_qjerk * jerk**2 + weight_ddelta * derDelta**2
     model.cost_expr_ext_cost = weight_qn * (n - overtake_d)**2 + weight_qalpha * theta**2 + weight_qv * \
@@ -213,8 +218,9 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
         model.cost_expr_ext_cost += 100 * v_y**2
         model.cost_expr_ext_cost_e += terminal_multiplier * (100 * v_y**2)
     if stmpc_config.adv_maximization:
+        model.cost_expr_ext_cost_0 -= weight_adv * s_dot / freq
         model.cost_expr_ext_cost -= weight_adv * s_dot / freq
-        model.cost_expr_ext_cost_e -= terminal_multiplier * weight_adv * s_dot / freq
+        model.cost_expr_ext_cost_e -= weight_adv * s_dot / freq
 
     # constraint on lateral errors
     n_right_bound = n + right_bound_s(s_mod) - safety_margin

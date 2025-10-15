@@ -1,32 +1,39 @@
 from typing import List, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+from f110_msgs.msg import Wpnt, WpntArray
+from frenet_converter.frenet_converter import FrenetConverter
+from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+                        TrailingConfig, load_car_config_ros,
+                        load_pacejka_tire_config_ros, load_STMPC_config_ros,
+                        load_trailing_config_ros)
+# plot raceline, adding arrow at first waypoint for general direction
+from plotting_utils import (plot_centerline, plot_centerline_with_lr,
+                            plot_closed_loop_summary, plot_mpc_summary,
+                            plot_spaghetti_predictions_vs_actual,
+                            plot_state_prediction_vs_actual,
+                            plot_velocity_vs_progress)
 from readwrite_global_waypoints import read_global_waypoints
 from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
-from f110_msgs.msg import WpntArray, Wpnt
-import numpy as np
-
-# plot raceline, adding arrow at first waypoint for general direction
-from plotting_utils import plot_centerline, plot_centerline_with_lr, plot_mpc_summary, plot_closed_loop_summary, plot_state_prediction_vs_actual, plot_spaghetti_predictions_vs_actual, plot_velocity_vs_progress
-import matplotlib.pyplot as plt
+from single_track_mpc.acados_settings import acados_settings
+from single_track_mpc.utils.splinify import SplineTrack
 
 # plot_centerline(refline_xy)
 
-from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig, TrailingConfig, load_STMPC_config_ros, load_car_config_ros, load_pacejka_tire_config_ros, load_trailing_config_ros
-from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.splinify import SplineTrack
-from frenet_converter.frenet_converter import FrenetConverter
 
 # TODO clean up original single_track_mpc.py to isolate Standalone controller and ROS interface
 class StandaloneMPCController:
     def __init__(self,
-                pose_frenet: np.ndarray,
-                waypoints_data: np.ndarray,  # Replace ROS waypoints with numpy array
-                racecar_version: str,
-                stmpc_config: STMPCConfig,
-                car_config: CarConfig,
-                tire_config: PacejkaTireConfig,
-                trailing_config: TrailingConfig,
-                controller_frequency: float,
-                using_gokart: bool) -> None:
+                 pose_frenet: np.ndarray,
+                 waypoints_data: np.ndarray,  # Replace ROS waypoints with numpy array
+                 racecar_version: str,
+                 stmpc_config: STMPCConfig,
+                 car_config: CarConfig,
+                 tire_config: PacejkaTireConfig,
+                 trailing_config: TrailingConfig,
+                 controller_frequency: float,
+                 using_gokart: bool) -> None:
 
         # Store configs
         self.racecar_version = racecar_version
@@ -75,7 +82,7 @@ class StandaloneMPCController:
         # Extract waypoint data - assuming format: [x, y, vx, kappa, s, d_left, d_right]
         x = waypoints_data[:, 0]
         y = waypoints_data[:, 1]
-        vx_ref = np.full_like(waypoints_data[:, 2], 10.0, dtype=float) #waypoints_data[:, 2]
+        # vx_ref = np.full_like(waypoints_data[:, 2], 10.0, dtype=float)  # waypoints_data[:, 2]
         kapparef = waypoints_data[:, 3]
         self.s_ref = waypoints_data[:, 4]
         d_left = waypoints_data[:, 5]
@@ -84,9 +91,8 @@ class StandaloneMPCController:
         # Initialize frenet converter
         self.fren_conv = FrenetConverter(x, y)
 
-        # TODO: Create spline track
-        # coords_path = np.column_stack((x[:-1], y[:-1]))
-        # self.spline = SplineTrack(coords_direct=coords_path)
+        coords_path = transform_waypoints_to_coords_from_array(waypoints_data)
+        self.spline = SplineTrack(coords_direct=coords_path)
 
         # Initialize lap counter
         self.nr_laps = 0
@@ -157,15 +163,92 @@ class StandaloneMPCController:
         return xdot
 
 
-#Usage example:
+# Usage example:
 
 # Initial pose in frenet coordinates [s, d, alpha]
 # initial_pose = np.array([0.0, 0.0, 0.0])
 
+def transform_waypoints_to_coords_from_array(waypoints_data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Convert ndarray waypoints into (left boundary, centerline, right boundary) coordinates.
+
+    Input
+    -----
+    waypoints_data : np.ndarray
+        Columns: [x, y, vx, kappa, s, d_left, d_right]
+
+    Returns
+    -------
+    d_left : (N,) np.ndarray
+    res_coords : (3, N, 2) np.ndarray
+        Stacked as [boundaries_left, centerline, boundaries_right]
+    d_right : (N,) np.ndarray
+    """
+    if waypoints_data.ndim != 2 or waypoints_data.shape[1] < 7:
+        raise ValueError("waypoints_data must be (N, >=7): [x, y, vx, kappa, s, d_left, d_right]")
+
+    # Extract columns
+    xy = waypoints_data[:, :2].astype(float)
+    d_left = waypoints_data[:, 5].astype(float).copy()
+    d_right = waypoints_data[:, 6].astype(float).copy()
+
+    # If track is closed (last point == first point), drop the duplicate last point
+    if np.allclose(xy[0], xy[-1], atol=1e-9):
+        xy = xy[:-1]
+        d_left = d_left[:-1]
+        d_right = d_right[:-1]
+
+    N = xy.shape[0]
+    if N < 2:
+        # Degenerate case: just return centerline as-is and same dists
+        boundaries_left = xy.copy()
+        boundaries_right = xy.copy()
+        res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)
+        return d_left, res_coords, d_right
+
+    # Direction to the "next" point (roll for closed look; for open tracks, fix last row later)
+    next_xy = np.roll(xy, -1, axis=0)
+    seg = next_xy - xy
+
+    # For open tracks, avoid using (last -> first). Use previous segment direction for last.
+    open_track = not np.allclose(xy[0], xy[-1], atol=1e-9)
+    if open_track:
+        seg[-1] = xy[-1] - xy[-2]
+
+    # Normalize segment directions robustly
+    norms = np.linalg.norm(seg, axis=1)
+    eps = 1e-12
+    dir_xy = np.zeros_like(seg)
+    valid = norms > eps
+    dir_xy[valid] = (seg[valid].T / norms[valid]).T
+
+    # Fill any zero-length directions by propagating previous valid direction (or [1,0] as fallback)
+    for i in range(N):
+        if not valid[i]:
+            dir_xy[i] = dir_xy[i - 1] if i > 0 else np.array([1.0, 0.0])
+
+    # Left-normal (rotate +90°): nL = [-dy, dx]
+    nL = np.column_stack((-dir_xy[:, 1], dir_xy[:, 0]))
+
+    boundaries_left = xy + nL * d_left[:, None]
+    boundaries_right = xy - nL * d_right[:, None]
+
+    res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)
+    return res_coords
+
+
 def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
     """Convert WpntArray to numpy array for easier processing."""
-    waypoints_list = [(wpnt.x_m, wpnt.y_m, wpnt.vx_mps, wpnt.kappa_radpm, wpnt.s_m, wpnt.d_left, wpnt.d_right) for wpnt in waypoints]
+    waypoints_list = [
+        (wpnt.x_m,
+         wpnt.y_m,
+         wpnt.vx_mps,
+         wpnt.kappa_radpm,
+         wpnt.s_m,
+         wpnt.d_left,
+         wpnt.d_right) for wpnt in waypoints]
     return np.array(waypoints_list)
+
 
 def rk4_step(mpc, x: np.ndarray, dt: float) -> np.ndarray:
     """
@@ -173,14 +256,14 @@ def rk4_step(mpc, x: np.ndarray, dt: float) -> np.ndarray:
 
     mpc._dynamics_of_car(t, x) must return dx/dt for a given state x (10-dim).
     """
-    f = lambda xx: np.array(mpc._dynamics_of_car(0.0, xx), dtype=float)
+    def f(xx): return np.array(mpc._dynamics_of_car(0.0, xx), dtype=float)
 
     k1 = f(x)
     k2 = f(x + 0.5 * dt * k1)
     k3 = f(x + 0.5 * dt * k2)
     k4 = f(x + dt * k3)
 
-    return x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+    return x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
 
 # Initialize MPC
 
@@ -199,21 +282,19 @@ if __name__ == "__main__":
 
     right_dist = np.array([p.d_right for p in refline])
 
-    # plot_centerline_with_lr(refline_xy, left_dist, right_dist)
-
     # Car, track and mpc parameters
     racecar_version = "NUC5"
     floor = "dubi"
-    pose_frenet = np.array([20.0, 0.0, 0.0])  # 0 position on the raceline
+    pose_frenet = np.array([0.0, 0.0, 0.0])  # 0 position on the raceline
     waypoints = extract_waypoints_data(refline)
     stmpc_config: STMPCConfig = load_STMPC_config_ros(racecar_version)
     car_config: CarConfig = load_car_config_ros(racecar_version)
     tire_config = load_pacejka_tire_config_ros(racecar_version, floor)
     trailing_config = load_trailing_config_ros(racecar_version)
-    
+
     # Simulation config parameters
-    iterations = 400 # TODO: Convert it to number of laps
-    rk4 = True
+    iterations = 180  # TODO: Convert it to number of laps
+    integration = "rk4"  # "euler" or "rk4"
     vis_spaghetti_predictions_vs_actual = False
     vis_state_prediction_vs_actual = False
     vis_closed_loop_summary = True
@@ -230,14 +311,14 @@ if __name__ == "__main__":
         controller_frequency=40.0,
         using_gokart=False
     )
-    
+
     dt = 1.0 / stmpc_config.MPC_freq
 
     # 10-dim "plant" state used by _dynamics_of_car:
     # [s, n, theta, vx, vy, delta, yaw_rate, accel, jerk, derDelta]
     x_plant = np.array([
         pose_frenet[0], pose_frenet[1], pose_frenet[2],
-        1.0, 0.0, 0.0, 0.0, 0.0,   # vx, vy, delta, yaw_rate, accel
+        3.0, 0.0, 0.0, 0.0, 0.0,   # vx, vy, delta, yaw_rate, accel
         0.0, 0.0                   # jerk, derDelta (helpers)
     ], dtype=float)
 
@@ -245,8 +326,8 @@ if __name__ == "__main__":
     u_hist = []
     status_hist = []
     x_pred1_hist = []   # predicted x at stage 1 (nx,)
-    err_hist     = []   # error vector (nx,)
-    err_norm_hist= []   # ||error||
+    err_hist = []   # error vector (nx,)
+    err_norm_hist = []   # ||error||
     x_pred_seq_hist = []
 
     start_time = time.time()
@@ -255,30 +336,30 @@ if __name__ == "__main__":
         x0_solver = x_plant[:mpc.model.n_x].copy()
         mpc.acados_solver.set(0, "lbx", x0_solver)
         mpc.acados_solver.set(0, "ubx", x0_solver)
-        
-        # TODO: Provide mpc class with spline
-        
-        # idx = np.abs(waypoints[:, 4] - mpc.mpc_sd[k, 0] % mpc.spline.track_length).argmin()
-        # target_v_speed = waypoints[idx, 2]
-        # online_parameters = np.array([target_v_speed,
-        #                               stmpc_config.qadv,
-        #                               stmpc_config.qv,
-        #                               stmpc_config.qn,
-        #                               stmpc_config.qalpha,
-        #                               stmpc_config.qjerk,
-        #                               stmpc_config.qddelta,
-        #                               stmpc_config.alat_max,
-        #                               stmpc_config.a_min,
-        #                               stmpc_config.a_max,
-        #                               stmpc_config.track_safety_margin,
-        #                               0],
-        #                               dtype=np.float64)
-        # mpc.acados_solver.set(i, "p", online_parameters)
+
+        for i in range(mpc.stmpc_config.N + 1):
+
+            idx = np.abs(waypoints[:, 4] - mpc.mpc_sd[i, 0] % mpc.spline.track_length).argmin()
+            target_v_speed = waypoints[idx, 2]
+            online_parameters = np.array([target_v_speed,
+                                          stmpc_config.qadv,
+                                          stmpc_config.qv,
+                                          stmpc_config.qn,
+                                          stmpc_config.qalpha,
+                                          stmpc_config.qjerk,
+                                          stmpc_config.qddelta,
+                                          stmpc_config.alat_max,
+                                          stmpc_config.a_min,
+                                          stmpc_config.a_max,
+                                          stmpc_config.track_safety_margin,
+                                          0],
+                                         dtype=np.float64)
+            mpc.acados_solver.set(i, "p", online_parameters)
 
         # 2) Solve MPC
         status = mpc.acados_solver.solve()
         status_hist.append(status)
-        
+
         if not (status == 0 or status == 2):  # 0 is sucess 2 is max iter, necesary for SQP
             # if the solver fails, apply warm start again
             # the initial warm start is a bit rough, but it does the job
@@ -288,14 +369,18 @@ if __name__ == "__main__":
         # 3) Read optimal control (stage 0): u = [jerk, ddelta]
         u0 = mpc.acados_solver.get(0, "u").astype(float)
         u_hist.append(u0.copy())
-        
+
         # Collect full horizon state predictions
-        H  = mpc.stmpc_config.N
+        H = mpc.stmpc_config.N
         nx = mpc.model.n_x
-        x_pred_full = np.zeros((H+1, nx))
-        for i in range(H+1):
+        x_pred_full = np.zeros((H + 1, nx))
+        for i in range(H + 1):
             x_pred_full[i, :] = mpc.acados_solver.get(i, "x")
         x_pred_seq_hist.append(x_pred_full)
+
+        mpc.mpc_sd = np.array([
+            mpc.acados_solver.get(j, "x")[:2] for j in range(mpc.stmpc_config.N + 1)
+        ])
 
         # 4) Apply control to the "plant":
         # Put current control into the helper states (indices 8: jerk, 9: derDelta)
@@ -304,7 +389,7 @@ if __name__ == "__main__":
 
         # One-step forward Euler integration of your nonlinear dynamics
         xdot = mpc._dynamics_of_car(0.0, x_plant)
-        if (rk4):
+        if (integration == "rk4"):
             x_plant = rk4_step(mpc, x_plant, dt)
         else:
             x_plant = x_plant + dt * np.array(xdot, dtype=float)
@@ -321,9 +406,9 @@ if __name__ == "__main__":
     x_pred_seq_hist = np.asarray(x_pred_seq_hist)
     x_hist = np.array(x_hist)
     u_hist = np.array(u_hist)
-    
+
     if (vis_spaghetti_predictions_vs_actual):
-        state_names = ["s","n","theta","v_x","v_y","delta","yaw_rate","accel"]
+        state_names = ["s", "n", "theta", "v_x", "v_y", "delta", "yaw_rate", "accel"]
         fig = plot_spaghetti_predictions_vs_actual(
             x_pred_seq_hist=x_pred_seq_hist,  # (K, H+1, nx)
             x_hist=x_hist,                    # (K, 10) -> uses first nx
@@ -333,7 +418,7 @@ if __name__ == "__main__":
         plt.show()
 
     if (vis_state_prediction_vs_actual):
-        state_names = ["s","n","theta","v_x","v_y","delta","yaw_rate","accel"]
+        state_names = ["s", "n", "theta", "v_x", "v_y", "delta", "yaw_rate", "accel"]
         fig = plot_state_prediction_vs_actual(
             x_pred1_hist=x_pred_seq_hist[:, 1, :],
             x_hist=x_hist,
@@ -350,7 +435,7 @@ if __name__ == "__main__":
             u_hist=u_hist
         )
         plt.show()
-        
+
     if (vis_target_vel_actual):
         fig = plot_velocity_vs_progress(
             waypoints=waypoints,   # your Nx7 array
@@ -360,41 +445,3 @@ if __name__ == "__main__":
             title="Target vs Actual speed along s"
         )
         plt.show()
-
-
-    # start_time = time.time()
-    # for _ in range(iterations):
-    #     mpc.acados_solver.solve()
-    #     elapsed_time = time.time() - start_time
-    #     print(f"Elapsed time: {elapsed_time:.4f} seconds")
-    #     start_time = time.time()
-        
-    #     # Retrieve and print the optimal control inputs
-    #     u_opt = mpc.acados_solver.get(0, "u")
-    #     next_x0 = mpc.acados_solver.get(1, "x")
-    #     print(f"Optimal control input: {u_opt}")
-        
-    #     # Propagate the dynamics
-        
-    # # After mpc.acados_solver.solve() ...
-    # H = mpc.stmpc_config.N
-
-    # # Collect states (H+1, nx) and inputs (H, nu)
-    # x_pred = np.zeros((H+1, mpc.model.n_x))
-    # for i in range(H+1):
-    #     x_pred[i, :] = mpc.acados_solver.get(i, "x")
-
-    # u_pred = np.zeros((H, mpc.model.n_u))
-    # for i in range(H):
-    #     u_pred[i, :] = mpc.acados_solver.get(i, "u")
-
-    # plot_mpc_summary(
-    #     centerline_xy=refline_xy,
-    #     left_dist=left_dist,
-    #     right_dist=right_dist,
-    #     s_ref=mpc.s_ref,
-    #     x_seq=x_pred,
-    #     u_seq=u_pred,
-    # )
-    # plt.show()
-

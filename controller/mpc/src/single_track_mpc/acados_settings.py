@@ -32,12 +32,14 @@
 #
 # author: Daniel Kloeser
 
+from typing import Tuple
+
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from pbl_config import STMPCConfig, CarConfig, PacejkaTireConfig
-from .bicycle_model import bicycle_model
-from typing import Tuple
+from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
 from single_track_mpc.utils.indicies import StateIndex
+
+from .bicycle_model import bicycle_model
 
 
 def acados_settings(s0, kapparef, d_left, d_right,
@@ -65,7 +67,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.model = model_ac
 
     # Set parameters dimension
-    p = get_parameters(stmpc_config)
+    p = get_parameters(stmpc_config, tire_config)
     params.p = p
     ocp.parameter_values = p
 
@@ -124,9 +126,9 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.constraints.ubu_0 = np.array([constraint.jerk_max, constraint.ddelta_max])
     ocp.constraints.idxbu_0 = np.array([0, 1])
 
-    ocp.constraints.lbu_e = np.array([constraint.jerk_min, constraint.ddelta_min])
-    ocp.constraints.ubu_e = np.array([constraint.jerk_max, constraint.ddelta_max])
-    ocp.constraints.idxbu_e = np.array([0, 1])
+    # ocp.constraints.lbu_e = np.array([constraint.jerk_min, constraint.ddelta_min])
+    # ocp.constraints.ubu_e = np.array([constraint.jerk_max, constraint.ddelta_max])
+    # ocp.constraints.idxbu_e = np.array([0, 1])
 
     ocp.constraints.lbu = np.array([constraint.jerk_min, constraint.ddelta_min])
     ocp.constraints.ubu = np.array([constraint.jerk_max, constraint.ddelta_max])
@@ -215,15 +217,16 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.solver_options.tf = stmpc_config.N / stmpc_config.MPC_freq
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     # ocp.solver_options.nlp_solver_type = "SQP_RTI"
-    ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
-    ocp.solver_options.hessian_approx = "GAUSS_NEWTON" #NOTE: do not believe the acados warning, setting hessian approximation to "EXACT" makes the solver fail
+    ocp.solver_options.nlp_solver_type = "SQP"  # "SQP_WITH_FEASIBLE_QP"
+    # NOTE: do not believe the acados warning, setting hessian approximation to "EXACT" makes the solver fail
+    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.regularize_method = "PROJECT"
     ocp.solver_options.integrator_type = "ERK"
     ocp.solver_options.sim_method_num_stages = 4
     ocp.solver_options.sim_method_num_steps = 3
     ocp.solver_options.tol = 1e-2
     ocp.solver_options.print_level = 0
-    ocp.solver_options.nlp_solver_max_iter = 3 # For SQP methods, RTI is limited to 1 anyways
+    ocp.solver_options.nlp_solver_max_iter = 3  # For SQP methods, RTI is limited to 1 anyways
 
     # create solver
     acados_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
@@ -231,7 +234,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     return constraint, model, acados_solver, params
 
 
-def get_parameters(cfg: STMPCConfig) -> np.ndarray:
+def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:
     """Get parameters from stmpc_config"""
     params = np.array([
         2,  # initial velocity, not important it is immediately changed
@@ -245,7 +248,9 @@ def get_parameters(cfg: STMPCConfig) -> np.ndarray:
         cfg.a_min,
         cfg.a_max,
         cfg.track_safety_margin,
-        cfg.overtake_d
+        cfg.overtake_d,
+        tire_config.friction_coeff,
+        cfg.terminal_multiplier
     ]).astype(float)
 
     return params

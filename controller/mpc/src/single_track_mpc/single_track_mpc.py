@@ -211,7 +211,7 @@ class Single_track_MPC_Controller:
         if self.state == "TRAILING" and (self.opponent is not None):
             trailing_speed = self.trailing_controller(self.waypoint_array_in_map[0, 2])
         else:
-            self.i_gap = 0 # reset integral term when not trailing
+            self.i_gap = 0  # reset integral term when not trailing
 
         # dynamically change the target speed, weight parameters and constraints
         for i in range(self.stmpc_config.N + 1):
@@ -241,7 +241,8 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.a_min,
                                               self.stmpc_config.a_max,
                                               self.stmpc_config.track_safety_margin,
-                                              self.overtake_d],
+                                              self.overtake_d,
+                                              self.tire_config.friction_coeff],
                                              dtype=np.float64)
             else:
                 online_parameters = np.array([target_v_speed,
@@ -255,7 +256,8 @@ class Single_track_MPC_Controller:
                                               self.stmpc_config.a_min,
                                               self.stmpc_config.a_max,
                                               self.stmpc_config.track_safety_margin,
-                                              self.overtake_d],
+                                              self.overtake_d,
+                                              self.tire_config.friction_coeff],
                                              dtype=np.float64)
 
             self.acados_solver.set(i, "p", online_parameters)
@@ -380,11 +382,13 @@ class Single_track_MPC_Controller:
             waypoints[idx] = [wpnt.x_m, wpnt.y_m]
             d_left[idx] = wpnt.d_left
             d_right[idx] = wpnt.d_right
-        waypoints = waypoints[:-1] # remove last point as it is equal to the first point
+        waypoints = waypoints[:-1]  # remove last point as it is equal to the first point
         track_direction = np.roll(waypoints, -1, axis=0) - waypoints
         track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
-        boundaries_left = waypoints + np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
-        boundaries_right = waypoints + np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
+        boundaries_left = waypoints + \
+            np.column_stack((-track_direction[:, 1], track_direction[:, 0])) * d_left[:-1, None]
+        boundaries_right = waypoints + \
+            np.column_stack((track_direction[:, 1], -track_direction[:, 0])) * d_right[:-1, None]
         res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
 
         return d_left, res_coords, d_right
