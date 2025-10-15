@@ -1,8 +1,10 @@
 
-import yaml
-import rospkg
-from pydantic import BaseModel, ConfigDict, ValidationError
 from typing import Union
+
+import rospkg
+import yaml
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 
 class STMPCConfig(BaseModel):
     """Single track MPC configuration class"""
@@ -23,7 +25,6 @@ class STMPCConfig(BaseModel):
     """Maximum width of the track"""
     overtake_d: float
     """MPC Overtake path lateral tracking distance"""
-
 
     # Cost function settings #
     qjerk: float
@@ -88,10 +89,14 @@ class STMPCConfig(BaseModel):
     """ellipse/diamond/anything else for None"""
 
     # model flags
-    load_transfer : bool
+    load_transfer: bool
     """If true, load transfer is considered"""
     correct_v_y_dot: bool
     """If true, the lateral velocity derivative is from the model and not approximated"""
+
+    # Terminal multiplier
+    terminal_multiplier: float
+
 
 def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
     """Loads the MPC config from the yaml file

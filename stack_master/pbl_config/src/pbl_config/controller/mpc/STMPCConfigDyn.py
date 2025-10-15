@@ -1,10 +1,12 @@
 
-import yaml
-import rospkg
-from pydantic import BaseModel, ConfigDict, ValidationError
-from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
-from pbl_config import load_STMPC_config_ros, STMPCConfig
 from typing import Tuple
+
+import rospkg
+import yaml
+from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
+from pbl_config import STMPCConfig, load_STMPC_config_ros
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 
 class STMPCConfigDyn(BaseModel):
     """Single track MPC dynamic reconfigure configuration class"""
@@ -32,6 +34,8 @@ class STMPCConfigDyn(BaseModel):
     """Limits on the maximum acceleration"""
     track_safety_margin: Tuple[float, float]
     """Limits on the track safety margin"""
+    terminal_multiplier: Tuple[float, float]
+    """Weight multiplier for the cost of the last state"""
 
 
 def create_STMPC_dynamic_parameters(gen: ParameterGenerator):
@@ -42,7 +46,8 @@ def create_STMPC_dynamic_parameters(gen: ParameterGenerator):
     """
     default_car = "DEFAULT"
     # load default parameters from the yaml file
-    MPCconfig: STMPCConfig = load_STMPC_config_ros(racecar_version=default_car) # using the default_car version by default
+    MPCconfig: STMPCConfig = load_STMPC_config_ros(
+        racecar_version=default_car)  # using the default_car version by default
 
     # load the dynamic reconfigure parameters
     relative_path = f'/config/{default_car}/single_track_mpc_dyn_params.yaml'
@@ -60,13 +65,15 @@ def create_STMPC_dynamic_parameters(gen: ParameterGenerator):
                 for extra_key in error["loc"]:
                     raise ValueError(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
             else:
-                raise ValueError(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
+                raise ValueError(
+                    f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
         return None
 
     # check dyn parameters are available in the normal config
     for key in config.model_dump().keys():
         if key not in MPCconfig.model_dump().keys():
-            raise ValueError(f"Key <{key}> is not available in the normal config. Please only try to dynamically reconfigure only the available parameters.")
+            raise ValueError(
+                f"Key <{key}> is not available in the normal config. Please only try to dynamically reconfigure only the available parameters.")
 
     # create the dynamic reconfigure parameters
     for key, value in config.model_dump().items():
@@ -77,6 +84,6 @@ def create_STMPC_dynamic_parameters(gen: ParameterGenerator):
                 default=MPCconfig.model_dump()[key],
                 min=value[0],
                 max=value[1],
-        )
+                )
 
     return gen
