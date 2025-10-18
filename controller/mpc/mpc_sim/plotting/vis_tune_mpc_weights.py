@@ -29,6 +29,7 @@ def plot_parallel_params_vs_metrics(
     n_y_ticks: int = 5,
     title: Optional[str] = None,
     fixed_param_limits: Optional[Dict[str, Tuple[float, float]]] = None,
+    fixed_metrics_limits: Optional[Dict[str, Tuple[float, float]]] = None,
 ) -> plt.Figure:
     """
     Draws a parallel-coordinates chart with one vertical axis per column:
@@ -52,6 +53,8 @@ def plot_parallel_params_vs_metrics(
         name = cols[j]
         if fixed_param_limits and name in fixed_param_limits:
             vmin, vmax = fixed_param_limits[name]
+        elif fixed_metrics_limits and name in fixed_metrics_limits:
+            vmin, vmax = fixed_metrics_limits[name]
         else:
             vmin, vmax = _minmax(X[:, j])
         mins[j], maxs[j] = vmin, vmax

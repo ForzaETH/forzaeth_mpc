@@ -37,13 +37,13 @@ from ..metrics.metrics import mean_cost as metric_mean_cost
 from ..plotting.vis_tune_mpc_weights import plot_parallel_params_vs_metrics
 
 PARAM_SPECS = {
-    "q_adv": dict(low=1.0, high=10.0, log=True),
-    "q_v": dict(low=1e-1, high=10, log=True),
-    "q_n": dict(low=5.0, high=50.0, log=True),
-    "q_alpha": dict(low=1e-6, high=1.0, log=True),
-    "q_jerk": dict(low=1e-6, high=1.0, log=True),
-    "q_ddelta": dict(low=1e-6, high=1.0, log=True),
-    "terminal_multiplier": dict(low=1e-2, high=10.0, log=True),
+    "q_adv": dict(low=1.0, high=50.0, log=True),  # This actual limits are for simulating MPCC
+    "q_v": dict(low=0.5, high=0.6, log=True),
+    "q_n": dict(low=10.0, high=50.0, log=True),
+    "q_alpha": dict(low=1e-6, high=1e-1, log=True),
+    "q_jerk": dict(low=1e-6, high=1e-1, log=True),
+    "q_ddelta": dict(low=1e-6, high=1e-1, log=True),
+    "terminal_multiplier": dict(low=1e-2, high=5.0, log=True),
 }
 PARAM_ORDER = list(PARAM_SPECS.keys())
 
@@ -190,6 +190,7 @@ class MPCOptunaObjective:
         trial.set_user_attr("mean_cost", float(mc))
         trial.set_user_attr("mean_abs_n", float(man))
         trial.set_user_attr("mean_abs_v_err", float(mve))
+        trial.set_user_attr("objective_J", float(J))
 
         # Optional pruning based on lap time
         trial.report(float(lt), step=0)
@@ -210,7 +211,7 @@ def main():
     p.add_argument("--floor", type=str, default="dubi")
     p.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
     p.add_argument("--dt", type=float, default=0.02)
-    p.add_argument("--steps", type=int, default=600)
+    p.add_argument("--steps", type=int, default=500)
     p.add_argument("--integrator", type=str, default="rk4", choices=["rk4", "euler"])
 
     # Initial pose
@@ -230,7 +231,7 @@ def main():
     p.add_argument("--w_abs_v", type=float, default=0.0, help="Weight for mean solver velocity error in objective")
 
     # Optuna
-    p.add_argument("--trials", type=int, default=30)
+    p.add_argument("--trials", type=int, default=50)
     p.add_argument("--study_name", type=str, default="mpc_cost_autotune")
     p.add_argument("--storage", type=str, default=None, help="Optuna storage URL, e.g. sqlite:///study.db")
     p.add_argument("--seed", type=int, default=42)
@@ -243,7 +244,7 @@ def main():
         action="store_false",
         help="Disable visualization of the optimization history."
     )
-    p.add_argument("--vis_parallel", action="store_true")
+    # p.add_argument("--vis_parallel", action="store_true")
     args = p.parse_args()
 
     # Build scenario with your initial pose baked in
@@ -321,56 +322,72 @@ def main():
             pass
 
     # --- Parallel coordinates plot over all completed trials ---
-    if args.vis_parallel:
+    if True:  # args.vis_parallel:
         # 1) Choose parameter axes in a stable, human-readable order
         param_names = PARAM_ORDER
-        param_limits = {k: (spec["low"], spec["high"]) for k, spec in PARAM_SPECS.items()}
+        param_limits = {k: (spec["low"], spec["high"] * 1.5) for k, spec in PARAM_SPECS.items()}
 
         # 2) Collect successful trials
         trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
 
         if len(trials) >= 2:
-            # Build matrices: rows = trials
+            # Parameters
             P = np.array([[t.params.get(name, np.nan) for name in param_names] for t in trials], dtype=float)
+
+            # Metrics from user attrs
             lt = np.array([t.user_attrs.get("lap_time", np.nan) for t in trials], dtype=float)
             man = np.array([t.user_attrs.get("mean_abs_n", np.nan) for t in trials], dtype=float)
             mc = np.array([t.user_attrs.get("mean_cost", np.nan) for t in trials], dtype=float)
 
+            # Objective (what Optuna minimizes) — the “parameter optimization cost”
+            J = np.array([t.value for t in trials], dtype=float)  # same as objective_J if you logged it
+
+            # Robust caps (to keep scales readable)
             lt_cap = 1.5 * np.nanmedian(lt) if np.isfinite(np.nanmedian(lt)) else np.nanmax(lt)
             mc_cap = 1.5 * np.nanmedian(mc) if np.isfinite(np.nanmedian(mc)) else np.nanmax(mc)
             man_cap = 1.5 * np.nanmedian(man) if np.isfinite(np.nanmedian(man)) else np.nanmax(man)
+            J_cap = 1.5 * np.nanmedian(J) if np.isfinite(np.nanmedian(J)) else np.nanmax(J)
+
             lt = np.clip(lt, 0, lt_cap)
             mc = np.clip(mc, 0, mc_cap)
             man = np.clip(man, 0, man_cap)
+            J = np.clip(J, 0, J_cap)
 
-            # Metrics matrix (order appears as separate axes after params)
-            metrics_matrix = np.column_stack([lt, man, mc])
-            metric_names = ["Lap time [s]", "Mean |n| [m]", "Cost"]
+            # Stack metrics: (Lap time, |n|, Solver cost, Objective J)
+            metrics_matrix = np.column_stack([lt, man, mc, J])
+            metric_names = ["Lap time [s]", "Mean |n| [m]", "Solver cost", "Obj J"]
+            metrics_limits = {
+                "Lap time [s]": (float(np.nanmin(lt)), float(np.nanmax(lt)) * 1.5),
+                "Mean |n| [m]": (float(np.nanmin(man)), float(np.nanmax(man)) * 1.5),
+                "Solver cost": (float(np.nanmin(mc)), float(np.nanmax(mc)) * 1.5),
+                "Obj J": (float(np.nanmin(J)), float(np.nanmax(J)) * 1.5),
+            }
 
-            # Optional: drop rows with NaNs to make the plot cleaner
+            # Drop rows with NaNs
             ok = np.isfinite(P).all(axis=1) & np.isfinite(metrics_matrix).all(axis=1)
             P = P[ok]
             metrics_matrix = metrics_matrix[ok]
-            mc = mc[ok]
+            J = J[ok]
 
             fig = plot_parallel_params_vs_metrics(
                 params_matrix=P,
                 param_names=param_names,
                 metrics_matrix=metrics_matrix,
                 metric_names=metric_names,
-                color_by=mc,                # color scale = cost
-                cmap="viridis",             # looks like your sample
+                color_by=J,                 # color scale = objective J
+                cmap="viridis",
                 alpha=0.5,
                 lw=1.0,
                 fig_size=(14, 4),
                 n_y_ticks=5,
-                title="Tunable parameters vs performance (color = Cost)",
+                title="Tunable parameters vs performance (color = Obj J)",
                 fixed_param_limits=param_limits,
+                fixed_metrics_limits=metrics_limits,
             )
+            fig.gca().set_yticks([])
+            fig.gca().set_yticklabels([])
             import matplotlib.pyplot as plt
             plt.show()
-        else:
-            print("[parallel-plot] Not enough completed trials to plot (need >= 2).")
 
 
 if __name__ == "__main__":

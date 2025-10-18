@@ -24,9 +24,78 @@ from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
 from ..core.scenario import Scenario
 from ..io.waypoints import WP
+from ..metrics.metrics import (mean_abs_speed_error, mean_abs_track_error,
+                               rms_track_error, unwrap_s)
 from ..plotting.vis_run_simple_rollout import (
     plot_closed_loop_summary, plot_spaghetti_predictions_vs_actual,
     plot_state_prediction_vs_actual, plot_velocity_vs_progress)
+
+
+def print_per_lap_summary(
+    x_hist: np.ndarray,
+    waypoints: np.ndarray,
+    dt: float,
+    track_len: float,
+    *,
+    idx_s: int = 0,
+    idx_n: int = 1,
+    idx_vx: int = 3,
+    wp_col_s: int = 4,
+    wp_col_vx: int = 2,
+    log_fn=print,
+) -> None:
+    """
+    Find completed laps in x_hist and print lap time + error metrics per lap.
+    A 'lap' is whenever unwrapped s increases by +track_len.
+    """
+    if x_hist.size == 0 or track_len <= 0:
+        log_fn("No data to summarize.")
+        return
+
+    s_unw = unwrap_s(x_hist[:, idx_s], track_len)
+    s0 = float(s_unw[0])
+
+    # Identify [start_idx, end_idx] slices for each completed lap
+    lap_slices = []
+    lap_start = 0
+    next_target = s0 + track_len
+    for k, s in enumerate(s_unw):
+        if s >= next_target:
+            lap_slices.append((lap_start, k))   # inclusive start, inclusive end
+            lap_start = k                        # next lap starts at this sample
+            next_target += track_len
+
+    if not lap_slices:
+        log_fn("No complete laps detected.")
+        return
+
+    # Header
+    log_fn("\nPer-lap summary (completed laps):")
+    log_fn(f"{'Lap':>3} | {'Steps':>5} | {'Lap time [s]':>12} | "
+           f"{'mean|n| [m]':>11} | {'rms n [m]':>10} | {'mean|vx-v*| [m/s]':>16}")
+
+    # Metrics for each lap (use existing metrics functions)
+    for i, (i0, i1) in enumerate(lap_slices, start=1):
+        # Use slice i0..i1 (inclusive). Steps in slice = (i1 - i0)
+        xlap = x_hist[i0:i1 + 1]
+
+        steps = (i1 - i0)
+        lap_time_s = steps * float(dt)  # sample-aligned lap time
+
+        mean_n = mean_abs_track_error(xlap, idx_n=idx_n)
+        rms_n = rms_track_error(xlap, idx_n=idx_n)
+        mean_v_err = mean_abs_speed_error(
+            waypoints=waypoints,
+            x_hist=xlap,
+            track_len=track_len,
+            idx_s=idx_s,
+            idx_vx=idx_vx,
+            wp_col_s=wp_col_s,
+            wp_col_vx=wp_col_vx,
+        )
+
+        log_fn(f"{i:>3d} | {steps:>5d} | {lap_time_s:>12.3f} | "
+               f"{mean_n:>11.3f} | {rms_n:>10.3f} | {mean_v_err:>16.3f}")
 
 
 def main():
@@ -134,6 +203,14 @@ def main():
         set_sim_mu_fn=None,
         capture_predictions=True,      # <-- important for spaghetti/state-1 plots
         log_fn=tqdm.write,
+    )
+
+    print_per_lap_summary(
+        x_hist=X,
+        waypoints=waypoints,
+        dt=args.dt,
+        track_len=track_len,
+        log_fn=tqdm.write,     # pretty prints under tqdm
     )
 
     # ---------------------------- plots --------------------------- #
