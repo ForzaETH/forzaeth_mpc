@@ -1,0 +1,7 @@
+# loader.py
+from __future__ import annotations
+from pathlib import Path
+import yaml
+def load_yaml(path: str | Path):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
