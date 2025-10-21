@@ -126,9 +126,9 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.constraints.ubu_0 = np.array([constraint.jerk_max, constraint.ddelta_max])
     ocp.constraints.idxbu_0 = np.array([0, 1])
 
-    # ocp.constraints.lbu_e = np.array([constraint.jerk_min, constraint.ddelta_min])
-    # ocp.constraints.ubu_e = np.array([constraint.jerk_max, constraint.ddelta_max])
-    # ocp.constraints.idxbu_e = np.array([0, 1])
+    ocp.constraints.lbu_e = np.array([constraint.jerk_min, constraint.ddelta_min])
+    ocp.constraints.ubu_e = np.array([constraint.jerk_max, constraint.ddelta_max])
+    ocp.constraints.idxbu_e = np.array([0, 1])
 
     ocp.constraints.lbu = np.array([constraint.jerk_min, constraint.ddelta_min])
     ocp.constraints.ubu = np.array([constraint.jerk_max, constraint.ddelta_max])
@@ -217,7 +217,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.solver_options.tf = stmpc_config.N / stmpc_config.MPC_freq
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     # ocp.solver_options.nlp_solver_type = "SQP_RTI"
-    ocp.solver_options.nlp_solver_type = "SQP"  # "SQP_WITH_FEASIBLE_QP"
+    ocp.solver_options.nlp_solver_type = "SQP_WITH_FEASIBLE_QP"
     # NOTE: do not believe the acados warning, setting hessian approximation to "EXACT" makes the solver fail
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.regularize_method = "PROJECT"

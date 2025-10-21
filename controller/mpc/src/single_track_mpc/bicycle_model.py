@@ -220,7 +220,7 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     if stmpc_config.adv_maximization:
         model.cost_expr_ext_cost_0 -= weight_adv * s_dot / freq
         model.cost_expr_ext_cost -= weight_adv * s_dot / freq
-        model.cost_expr_ext_cost_e -= weight_adv * s_dot / freq
+        model.cost_expr_ext_cost_e -= terminal_multiplier * weight_adv * s_dot / freq
 
     # constraint on lateral errors
     n_right_bound = n + right_bound_s(s_mod) - safety_margin
