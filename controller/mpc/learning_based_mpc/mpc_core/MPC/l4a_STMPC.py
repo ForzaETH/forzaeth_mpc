@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 from frenet_converter.frenet_converter import FrenetConverter
@@ -84,8 +84,18 @@ class STMPC_L4A:
         self.constraint = constraint
         self.model_params = params
 
+        idx_vx = StateIndex.VELOCITY_V_X.value
+        idx_vy = StateIndex.VELOCITY_V_Y.value
+        idx_wz = StateIndex.YAW_RATE.value
+
+        B = np.zeros((model.n_x, 3), dtype=float)
+        B[idx_vx, 0] = 1.0
+        B[idx_vy, 1] = 1.0
+        B[idx_wz, 2] = 1.0
+
         self.l4a_solver = ResidualLearningMPC(
             ocp=ocp,
+            B=B,
             residual_model=residual_model,
         )
 
@@ -247,6 +257,8 @@ class STMPC_L4A:
         self.l4a_solver.solve()
 
     # =============================== Helpers ================================
+    MU_IDX = 12
+
     def set_sim_mu(self, mu: float) -> None:
         """
         Update ONLY the simulator's parameter vector used in _dynamics_of_car().
@@ -336,33 +348,106 @@ class STMPC_L4A:
         res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)  # (3, N, 2)
         return res_coords
 
-    # --------------------- Residual GP helper (optional) ---------------------
+    def make_gp_residual_model(
+        f_mean: Callable[[np.ndarray], np.ndarray],
+        idx_map: dict,
+        nx: int,
+        ny: int,
+    ):
+        """
+        Build a ResidualModel that:
+        - OUTPUTS an nx-dim residual vector with nonzeros only at [vx, vy, wz]
+        - CONSUMES an ny-dim regressor y but internally reads only [vx, vy, wz]
+        idx_map = {
+        'state':     {'vx': <int>, 'vy': <int>, 'wz': <int>},
+        'regressor': {'vx': <int>, 'vy': <int>, 'wz': <int>},  # where those are in y
+        }
+        f_mean: maps (N,3) -> (N,3) GP mean on [vx, vy, wz]
+        """
+        state_sel = [idx_map['state']['vx'], idx_map['state']['vy'], idx_map['state']['wz']]
+        reg_sel = [idx_map['regressor']['vx'], idx_map['regressor']['vy'], idx_map['regressor']['wz']]
+        return _GPResidual3Only(f_mean, reg_sel, state_sel, nx=nx, ny=ny)
+
+
+class _GPResidual3Only:
+    """
+    Residual on vx, vy, wz only.
+    - f_mean: Callable[[np.ndarray], np.ndarray], maps (N,3) -> (N,3)
+    - reg_sel: indices in the regressor that correspond to [vx, vy, wz]
+    - state_sel: indices in the *state* vector that correspond to [vx, vy, wz]
+    - nx: full state dimension; ny: full regressor dimension that L4acados passes in
+    """
+
+    def __init__(self, f_mean: Callable[[np.ndarray], np.ndarray],
+                 reg_sel: Sequence[int], state_sel: Sequence[int],
+                 nx: int, ny: int, eps_fd: float = 1e-4):
+        self.f_mean = f_mean
+        self.reg_sel = np.asarray(reg_sel, dtype=int)       # shape (3,)
+        self._reg_sel_set = set(self.reg_sel.tolist())      # for O(1) membership
+        self.state_sel = np.asarray(state_sel, dtype=int)   # shape (3,)
+        self.nx = int(nx)
+        self.ny = int(ny)
+        self.eps = float(eps_fd)
+
+        # quick shape checks
+        assert self.reg_sel.size == 3 and self.state_sel.size == 3
+        assert self.nx >= self.state_sel.max() + 1
+        assert self.ny >= self.reg_sel.max() + 1
+
+    # ---- helpers ----
     @staticmethod
-    def make_gp_residual_model(predict_mean: Callable, idx_map: Dict[str, int], nx: int) -> ResidualModel:
-        class _GPResidual(ResidualModel):
-            def __init__(self, f_mean, idx_map, nx):
-                self.f_mean = f_mean
-                self.idx_vx = idx_map.get("vx")
-                self.idx_vy = idx_map.get("vy")
-                self.idx_wz = idx_map.get("wz")
-                self.nx = nx
+    def _ensure_2d(y_full: np.ndarray) -> tuple[np.ndarray, bool]:
+        y_full = np.asarray(y_full, dtype=float)
+        if y_full.ndim == 1:
+            return y_full[None, :], True
+        return y_full, False
 
-            def eval(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-                vx = x[self.idx_vx]
-                vy = x[self.idx_vy]
-                wz = x[self.idx_wz]
-                r = np.zeros(self.nx)
-                dr = np.asarray(self.f_mean(np.array([vx, vy, wz])), dtype=float).reshape(-1)
-                r[self.idx_vx] = dr[0]
-                if dr.size > 1:
-                    r[self.idx_vy] = dr[1]
-                if dr.size > 2:
-                    r[self.idx_wz] = dr[2]
-                return r
+    # ---- interface required by L4acados ----
+    def value_and_jacobian(self, y_full: np.ndarray):
+        """
+        Input:
+        y_full: (ny,) or (N, ny)
+        Output:
+        r3: (3,) or (3, N)           # residual ONLY on [vx, vy, wz], residual dim first
+        J3: (3, ny) or (3, N, ny)    # jacobian wrt full regressor, residual dim first
+        """
+        # --- normalize input to 2D ---
+        y_full = np.asarray(y_full, dtype=float)
+        single = (y_full.ndim == 1)
+        if single:
+            Y = y_full[None, :]      # (1, ny)
+        else:
+            Y = y_full               # (N, ny)
 
-            def jac_x(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-                return np.zeros((self.nx, self.nx))
+        N, ny = Y.shape
+        if ny != self.ny:
+            raise ValueError(f"Expected regressor dim {self.ny}, got {ny}")
 
-            def jac_u(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-                return np.zeros((self.nx, u.shape[0]))
-        return _GPResidual(predict_mean, idx_map, nx)
+        # 1) evaluate GP on the 3 selected regressor channels
+        Z = Y[:, self.reg_sel]                        # (N, 3)
+        DR = np.asarray(self.f_mean(Z), dtype=float)  # (N, 3)
+
+        # 2) FD jacobian: only columns in reg_sel affect DR
+        J = np.zeros((N, 3, self.ny), dtype=float)    # (N, 3, ny)
+        for j in self.reg_sel:
+            Yp = Y.copy()
+            Ym = Y.copy()
+            Yp[:, j] += self.eps
+            Ym[:, j] -= self.eps
+            DRp = np.asarray(self.f_mean(Yp[:, self.reg_sel]), dtype=float)  # (N,3)
+            DRm = np.asarray(self.f_mean(Ym[:, self.reg_sel]), dtype=float)  # (N,3)
+            dDR = (DRp - DRm) / (2.0 * self.eps)                              # (N,3)
+            J[:, :, j] = dDR
+
+        # 3) reorder so residual dimension is first
+        if single:
+            r3 = DR[0]                         # (3,)
+            J3 = J[0]                          # (3, ny)
+        else:
+            r3 = DR                            # (N, 3)
+            J3 = J                             # (N, 3, ny)
+
+        return r3, J3
+
+    def residual(self, y_full: np.ndarray):
+        return self.value_and_jacobian(y_full)

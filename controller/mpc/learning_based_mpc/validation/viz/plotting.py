@@ -8,9 +8,9 @@ from ...mpc_core.utils.indices import IDX
 
 
 def plot_three(
+    X_mpc: np.ndarray,
     X_nom: np.ndarray,
-    X_act: np.ndarray,
-    X_corr: Optional[np.ndarray] = None,
+    X_nomres: Optional[np.ndarray] = None,
     *,
     ref_xy: np.ndarray,          # (M,2) centerline [x,y]
     track_left: np.ndarray,      # (M,) left distances from centerline
@@ -99,13 +99,13 @@ def plot_three(
     is_s = _get_idx(idx_s)
     is_n = _get_idx(idx_n)
 
+    sn_mpc = X_mpc[:, [is_s, is_n]]
     sn_nom = X_nom[:, [is_s, is_n]]
-    sn_act = X_act[:, [is_s, is_n]]
+    xy_mpc = _frenet_to_xy_batch(ref_xy, s_ref, sn_mpc)
     xy_nom = _frenet_to_xy_batch(ref_xy, s_ref, sn_nom)
-    xy_act = _frenet_to_xy_batch(ref_xy, s_ref, sn_act)
     xy_corr = None
-    if X_corr is not None:
-        sn_corr = X_corr[:, [is_s, is_n]]
+    if X_nomres is not None:
+        sn_corr = X_nomres[:, [is_s, is_n]]
         xy_corr = _frenet_to_xy_batch(ref_xy, s_ref, sn_corr)
 
     # ----------------- figure layout -----------------
@@ -117,10 +117,10 @@ def plot_three(
     ax_map.plot(ref_xy[:, 0], ref_xy[:, 1], lw=2, label="Centerline")
     ax_map.plot(left_b[:, 0], left_b[:, 1], ls="--", label="Left boundary")
     ax_map.plot(right_b[:, 0], right_b[:, 1], ls="--", label="Right boundary")
-    ax_map.plot(xy_nom[:, 0], xy_nom[:, 1], ls=":", label="Nominal traj")
-    ax_map.plot(xy_act[:, 0], xy_act[:, 1], lw=2, label="Actual traj")
+    ax_map.plot(xy_mpc[:, 0], xy_mpc[:, 1], ls=":", label="MPC prediction traj")
+    ax_map.plot(xy_nom[:, 0], xy_nom[:, 1], lw=2, label="Nominal traj")
     if xy_corr is not None:
-        ax_map.plot(xy_corr[:, 0], xy_corr[:, 1], ls="-.", label="Corrected traj")
+        ax_map.plot(xy_corr[:, 0], xy_corr[:, 1], ls="-.", label="Nominal+residual traj")
 
     ax_map.set_title((titles or {}).get("left_title", "Track & Trajectories"))
     ax_map.set_xlabel("x [m]")
@@ -131,16 +131,16 @@ def plot_three(
 
     # Right: 3 time series
     axs = [fig.add_subplot(gs[i, 1]) for i in range(3)]
-    K = X_nom.shape[0]
+    K = X_mpc.shape[0]
     t = np.arange(K)
 
     for i, name in enumerate(names):
         j = _get_idx(name)
         # actual first (thick), then nominal, then corrected if any
-        axs[i].plot(t, X_act[:, j], label="actual", linewidth=2)
+        axs[i].plot(t, X_mpc[:, j], label="prediction", linewidth=2)
         axs[i].plot(t, X_nom[:, j], label="nominal", linestyle="--")
-        if X_corr is not None:
-            axs[i].plot(t, X_corr[:, j], label="corrected", linestyle="-.")
+        if X_nomres is not None:
+            axs[i].plot(t, X_nomres[:, j], label="nominal+residual", linestyle="-.")
 
         axs[i].set_ylabel(name)
         axs[i].grid(True, alpha=0.3)

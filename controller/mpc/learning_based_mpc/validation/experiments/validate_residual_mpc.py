@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
-from typing import Callable, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,12 +27,9 @@ from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,
                         load_trailing_config_ros)
-# from learning_based_mpc.mpc_core.utils.readwrite_global_waypoints_no_ros import read_global_waypoints, Wpnt, GlobalWaypointsLite as GlobalWaypoints
 from readwrite_global_waypoints import read_global_waypoints
 from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
 from single_track_mpc.utils.indicies import StateIndex
-
-# from f110_msgs.msg import Wpnt
 
 
 def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
@@ -91,6 +89,41 @@ def integrate_open_loop_fxu(dyn, x0, U, dt, method="rk4"):
     return np.stack(X, axis=0)
 
 
+def integrate_one_step(dyn, x_plant: np.ndarray, dt: float, method: str = "rk4") -> np.ndarray:
+    """
+    Integrate one step of length dt for an augmented plant state:
+      x_plant = [ x(0:nx), u0, u1 ], with nx = len(x_plant) - 2.
+    `dyn(t, x, u)` returns xdot for the nx model states. Inputs u are held constant.
+    """
+    x_plant = np.asarray(x_plant, dtype=float)
+    if x_plant.ndim != 1 or x_plant.size < 3:
+        raise ValueError("x_plant must be 1D and contain at least [x..., u0, u1].")
+
+    nx = x_plant.size - 2
+    x = x_plant[:nx]
+    u = x_plant[nx:]
+
+    def f(xx):
+        # xx is a concatenated vector; we only integrate the state part
+        x_local = xx[:nx]
+        return np.asarray(dyn(0.0, x_local, u), dtype=float).reshape(-1)
+
+    if method.lower() == "rk4":
+        k1 = f(np.r_[x, u])
+        k2 = f(np.r_[x + 0.5 * dt * k1, u])
+        k3 = f(np.r_[x + 0.5 * dt * k2, u])
+        k4 = f(np.r_[x + dt * k3, u])
+        x_next = x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+    else:
+        # forward Euler
+        x_next = x + dt * f(np.r_[x, u])
+
+    # Reattach unchanged inputs
+    x_plant_next = x_plant.copy()
+    x_plant_next[:nx] = x_next
+    return x_plant_next
+
+
 def rk4_step(mpc, x: np.ndarray, dt: float) -> np.ndarray:
     """
     One Runge-Kutta 4 step for the plant dynamics.
@@ -110,11 +143,11 @@ def rk4_step(mpc, x: np.ndarray, dt: float) -> np.ndarray:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--gp_iters", type=int, default=300)
+    ap.add_argument("--gp_iters", type=int, default=400)
     ap.add_argument("--gp_lr", type=float, default=0.03)
-    ap.add_argument("--bias_vx", type=float, default=1.0)
-    ap.add_argument("--bias_vy", type=float, default=1.0)
-    ap.add_argument("--bias_wz", type=float, default=1.0)
+    ap.add_argument("--bias_vx", type=float, default=0.3)
+    ap.add_argument("--bias_vy", type=float, default=0.0)
+    ap.add_argument("--bias_wz", type=float, default=0.0)
     ap.add_argument("--track", default="THETRACK")
     ap.add_argument("--racecar_version", default="NUC5")
     ap.add_argument("--floor", default="dubi_hoons")
@@ -137,8 +170,8 @@ def main():
     mu_nom = getattr(stmpc_cfg, "mu_nom", 1.0)
     dt = 1.0 / float(stmpc_cfg.MPC_freq)
     pose_frenet = np.array([10.0, 0.0, 0.0])
-    init_vel = 3.0
-    integration = "rk4"  # rk4 or euler
+    init_vel = 4.0
+    cl_iter = 40
 
     # === 1) Nominal controller (STMPC) ===
     ctrl_nom = STMPC(
@@ -153,17 +186,8 @@ def main():
         using_gokart=False,
     )
 
-    # Call the *same* API used on-vehicle
-    # _ = ctrl_nom.main_loop(
-    #     state="BGFree",
-    #     position_in_map=np.zeros(3),
-    #     waypoint_array_in_map=waypoints,
-    #     speed_now=init_vel,
-    #     opponent=None,
-    #     position_in_map_frenet=pose_frenet,
-    #     alpha=3.0,
-    #     single_track_state=np.zeros(2),
-    # )
+    # Create the two integration functions
+    dyn_nom, dyn_act = dyn_from_ctrl(ctrl_nom, mu_nom=float(mu_nom), bias=(args.bias_vx, args.bias_vy, args.bias_wz))
 
     # Iterate with a simple plant to have a better mpc solution than the first one
     x_hist = []
@@ -176,7 +200,8 @@ def main():
         0.0, 0.0                   # jerk, derDelta (helpers)
     ], dtype=float)
 
-    for k in range(200):
+    start_time = time.time()
+    for k in range(cl_iter):
         # 1) Pin solver's initial state to current plant (first 8 states only)
         x0_solver = x_plant[:ctrl_nom.model.n_x].copy()
         ctrl_nom.acados_solver.set(0, "lbx", x0_solver)
@@ -235,18 +260,21 @@ def main():
         x_plant[9] = u0[1]  # derDelta = d(delta)/dt from MPC
 
         # One-step forward Euler integration of your nonlinear dynamics
-        if (integration == "rk4"):
-            x_plant = rk4_step(ctrl_nom, x_plant, dt)
-        else:
-            xdot = ctrl_nom._dynamics_of_car(0.0, x_plant)
-            x_plant = x_plant + dt * np.array(xdot, dtype=float)
+        # if (integration == "rk4"):
+        #     x_plant = rk4_step(ctrl_nom, x_plant, dt)
+        # else:
+        #     xdot = ctrl_nom._dynamics_of_car(0.0, x_plant)
+        #     x_plant = x_plant + dt * np.array(xdot, dtype=float)
+        x_plant = integrate_one_step(dyn_nom, x_plant, dt)
 
         # 5) Log plant state
         x_hist.append(x_plant.copy())
 
         # (optional) simple timing print
         # if (k % 20) == 0:
-        print(f"[{k:04d}] status={status}, u0={u0}")
+        elapsed_time = time.time() - start_time
+        print(f"[{k:04d}] status={status}, u0={u0}, elapsed={elapsed_time*1e3:.1f} ms")
+        start_time = time.time()
 
     # Visualize closed loop states and inputs
     x_pred_seq_hist = np.asarray(x_pred_seq_hist)
@@ -276,18 +304,12 @@ def main():
         refline_xy=refline_xy,
         left_dist=left_dist,
         right_dist=right_dist,
-        x_hist=X_aux,   # from your closed-loop simulation
+        x_hist=X_aux,
         u_hist=U_aux
     )
     plt.show()
 
-    def write_u_into_state(x: np.ndarray, u: np.ndarray) -> np.ndarray:
-        x[8] = u[0]     # jerk
-        x[9] = u[1]     # derDelta
-        return x
-
     # === 2) Integrate nominal vs actual ===
-    dyn_nom, dyn_act = dyn_from_ctrl(ctrl_nom, mu_nom=float(mu_nom), bias=(args.bias_vx, args.bias_vy, args.bias_wz))
     X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="rk4")
 
     # Visualize X_norm inegrated states
@@ -312,19 +334,41 @@ def main():
     )
     plt.show()
 
-    fig1, _ = plot_three(X_nom, X_act, None,
+    fig1, _ = plot_three(X_aux, X_nom, X_act,
                          names=("vx", "vy", "wz"),
                          ref_xy=refline_xy,
                          track_left=left_dist,
                          track_right=right_dist,
-                         idx_s=StateIndex.POS_ON_CENTER_LINE_S,   # <-- Frenet longitudinal coordinate
-                         idx_n=StateIndex.MIN_DIST_TO_CENTER_LINE_N,   # <-- Frenet lateral coordinate
+                         idx_s=StateIndex.POS_ON_CENTER_LINE_S,
+                         idx_n=StateIndex.MIN_DIST_TO_CENTER_LINE_N,
                          )
+
+    plt.show()
 
     # === 3) Dataset + 4) Train GP ===
     def nominal_step(x, u, DT): return integrate_open_loop_fxu(dyn_nom, x, u[None, :], DT, method="rk4")[-1]
     def actual_step(x, u, DT): return integrate_open_loop_fxu(dyn_act, x, u[None, :], DT, method="rk4")[-1]
-    Z, Y = build_dataset_one_step(nominal_step, actual_step, X_pred, U_pred, dt)
+    Z_full, Y_full = build_dataset_one_step(nominal_step, actual_step, X_pred, U_pred, dt)
+
+    idx_vx = StateIndex.VELOCITY_V_X.value
+    idx_vy = StateIndex.VELOCITY_V_Y.value
+    idx_wz = StateIndex.YAW_RATE.value
+    state3 = [idx_vx, idx_vy, idx_wz]
+
+    def select_three(mat, cols):
+        # If already 3-wide, assume it's [vx, vy, wz] in that order — return as-is.
+        # Otherwise slice the requested columns.
+        if mat.ndim != 2:
+            raise ValueError(f"Expected 2D array, got shape {mat.shape}")
+        if mat.shape[1] == 3:
+            return mat
+        # sanity: ensure indices exist
+        if max(cols) >= mat.shape[1]:
+            raise IndexError(f"Requested columns {cols} but matrix has {mat.shape[1]} columns")
+        return mat[:, cols]
+
+    Z = select_three(Z_full, state3)  # inputs to GP (3 features)
+    Y = select_three(Y_full, state3)  # targets for GP (3 outputs)
 
     load_gp_model_from_state_dict = getattr(args, "load_gp", False)
     state_dict_path_gp_model = getattr(args, "gp_model_path", "gp_model_state_dict.pth")
@@ -345,18 +389,22 @@ def main():
             gp_model, likelihood, torch_seed=rng_seed,
             training_iterations=training_iterations, lr=lr, verbose=True
         )
-        # save_gp_state(gp_model, likelihood, state_dict_path_gp_model, state_dict_path_likelihood)
-        # try:
-        #     import torch
-        #     torch.save({"Z": torch.tensor(Z), "Y": torch.tensor(Y)}, train_data_path)
-        # except Exception:
-        #     pass
 
     # produce a numpy-based callable like before
     predict_mean = gp_predictor_from_model(gp_model, likelihood, device=device)
 
-    # === 5) Residual-aware controller (STMPC_L4A) ===
-    residual_model = make_residual_model_from_gp(gp_model, likelihood)
+    # Use the local builder that returns (nr, ·) jacobians matching L4acados expectations.
+    # === Make a residual model that only touches vx, vy, wz ===
+    nx = ctrl_nom.model.n_x
+    ny = nx + ctrl_nom.model.n_u
+    # L4acados typically uses the state as regressor; if that’s your case:
+    idx_map = {
+        'state': {'vx': idx_vx, 'vy': idx_vy, 'wz': idx_wz},
+        'regressor': {'vx': idx_vx, 'vy': idx_vy, 'wz': idx_wz},
+    }
+
+    # Build residual model from the GP mean
+    residual_model = STMPC_L4A.make_gp_residual_model(predict_mean, idx_map, nx=nx, ny=ny)
 
     ctrl_res = STMPC_L4A(
         pose_frenet=pose_frenet,
@@ -371,29 +419,130 @@ def main():
         residual_model=residual_model,
     )
 
-    # _ = ctrl_res.main_loop(
-    #     state="BGFree",
-    #     position_in_map=np.zeros(3),
-    #     waypoint_array_in_map=waypoints,
-    #     speed_now=init_vel,
-    #     opponent=None,
-    #     position_in_map_frenet=pose_frenet,
-    #     alpha=0.0,
-    #     single_track_state=np.zeros(2),
-    # )
+    x_hist = []
+    u_hist = []
+    status_hist = []
+    x_pred_seq_hist = []
+    x_plant = np.array([
+        pose_frenet[0], pose_frenet[1], pose_frenet[2],
+        init_vel, 0.0, 0.0, 0.0, 0.0,   # vx, vy, delta, yaw_rate, accel
+        0.0, 0.0                   # jerk, derDelta (helpers)
+    ], dtype=float)
 
-    # X_res_pred = np.stack([ctrl_res.l4a_solver.get(j, "x") for j in range(N + 1)], axis=0)
-    # U_res = np.stack([ctrl_res.l4a_solver.get(j, "u") for j in range(N)], axis=0)
+    start_time = time.time()
+    for k in range(cl_iter):
+        x0_solver = x_plant[:ctrl_res.model.n_x].copy()
+        ctrl_res.l4a_solver.set(0, "lbx", x0_solver)
+        ctrl_res.l4a_solver.set(0, "ubx", x0_solver)
 
-    # # === 6) Compare under actual dynamics ===
-    # X_act_from_nomU = integrate_open_loop(dyn_act, X_pred[0], U_pred, dt, lambda x, u: x, method="rk4")
-    # X_act_from_resU = integrate_open_loop(dyn_act, X_res_pred[0], U_res, dt, lambda x, u: x, method="rk4")
-    # fig2, _ = plot_three(X_pred, X_act_from_nomU, X_act_from_resU,
-    #                      names=("vx", "vy", "wz"),
-    #                      ref_xy=refline_xy,
-    #                      track_left=left_dist,
-    #                      track_right=right_dist,
-    #                      idx_xy=("x", "y"),)
+        for i in range(ctrl_res.stmpc_config.N + 1):
+
+            idx = np.abs(waypoints[:, 4] - ctrl_res.mpc_sd[i, 0] % ctrl_res.spline.track_length).argmin()
+            target_v_speed = waypoints[idx, 2]
+            online_parameters = np.array([target_v_speed,
+                                          stmpc_cfg.qadv,
+                                          stmpc_cfg.qv,
+                                          stmpc_cfg.qn,
+                                          stmpc_cfg.qalpha,
+                                          stmpc_cfg.qjerk,
+                                          stmpc_cfg.qddelta,
+                                          stmpc_cfg.alat_max,
+                                          stmpc_cfg.a_min,
+                                          stmpc_cfg.a_max,
+                                          stmpc_cfg.track_safety_margin,
+                                          0,
+                                          mu_nom,
+                                          stmpc_cfg.terminal_multiplier],
+                                         dtype=np.float64)
+            ctrl_res.l4a_solver.set(i, "p", online_parameters)
+
+        # 2) Solve MPC
+        status = ctrl_res.l4a_solver.solve()
+        status_hist.append(status)
+
+        if not (status == 0 or status == 2):  # 0 is sucess 2 is max iter, necesary for SQP
+            # if the solver fails, apply warm start again
+            # the initial warm start is a bit rough, but it does the job
+            ctrl_res.apply_warm_start(pose_frenet=[x_plant[0], x_plant[1], x_plant[2]])
+            print(f"[MPC Controller] Solver failed with status {status}. Applying warm start again.")
+
+        # 3) Read optimal control (stage 0): u = [jerk, ddelta]
+        u0 = ctrl_res.l4a_solver.get(0, "u").astype(float)
+        u_hist.append(u0.copy())
+
+        # Collect full horizon state predictions
+        H = ctrl_res.stmpc_config.N
+        nx = ctrl_res.model.n_x
+        x_pred_full = np.zeros((H + 1, nx))
+        for i in range(H + 1):
+            x_pred_full[i, :] = ctrl_res.l4a_solver.get(i, "x")
+        x_pred_seq_hist.append(x_pred_full)
+
+        ctrl_res.mpc_sd = np.array([
+            ctrl_res.l4a_solver.get(j, "x")[:2] for j in range(ctrl_res.stmpc_config.N + 1)
+        ])
+
+        # 4) Apply control to the "plant":
+        # Put current control into the helper states (indices 8: jerk, 9: derDelta)
+        x_plant[8] = u0[0]  # jerk = d(accel)/dt from MPC
+        x_plant[9] = u0[1]  # derDelta = d(delta)/dt from MPC
+
+        # One-step forward Euler integration of your nonlinear dynamics
+        x_plant = integrate_one_step(dyn_act, x_plant, dt)
+
+        # 5) Log plant state
+        x_hist.append(x_plant.copy())
+
+        # (optional) simple timing print
+        # if (k % 20) == 0:
+        elapsed_time = time.time() - start_time
+        print(f"[{k:04d}] status={status}, u0={u0}, elapsed={elapsed_time*1e3:.1f} ms")
+        start_time = time.time()
+
+    # Visualize closed loop states and inputs
+    x_pred_seq_hist = np.asarray(x_pred_seq_hist)
+    x_hist = np.array(x_hist)
+    u_hist = np.array(u_hist)
+    fig = plot_closed_loop_summary(
+        refline_xy=refline_xy,
+        left_dist=left_dist,
+        right_dist=right_dist,
+        x_hist=x_hist,
+        u_hist=u_hist
+    )
+    plt.show()
+
+    # Pull nominal trajectory from solver
+    N = stmpc_cfg.N
+    nx = ctrl_res.model.n_x
+    nu = ctrl_res.model.n_u
+    X_pred = np.stack([ctrl_res.l4a_solver.get(j, "x") for j in range(N + 1)], axis=0)
+    U_pred = np.stack([ctrl_res.l4a_solver.get(j, "u") for j in range(N)], axis=0)
+
+    # Visualize the last prediction horizon states and inputs
+    U_aux = np.vstack([U_pred, U_pred[-1:]])
+    X_aux = np.asarray(X_pred, dtype=float)
+    U_aux = np.asarray(U_aux, dtype=float)
+    fig = plot_closed_loop_summary(
+        refline_xy=refline_xy,
+        left_dist=left_dist,
+        right_dist=right_dist,
+        x_hist=X_aux,
+        u_hist=U_aux
+    )
+    plt.show()
+
+    # === 2) Integrate nominal vs actual ===
+    X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="rk4")
+    X_act = integrate_open_loop_fxu(dyn_act, X_pred[0], U_pred, dt, method="rk4")
+    fig1, _ = plot_three(X_aux, X_nom, X_act,
+                         names=("vx", "vy", "wz"),
+                         ref_xy=refline_xy,
+                         track_left=left_dist,
+                         track_right=right_dist,
+                         idx_s=StateIndex.POS_ON_CENTER_LINE_S,   # <-- Frenet longitudinal coordinate
+                         idx_n=StateIndex.MIN_DIST_TO_CENTER_LINE_N,   # <-- Frenet lateral coordinate
+                         )
 
     plt.show()
     print("[done] residual MPC validation complete.")
