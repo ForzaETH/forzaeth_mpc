@@ -12,12 +12,9 @@ from .analyze_cost_vs_mu import main as analyze_cost_vs_mu
 from .noise_robustness_analysis import main as noise_robustness_analysis
 from .run_single_rollout import main as run_single_rollout
 from .tune_mpc_weights import main as tune_mpc_weights
-from .tune_mpc_weights_and_horizon import \
-    main as tune_mpc_hyperparams_and_horizon
 
 __all__ = [
     "run_single_rollout",
     "analyze_cost_vs_mu",
     "tune_mpc_weights",
-    "tune_mpc_weights_and_horizon",
     "noise_robustness_analysis"]

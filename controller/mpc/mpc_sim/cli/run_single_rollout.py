@@ -17,13 +17,13 @@ from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
+from readwrite_global_waypoints.waypoints import WP
 from tqdm.auto import tqdm
 
 from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
 from ..core.scenario import Scenario
-from ..io.waypoints import WP
 from ..metrics.metrics import (mean_abs_speed_error, mean_abs_track_error,
                                rms_track_error, unwrap_s)
 from ..plotting.vis_run_simple_rollout import (

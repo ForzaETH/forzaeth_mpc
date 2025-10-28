@@ -22,7 +22,6 @@ from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
 from ..core.scenario import Scenario
-from ..io.waypoints import WP
 from ..metrics.metrics import (completion_ratio, lap_time,
                                mean_abs_speed_error, mean_abs_track_error,
                                mean_cost, rms_track_error, success_rate)
