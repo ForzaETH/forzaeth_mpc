@@ -168,14 +168,14 @@ def build_ocp_for_l4acados(
     # Solver options (kept as in your original)
     ocp.solver_options.tf = stmpc_config.N / stmpc_config.MPC_freq
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    ocp.solver_options.nlp_solver_type = "SQP"  # L4acados assumes SQP w/ GN
+    ocp.solver_options.nlp_solver_type = "SQP_RTI"  # L4acados assumes SQP w/ GN
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.regularize_method = "PROJECT"
     ocp.solver_options.integrator_type = "ERK"
     ocp.solver_options.sim_method_num_stages = 4
     ocp.solver_options.sim_method_num_steps = 3
-    ocp.solver_options.tol = 1e-2
+    ocp.solver_options.tol = 1e-1
     ocp.solver_options.print_level = 0
-    ocp.solver_options.nlp_solver_max_iter = 3
+    ocp.solver_options.nlp_solver_max_iter = 1
 
     return ocp, model, constraint, params

@@ -3,6 +3,8 @@ from typing import Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
+from single_track_mpc.utils.indicies import StateIndex
 
 from ...mpc_core.utils.indices import IDX
 
@@ -151,3 +153,80 @@ def plot_three(
     fig.suptitle((titles or {}).get("suptitle", "Closed-loop (Nominal vs Actual vs Corrected)"))
     fig.tight_layout()
     return fig, (ax_map, axs)
+
+
+def plot_gp_training_fit(Z, Y, gp_model, likelihood, device="cpu", titles=("vx", "vy", "wz")):
+    """
+    Pendulum-style plot of GP training data (observed residuals) vs GP posterior
+    evaluated at the same inputs. X-axis is the sample index (normalized to [0,1])
+    following the dataset order (i.e., "through the whole horizon" as collected).
+
+    Parameters
+    ----------
+    Z : (N, din) np.ndarray
+        GP inputs used to train (or to evaluate at). If Z has more cols than the GP
+        expects, extra columns are dropped.
+    Y : (N, m) np.ndarray
+        Observed targets (residuals). For your case, m = 3 → (vx, vy, wz).
+    gp_model : gpytorch.models.ExactGP
+    likelihood : gpytorch.likelihoods.Likelihood
+    device : str
+        "cpu" or "cuda".
+    titles : tuple[str]
+        Names for each output dimension; defaults to ("vx","vy","wz").
+
+    Returns
+    -------
+    fig, axes : matplotlib objects
+    """
+    gp_model.eval()
+    likelihood.eval()
+
+    Z = np.asarray(Z, dtype=float)
+    Y = np.asarray(Y, dtype=float)
+
+    # Infer GP input dim and align Z accordingly
+    try:
+        din_gp = int(gp_model.train_inputs[0].shape[-1])
+    except Exception:
+        din_gp = Z.shape[1]
+    if Z.shape[1] != din_gp:
+        Z = Z[:, :din_gp]
+
+    # Evaluate posterior at the same inputs used to collect Y
+    with torch.no_grad():
+        Z_t = torch.tensor(Z, dtype=torch.float32, device=device)
+        post = likelihood(gp_model(Z_t))
+        mu = post.mean.detach().cpu().numpy()                   # (N, m)
+        std = post.variance.sqrt().detach().cpu().numpy()        # (N, m)
+
+    N, m = Y.shape
+    t = np.arange(N)
+
+    rows = m
+    fig, axes = plt.subplots(rows, 1, figsize=(9, 5 + 2 * (rows - 1)), sharex=True)
+    if rows == 1:
+        axes = [axes]
+
+    for j in range(m):
+        ax = axes[j]
+        # Observed data (scatter)
+        ax.scatter(t, Y[:, j], s=10, alpha=0.5, label="Observed Data")
+
+        # GP mean
+        ax.plot(t, mu[:, j], lw=2, label="Mean")
+
+        # ±2σ band
+        ax.fill_between(t, mu[:, j] - 2 * std[:, j], mu[:, j] + 2 * std[:, j],
+                        alpha=0.25, label="Confidence")
+
+        title = titles[j] if j < len(titles) else f"output {j}"
+        ax.set_title(f"Observed Values (Likelihood), {title}")
+        ax.grid(True, ls=":", alpha=0.6)
+        if j == m - 1:
+            ax.set_xlabel("horizon step")
+        ax.set_ylabel("residual value")
+        ax.legend(loc="best")
+
+    plt.tight_layout()
+    return fig, axes

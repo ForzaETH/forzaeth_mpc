@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from f110_msgs.msg import Wpnt
+from l4acados.models import ResidualModel
 from learning_based_mpc.mpc_core.MPC.l4a_STMPC import STMPC_L4A
 from learning_based_mpc.mpc_core.MPC.STMPC import STMPC
 from learning_based_mpc.mpc_core.residual.gp_interface import (
@@ -17,10 +18,10 @@ from learning_based_mpc.mpc_core.residual.gp_interface import (
 from learning_based_mpc.mpc_core.residual.residual_models import \
     make_residual_model_from_gp
 from learning_based_mpc.mpc_core.utils.integrators import integrate_open_loop
-# Fallback utilities if your local ones are not importable
 from learning_based_mpc.validation.data.dataset_one_step import \
     build_dataset_one_step
-from learning_based_mpc.validation.viz.plotting import plot_three
+from learning_based_mpc.validation.viz.plotting import (plot_gp_training_fit,
+                                                        plot_three)
 from old_scripts.plotting_utils import (plot_closed_loop_summary,
                                         plot_spaghetti_predictions_vs_actual)
 from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
@@ -124,28 +125,54 @@ def integrate_one_step(dyn, x_plant: np.ndarray, dt: float, method: str = "rk4")
     return x_plant_next
 
 
-def rk4_step(mpc, x: np.ndarray, dt: float) -> np.ndarray:
+class L4aJacAxisAdapter(ResidualModel):
     """
-    One Runge-Kutta 4 step for the plant dynamics.
-
-    mpc._dynamics_of_car(t, x) must return dx/dt for a given state x (10-dim).
+    Adapter to ensure residual_jac has shape (nw, N, ny) for l4acados.
+    If the wrapped model already produces (nw, N, ny), we pass it through.
+    If it produces (N, nw, ny), we transpose to (nw, N, ny).
     """
-    def f(xx): return np.array(mpc._dynamics_of_car(0.0, xx), dtype=float)
 
-    k1 = f(x)
-    k2 = f(x + 0.5 * dt * k1)
-    k3 = f(x + 0.5 * dt * k2)
-    k4 = f(x + dt * k3)
+    def __init__(self, inner: ResidualModel):
+        self.inner = inner
+        self.nr = getattr(inner, "nr", None)
+        self.ny = getattr(inner, "ny", None)
 
-    return x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+    def value_and_jacobian(self, y_hat_all):
+        """
+        Returns:
+          residual_fun: (N, nw)
+          residual_jac: (nw, N, ny)  <-- as required by upstream l4acados
+        """
+        r, J = self.inner.value_and_jacobian(y_hat_all)
+
+        # r should be (N, nw). We leave it as-is.
+        N = r.shape[0]
+        nw = r.shape[1]
+
+        # Determine ny from provided J
+        if J.ndim != 3:
+            raise RuntimeError(f"Expected 3D jacobian, got shape {J.shape}")
+
+        if J.shape == (nw, N, J.shape[2]):
+            # Already (nw, N, ny): pass through
+            return r, J
+
+        if J.shape == (N, nw, J.shape[2]):
+            # Common alternative: (N, nw, ny) -> transpose to (nw, N, ny)
+            return r, np.transpose(J, (1, 0, 2))
+
+        # Last resort: be explicit about the expected shapes
+        raise RuntimeError(
+            f"Unexpected jacobian shape {J.shape}; expected (N, nw, ny) or (nw, N, ny)."
+        )
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--gp_iters", type=int, default=400)
-    ap.add_argument("--gp_lr", type=float, default=0.03)
-    ap.add_argument("--bias_vx", type=float, default=0.3)
+    ap.add_argument("--gp_iters", type=int, default=800)
+    ap.add_argument("--gp_lr", type=float, default=0.05)
+    ap.add_argument("--bias_vx", type=float, default=5.0)
     ap.add_argument("--bias_vy", type=float, default=0.0)
     ap.add_argument("--bias_wz", type=float, default=0.0)
     ap.add_argument("--track", default="THETRACK")
@@ -171,7 +198,7 @@ def main():
     dt = 1.0 / float(stmpc_cfg.MPC_freq)
     pose_frenet = np.array([10.0, 0.0, 0.0])
     init_vel = 4.0
-    cl_iter = 40
+    cl_iter = 100
 
     # === 1) Nominal controller (STMPC) ===
     ctrl_nom = STMPC(
@@ -260,11 +287,6 @@ def main():
         x_plant[9] = u0[1]  # derDelta = d(delta)/dt from MPC
 
         # One-step forward Euler integration of your nonlinear dynamics
-        # if (integration == "rk4"):
-        #     x_plant = rk4_step(ctrl_nom, x_plant, dt)
-        # else:
-        #     xdot = ctrl_nom._dynamics_of_car(0.0, x_plant)
-        #     x_plant = x_plant + dt * np.array(xdot, dtype=float)
         x_plant = integrate_one_step(dyn_nom, x_plant, dt)
 
         # 5) Log plant state
@@ -376,9 +398,9 @@ def main():
     train_data_path = getattr(args, "gp_train_data_path", "gp_model_train_data.pth")  # optional
 
     device = args.device if hasattr(args, "device") else "cpu"
-    training_iterations = getattr(args, "gp_iters", 200)
+    training_iterations = getattr(args, "gp_iters", 600)
     rng_seed = getattr(args, "gp_seed", 456)
-    lr = getattr(args, "gp_lr", 0.03)
+    lr = getattr(args, "gp_lr", 0.05)
 
     gp_model, likelihood = build_multitask_gp(Z, Y, device=device)
 
@@ -403,8 +425,9 @@ def main():
         'regressor': {'vx': idx_vx, 'vy': idx_vy, 'wz': idx_wz},
     }
 
-    # Build residual model from the GP mean
-    residual_model = STMPC_L4A.make_gp_residual_model(predict_mean, idx_map, nx=nx, ny=ny)
+    # Build residual model from the GP mean, then wrap it
+    residual_model_base = STMPC_L4A.make_gp_residual_model(predict_mean, idx_map, nx=nx, ny=ny)
+    residual_model = L4aJacAxisAdapter(residual_model_base)
 
     ctrl_res = STMPC_L4A(
         pose_frenet=pose_frenet,
@@ -543,8 +566,11 @@ def main():
                          idx_s=StateIndex.POS_ON_CENTER_LINE_S,   # <-- Frenet longitudinal coordinate
                          idx_n=StateIndex.MIN_DIST_TO_CENTER_LINE_N,   # <-- Frenet lateral coordinate
                          )
-
     plt.show()
+
+    plot_gp_training_fit(Z, Y, gp_model, likelihood, device=device, titles=("vx", "vy", "wz"))
+    plt.show()
+
     print("[done] residual MPC validation complete.")
     return 0
 
