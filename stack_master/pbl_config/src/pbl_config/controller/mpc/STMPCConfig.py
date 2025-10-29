@@ -110,7 +110,7 @@ def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
 
     relative_path = '/config/' + racecar_version + '/single_track_mpc_params.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
-    with open(config_path, 'r') as file:
+    with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
         try:
             config = STMPCConfig(**cfg_dict)

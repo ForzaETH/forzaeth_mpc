@@ -5,12 +5,12 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from f110_msgs.msg import Wpnt
-from mpc_sim.io.waypoints import (extract_waypoints_data,
-                                  track_length_from_waypoints)
 from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
                         load_STMPC_config_ros, load_trailing_config_ros)
 from readwrite_global_waypoints import read_global_waypoints
 from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
+from readwrite_global_waypoints.waypoints import (extract_waypoints_data,
+                                                  track_length_from_waypoints)
 from single_track_mpc.STMPC import STMPC
 
 

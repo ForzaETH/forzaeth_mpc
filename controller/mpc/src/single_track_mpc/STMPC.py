@@ -16,13 +16,11 @@ except Exception:
     _HAS_DM = False
     DM = None
 
-# TODO clean up original single_track_mpc.py to isolate Standalone controller and ROS interface
-
 
 class STMPC:
     def __init__(self,
                  pose_frenet: np.ndarray,
-                 waypoints_data: np.ndarray,  # Replace ROS waypoints with numpy array
+                 waypoints_data: np.ndarray,
                  racecar_version: str,
                  stmpc_config: STMPCConfig,
                  car_config: CarConfig,
@@ -132,11 +130,10 @@ class STMPC:
             track_length: float,
             compute_time: float):
         """
-        Devuelve:
+        Returns:
             speed, acceleration, jerk, steering_angle, states(list|None), status(int)
         """
 
-        # === Actualiza entradas ===
         self.state = state
         self.position_in_map = position_in_map
         self.waypoint_array_in_map = waypoint_array_in_map
@@ -155,7 +152,7 @@ class STMPC:
         self.track_length = self.spline.track_length
         self.comp_time = compute_time
 
-        # === Corrige alpha (ángulo respecto a tangente en el centro del coche) ===
+        # Heading correction
         center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
         alpha_center = self.position_in_map[0, 2] - np.arctan2(deriv_center[1], deriv_center[0])
@@ -163,7 +160,7 @@ class STMPC:
         if alpha_center > np.pi:
             alpha_center -= 2 * np.pi
 
-        # === Conteo de vueltas ===
+        # Lap counter
         if self.position_in_map_frenet[0] < self.previous_frenet_s - 1:
             self.nr_laps += 1
         self.previous_frenet_s = self.position_in_map_frenet[0]
@@ -178,31 +175,28 @@ class STMPC:
             speed_now, self.vel_y, self.measured_steer, self.yaw_rate, self.measured_acc
         ], dtype=np.float64)
 
-        # Compensación de retardo (desactivada como en el original)
+        # Delay compensation
         self.t_delay = 0.0
         propagated_x = x0
 
-        # Fija estado inicial del OCP
+        # Fix initial state
         self.acados_solver.set(0, "lbx", propagated_x)
         self.acados_solver.set(0, "ubx", propagated_x)
 
-        # Control de "trailing"
+        # Trailing control
         if (self.state == "TRAILING") and (self.opponent is not None):
             self.trailing_command = self.trailing_controller(self.waypoint_array_in_map[0, 2])
         else:
-            self.i_gap = 0  # reset integral si no está trailing
+            self.i_gap = 0  # reset integral if not trailing
 
-        # Parámetros online y cotas por etapa
         for i in range(self.stmpc_config.N + 1):
             if (self.state == "TRAILING") and (self.opponent is not None):
                 target_v_speed = self.trailing_command
             else:
-                # la columna 4 es s (como en el original)
                 idx = np.abs(self.waypoint_array_in_map[:, 4] - (self.mpc_sd[i, 0] % self.track_length)).argmin()
                 target_v_speed = self.waypoint_array_in_map[idx, 2]
                 self.overtake_d = 0
                 if (self.state == "OVERTAKE") and (self.opponent is not None):
-                    # columna 3: overtake lateral d
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
             if i < self.stmpc_config.steps_delay:
@@ -246,7 +240,6 @@ class STMPC:
             if i < self.stmpc_config.N:
                 self.acados_solver.set(i, "lbu", np.array([-50, self.stmpc_config.ddelta_min]))
                 self.acados_solver.set(i, "ubu", np.array([50, self.stmpc_config.ddelta_max]))
-                # Cotas de (v, delta, a) en el estado i+1
                 self.acados_solver.set(i + 1, "lbx",
                                        np.array([self.stmpc_config.v_min,
                                                  self.stmpc_config.delta_min,
@@ -256,34 +249,31 @@ class STMPC:
                                                  self.stmpc_config.delta_max,
                                                  self.stmpc_config.a_max]))
 
-        # Resolver OCP
+        # Solve OCP
         status = self.acados_solver.solve()
         if not (status == 0 or status == 2):
-            # Re-aplica warm start como en el original
+            # Re-apply warm start
             self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
 
-        # Coste actual (si lo quieres usar / loguear)
+        # Actual cost of the problem, in case wanting to log
         # current_cost = self.acados_solver.get_cost()
 
-        # Salida
+        # Output
         self.u0 = self.acados_solver.get(0, "u")
-        # Índice del estado "ACCEL" (coincide con StateIndex.ACCEL.value)
         self.prev_acc = self.acados_solver.get(0, "x")[StateIndex.ACCEL.value]
         delayed_index = self.stmpc_config.steps_delay + 1
         self.pred_x = self.acados_solver.get(delayed_index, "x")
 
         self.steering_angle = self.pred_x[5]
         self.speed = self.pred_x[3]
-        # Integración de Euler por diferencia de frecuencias
         self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
         self.prev_acc = self.acceleration
         self.jerk = self.u0[0]
 
-        # Actualiza buffer de dirección
+        # Update steering buffer
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
         self.steering_angle_buf[0] = self.pred_x[5]
 
-        # Para visualización (trayectoria MPC en (s,d))
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:2] for j in range(self.stmpc_config.N + 1)
         ])
@@ -319,7 +309,7 @@ class STMPC:
 
     def update_warm_start(self) -> None:
         """
-        Propaga los estados actuales y re-aplica el input anterior (Euler).
+        Propagate actual states and reaply previous input (Euler).
         """
         for i in range(self.stmpc_config.N + 1):
             current_state = self.acados_solver.get(i, "x")
@@ -339,10 +329,9 @@ class STMPC:
 
     def propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
         """
-        RK45 forward propagation usando el modelo de acados.
+        RK45 forward propagation using acados model.
         """
         x0 = np.concatenate((states, [inputs[0]], [0]), axis=0)
-        # Puedes elegir usar self.stmpc_config.t_delay; en el original acaban forzando 0.0
         self.t_delay = 0.0
 
         solution = solve_ivp(
@@ -356,13 +345,13 @@ class STMPC:
 
         sol = [x[-1] for x in solution.y]
 
-        # Satura ángulo de dirección
+        # Heading saturation
         if abs(sol[5]) > self.constraint.delta_max:
             sol[5] = np.sign(sol[5]) * self.constraint.delta_max
-        # Satura velocidad longitudinal
+        # Longitudinal velocity saturation
         if abs(sol[3]) > self.constraint.v_x_max:
             sol[3] = np.sign(sol[3]) * self.constraint.v_x_max
-        # Velocidad mínima
+        # Min velocity
         if abs(sol[3]) < self.constraint.v_x_min:
             sol[3] = self.constraint.v_x_min
 
@@ -392,7 +381,7 @@ class STMPC:
         return xdot
 
     def trailing_controller(self, global_speed: float) -> float:
-        # opponent: [s, d, v_s, v_d, has_los] (mismo convenio que original)
+        # opponent: [s, d, v_s, v_d, has_los]
         self.gap = (self.opponent[0] - self.position_in_map_frenet[0]) % self.track_length
         self.gap_actual = self.gap
 
