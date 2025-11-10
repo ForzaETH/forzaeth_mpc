@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from f110_msgs.msg import Wpnt
 from l4acados.models import ResidualModel
 from learning_based_mpc.mpc_core.MPC.l4a_STMPC import STMPC_L4A
@@ -15,15 +16,13 @@ from learning_based_mpc.mpc_core.MPC.STMPC import STMPC
 from learning_based_mpc.mpc_core.residual.gp_interface import (
     build_multitask_gp, gp_predictor_from_model, load_gp_state, save_gp_state,
     train_gp_model)
-from learning_based_mpc.mpc_core.residual.residual_models import \
-    make_residual_model_from_gp
 from learning_based_mpc.mpc_core.utils.integrators import integrate_open_loop
 from learning_based_mpc.validation.data.dataset_one_step import \
     build_dataset_one_step
-from learning_based_mpc.validation.viz.plotting import (plot_gp_training_fit,
-                                                        plot_three)
-from old_scripts.plotting_utils import (plot_closed_loop_summary,
-                                        plot_spaghetti_predictions_vs_actual)
+from learning_based_mpc.validation.viz.plotting import (
+    plot_gp_training_fit, plot_residual_surfaces_vy_wz,
+    plot_residual_surfaces_vy_wz_colored_by_vx, plot_three)
+from mpc_sim.plotting.vis_run_simple_rollout import plot_closed_loop_summary
 from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,
@@ -40,7 +39,7 @@ def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
     ], dtype=float)
 
 
-def dyn_from_ctrl(ctrl: STMPC, mu_nom: float, bias=(0.0, 0.0, 0.05)):
+def dyn_from_ctrl(ctrl: STMPC, mu_nom: float, mu_real: float, bias=(0.0, 0.0, 0.05)):
     import casadi as ca
     x = ctrl.model.x
     u = ctrl.model.u
@@ -48,7 +47,6 @@ def dyn_from_ctrl(ctrl: STMPC, mu_nom: float, bias=(0.0, 0.0, 0.05)):
     f = ctrl.model.f_expl_expr
     f_fun = ca.Function("f_fun", [x, u, p], [f])
     pvec = np.array(ctrl.model_params.p, dtype=float).reshape(-1)
-    pvec[12] = float(mu_nom)
 
     idx_vx = StateIndex.VELOCITY_V_X.value
     idx_vy = StateIndex.VELOCITY_V_Y.value
@@ -56,10 +54,12 @@ def dyn_from_ctrl(ctrl: STMPC, mu_nom: float, bias=(0.0, 0.0, 0.05)):
     b = np.array(bias, dtype=float)
 
     def dyn_nom(t, xv, uv):
+        pvec[12] = float(mu_nom)
         return np.array(f_fun(xv, uv, pvec)).reshape(-1)
 
     def dyn_act(t, xv, uv):
-        dx = dyn_nom(t, xv, uv).copy()
+        pvec[12] = float(mu_real)
+        dx = np.array(f_fun(xv, uv, pvec)).reshape(-1)
         dx[idx_vx] += b[0]
         dx[idx_vy] += b[1]
         dx[idx_wz] += b[2]
@@ -170,14 +170,17 @@ class L4aJacAxisAdapter(ResidualModel):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--gp_iters", type=int, default=800)
+    ap.add_argument("--gp_iters", type=int, default=600)
     ap.add_argument("--gp_lr", type=float, default=0.05)
-    ap.add_argument("--bias_vx", type=float, default=5.0)
+    ap.add_argument("--bias_vx", type=float, default=0.0)
     ap.add_argument("--bias_vy", type=float, default=0.0)
     ap.add_argument("--bias_wz", type=float, default=0.0)
     ap.add_argument("--track", default="THETRACK")
     ap.add_argument("--racecar_version", default="NUC5")
     ap.add_argument("--floor", default="dubi_hoons")
+    ap.add_argument("--lengthscale", default=2.9)
+    ap.add_argument("--outputscale", default=0.000155)
+    ap.add_argument("--gp_noise", default=1e-4)
     args = ap.parse_args()
 
     # === Waypoints & configs ===
@@ -195,10 +198,11 @@ def main():
     trailing_cfg: TrailingConfig = load_trailing_config_ros(args.racecar_version)
 
     mu_nom = getattr(stmpc_cfg, "mu_nom", 1.0)
+    mu_real = 0.85
     dt = 1.0 / float(stmpc_cfg.MPC_freq)
     pose_frenet = np.array([10.0, 0.0, 0.0])
     init_vel = 4.0
-    cl_iter = 100
+    cl_iter = 40
 
     # === 1) Nominal controller (STMPC) ===
     ctrl_nom = STMPC(
@@ -214,7 +218,9 @@ def main():
     )
 
     # Create the two integration functions
-    dyn_nom, dyn_act = dyn_from_ctrl(ctrl_nom, mu_nom=float(mu_nom), bias=(args.bias_vx, args.bias_vy, args.bias_wz))
+    dyn_nom, dyn_act = dyn_from_ctrl(
+        ctrl_nom, mu_nom=float(mu_nom), mu_real=float(mu_real), bias=(
+            args.bias_vx, args.bias_vy, args.bias_wz))
 
     # Iterate with a simple plant to have a better mpc solution than the first one
     x_hist = []
@@ -322,39 +328,39 @@ def main():
     U_aux = np.vstack([U_pred, U_pred[-1:]])
     X_aux = np.asarray(X_pred, dtype=float)
     U_aux = np.asarray(U_aux, dtype=float)
-    fig = plot_closed_loop_summary(
-        refline_xy=refline_xy,
-        left_dist=left_dist,
-        right_dist=right_dist,
-        x_hist=X_aux,
-        u_hist=U_aux
-    )
-    plt.show()
+    # fig = plot_closed_loop_summary(
+    #     refline_xy=refline_xy,
+    #     left_dist=left_dist,
+    #     right_dist=right_dist,
+    #     x_hist=X_aux,
+    #     u_hist=U_aux
+    # )
+    # plt.show()
 
     # === 2) Integrate nominal vs actual ===
-    X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="rk4")
+    X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="euler")
 
-    # Visualize X_norm inegrated states
-    fig = plot_closed_loop_summary(
-        refline_xy=refline_xy,
-        left_dist=left_dist,
-        right_dist=right_dist,
-        x_hist=X_nom,
-        u_hist=U_aux
-    )
-    plt.show()
+    # # Visualize X_norm inegrated states
+    # fig = plot_closed_loop_summary(
+    #     refline_xy=refline_xy,
+    #     left_dist=left_dist,
+    #     right_dist=right_dist,
+    #     x_hist=X_nom,
+    #     u_hist=U_aux
+    # )
+    # plt.show()
 
-    X_act = integrate_open_loop_fxu(dyn_act, X_pred[0], U_pred, dt, method="rk4")
+    X_act = integrate_open_loop_fxu(dyn_act, X_pred[0], U_pred, dt, method="euler")
 
-    # Visualize X_act integrated states
-    fig = plot_closed_loop_summary(
-        refline_xy=refline_xy,
-        left_dist=left_dist,
-        right_dist=right_dist,
-        x_hist=X_act,
-        u_hist=U_aux
-    )
-    plt.show()
+    # # Visualize X_act integrated states
+    # fig = plot_closed_loop_summary(
+    #     refline_xy=refline_xy,
+    #     left_dist=left_dist,
+    #     right_dist=right_dist,
+    #     x_hist=X_act,
+    #     u_hist=U_aux
+    # )
+    # plt.show()
 
     fig1, _ = plot_three(X_aux, X_nom, X_act,
                          names=("vx", "vy", "wz"),
@@ -368,8 +374,8 @@ def main():
     plt.show()
 
     # === 3) Dataset + 4) Train GP ===
-    def nominal_step(x, u, DT): return integrate_open_loop_fxu(dyn_nom, x, u[None, :], DT, method="rk4")[-1]
-    def actual_step(x, u, DT): return integrate_open_loop_fxu(dyn_act, x, u[None, :], DT, method="rk4")[-1]
+    def nominal_step(x, u, DT): return integrate_open_loop_fxu(dyn_nom, x, u[None, :], DT, method="euler")[-1]
+    def actual_step(x, u, DT): return integrate_open_loop_fxu(dyn_act, x, u[None, :], DT, method="euler")[-1]
     Z_full, Y_full = build_dataset_one_step(nominal_step, actual_step, X_pred, U_pred, dt)
 
     idx_vx = StateIndex.VELOCITY_V_X.value
@@ -402,18 +408,42 @@ def main():
     rng_seed = getattr(args, "gp_seed", 456)
     lr = getattr(args, "gp_lr", 0.05)
 
-    gp_model, likelihood = build_multitask_gp(Z, Y, device=device)
+    # gp_model, likelihood = build_multitask_gp(Z, Y, device=device)
+    models, likelihoods = build_multitask_gp(Z, Y, device=device)
 
-    if load_gp_model_from_state_dict:
-        load_gp_state(gp_model, likelihood, state_dict_path_gp_model, state_dict_path_likelihood)
-    else:
-        gp_model, likelihood = train_gp_model(
-            gp_model, likelihood, torch_seed=rng_seed,
-            training_iterations=training_iterations, lr=lr, verbose=True
-        )
+    # # Set gp params
+    # gp_model.covar_module.data_covar_module.base_kernel.lengthscale = torch.tensor(args.lengthscale)
+    # gp_model.covar_module.data_covar_module.outputscale = torch.tensor(args.outputscale)
+    # likelihood.noise = torch.tensor(args.gp_noise)
+
+    # # Fix parameters (not hyperparameter opt)
+    # gp_model.covar_module.data_covar_module.base_kernel.raw_lengthscale.requires_grad = False
+    # gp_model.covar_module.data_covar_module.raw_outputscale.requires_grad = False
+    # likelihood.raw_noise.requires_grad = False
+
+    # if load_gp_model_from_state_dict:
+    #     load_gp_state(gp_model, likelihood, state_dict_path_gp_model, state_dict_path_likelihood)
+    # else:
+    # gp_model, likelihood = train_gp_model(
+    #     gp_model, likelihood, torch_seed=rng_seed,
+    #     training_iterations=training_iterations, lr=lr, verbose=True
+    # )
+    models, likelihoods = train_gp_model(models, likelihoods,  # torch_seed=rng_seed,
+                                         training_iterations=training_iterations, lr=lr)
+
+    # print("\n[GP] Learned hyperparameters:")
+
+    # lengthscale = gp_model.covar_module.data_covar_module.base_kernel.lengthscale.detach().cpu().numpy()
+    # outputscale = gp_model.covar_module.data_covar_module.outputscale.detach().cpu().numpy()
+    # noise = likelihood.noise.detach().cpu().numpy()
+
+    # print(f"  Lengthscale : {lengthscale}")
+    # print(f"  Outputscale : {outputscale}")
+    # print(f"  Noise       : {noise}")
 
     # produce a numpy-based callable like before
-    predict_mean = gp_predictor_from_model(gp_model, likelihood, device=device)
+    # predict_mean = gp_predictor_from_model(gp_model, likelihood, device=device)
+    predict_mean = gp_predictor_from_model(models, likelihoods)
 
     # Use the local builder that returns (nr, ·) jacobians matching L4acados expectations.
     # === Make a residual model that only touches vx, vy, wz ===
@@ -556,8 +586,8 @@ def main():
     plt.show()
 
     # === 2) Integrate nominal vs actual ===
-    X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="rk4")
-    X_act = integrate_open_loop_fxu(dyn_act, X_pred[0], U_pred, dt, method="rk4")
+    X_nom = integrate_open_loop_fxu(dyn_nom, X_pred[0], U_pred, dt, method="euler")
+    X_act = integrate_open_loop_fxu(dyn_act, X_pred[0], U_pred, dt, method="euler")
     fig1, _ = plot_three(X_aux, X_nom, X_act,
                          names=("vx", "vy", "wz"),
                          ref_xy=refline_xy,
@@ -568,7 +598,13 @@ def main():
                          )
     plt.show()
 
-    plot_gp_training_fit(Z, Y, gp_model, likelihood, device=device, titles=("vx", "vy", "wz"))
+    plot_gp_training_fit(Z, Y, models, likelihoods, device=device, titles=("vx", "vy", "wz"))
+    plt.show()
+
+    plot_residual_surfaces_vy_wz(Z, Y)
+    plt.show()
+
+    plot_residual_surfaces_vy_wz_colored_by_vx(Z, Y)
     plt.show()
 
     print("[done] residual MPC validation complete.")

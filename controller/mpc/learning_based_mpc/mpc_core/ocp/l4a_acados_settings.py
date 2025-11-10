@@ -165,6 +165,14 @@ def build_ocp_for_l4acados(
     # Initial condition must be enforced
     ocp.constraints.x0 = model.x0
 
+    ocp.solver_options.exact_hess_constr = 0
+    ocp.solver_options.exact_hess_cost = 0
+    ocp.solver_options.exact_hess_dyn = 0
+    # ocp.solver_options.ext_cost_num_hess = True
+    # ocp.solver_options.sim_method_jac_reuse = 1
+    # ocp.solver_options.qp_solver_warm_start = 1
+    # ocp.solver_options.as_rti_level = 1
+
     # Solver options (kept as in your original)
     ocp.solver_options.tf = stmpc_config.N / stmpc_config.MPC_freq
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"

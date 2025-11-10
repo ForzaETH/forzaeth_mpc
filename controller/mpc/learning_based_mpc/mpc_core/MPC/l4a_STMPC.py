@@ -248,13 +248,73 @@ class STMPC_L4A:
                 self.l4a_solver.set(i, "u", warm[i][self.model.n_x:])
 
     def get_warm_start(self, pose_frenet: np.ndarray, const_acc: float, const_steer_vel: float) -> np.ndarray:
-        x0 = np.zeros(self.model.n_x)
-        u0 = np.zeros(self.model.n_u)
-        return np.asarray([np.concatenate([x0, u0]) for _ in range(self.stmpc_config.N + 1)])
+        """
+        Returns a warm start trajectory for the MPC. This is done by propagating the current state with a constant acceleration and steering angle.
+
+        Input:  const_acc   : Constant acceleration
+                const_steer : Constant steering angle
+
+        Returns: np.array    : Warm start trajectory
+        """
+        warm_start = np.zeros((self.stmpc_config.N + 1, 10))  # TODO: hardcoded state space dimension
+        # TODO setting the velocity to current actual velocity might remove slowing down
+        warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
+                                 1.0, 0.0, 0.0, 0.0, const_acc, 0, const_steer_vel])
+        for i in range(1, self.stmpc_config.N + 1):
+            xdot = self._dynamics_of_car(0, warm_start[i - 1])
+            warm_start[i] = warm_start[i - 1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
+        return warm_start
 
     # Compatibility shim from early drafts
     def solve(self) -> None:
         self.l4a_solver.solve()
+
+    def _dynamics_of_car(self, t, x0) -> list:
+        '''
+        Used for forward propagation. This function takes the dynamics from the acados model.
+        '''
+
+        s = x0[0]
+        n = x0[1]
+        theta = x0[2]
+        v_x = x0[3]
+        v_y = x0[4]
+        delta = x0[5]
+        yaw_rate = x0[6]
+        accel = x0[7]
+        jerk = x0[8]
+        derDelta = x0[9]
+        xdot = self.model.f_expl_func(
+            s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
+
+        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
+                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), 0.0, 0.0]
+
+        return xdot
+
+    def trailing_controller(self, global_speed: float) -> float:
+        # opponent: [s, d, v_s, v_d, has_los] (mismo convenio que original)
+        self.gap = (self.opponent[0] - self.position_in_map_frenet[0]) % self.track_length
+        self.gap_actual = self.gap
+
+        if self.trailing_config.trailing_mode:
+            self.gap_should = self.trailing_config.trailing_gap
+        else:
+            self.gap_should = self.position_in_map_frenet[2] * self.trailing_config.trailing_gap
+
+        self.gap_error = self.gap_should - self.gap_actual
+        self.v_diff = self.position_in_map_frenet[2] - self.opponent[2]
+        self.i_gap = np.clip(self.i_gap + self.gap_error / self.loop_rate, -10.0, 10.0)
+
+        p_value = self.gap_error * self.trailing_config.trailing_p_gain
+        d_value = self.v_diff * self.trailing_config.trailing_d_gain
+        i_value = self.i_gap * self.trailing_config.trailing_i_gain
+
+        trailing_cmd = np.clip(self.opponent[2] - p_value - i_value - d_value, 0.0, global_speed)
+        if not self.opponent[4] and self.gap_actual > self.gap_should:
+            trailing_cmd = max(self.trailing_config.blind_trailing_speed, trailing_cmd)
+
+        return trailing_cmd
 
     # =============================== Helpers ================================
     MU_IDX = 12

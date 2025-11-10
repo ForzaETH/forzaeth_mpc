@@ -19,11 +19,8 @@ def _torch_guard(device: str = "cpu"):
 
 def build_multitask_gp(Z: np.ndarray, Y: np.ndarray, device: str = "cpu"):
     """
-    Create a Multitask GP like the owners' example:
-      - MultitaskGaussianLikelihood(num_tasks = Y.shape[1])
-      - BatchIndependentMultitask-style ExactGP model
-    Shapes:
-      Z: (N, Din), Y: (N, Dout)
+    Build 3 independent GPs (one per output dimension: vx, vy, r).
+    Each has its own kernel hyperparameters (lengthscale, outputscale, noise).
     """
     _torch_guard(device)
     import gpytorch
@@ -33,83 +30,82 @@ def build_multitask_gp(Z: np.ndarray, Y: np.ndarray, device: str = "cpu"):
     x_train = torch.tensor(Z, dtype=torch.float32, device=device)
     y_train = torch.tensor(Y, dtype=torch.float32, device=device)
     nout = Y.shape[1]
+    assert nout == 3, "Expected 3 outputs: vx, vy, r"
 
-    class BatchIndependentMultitaskGPModel(gpytorch.models.ExactGP):
-        """
-        Minimal re-implementation consistent with the owners' naming.
-        We model D outputs jointly via a MultitaskGaussianLikelihood and an ICM kernel,
-        but keep it simple/robust for residual learning.
-        """
-
+    class IndependentGP(gpytorch.models.ExactGP):
         def __init__(self, train_x, train_y, likelihood):
             super().__init__(train_x, train_y, likelihood)
-            self.mean_module = gpytorch.means.MultitaskMean(
-                gpytorch.means.ConstantMean(), num_tasks=nout
-            )
-            # Use an ICM (Intrinsic Coregionalization) kernel on an RBF base
-            base_kernel = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
-            self.covar_module = gpytorch.kernels.MultitaskKernel(
-                base_kernel, num_tasks=nout, rank=min(2, nout)
+            self.mean_module = gpytorch.means.ConstantMean()
+            self.covar_module = gpytorch.kernels.ScaleKernel(
+                gpytorch.kernels.RBFKernel(ard_num_dims=Z.shape[1])
             )
 
         def forward(self, x):
-            # x: (N, Din)
             mean_x = self.mean_module(x)
             covar_x = self.covar_module(x)
-            return gpytorch.distributions.MultitaskMultivariateNormal(mean_x, covar_x)
+            return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-    likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=nout).to(device)
-    gp_model = BatchIndependentMultitaskGPModel(x_train, y_train, likelihood).to(device)
-    return gp_model, likelihood
+    # Create a list of (model, likelihood) pairs — one per output dimension
+    models = []
+    likelihoods = []
+    for i in range(nout):
+        yi = y_train[:, i]
+        likelihood = gpytorch.likelihoods.GaussianLikelihood().to(device)
+        model = IndependentGP(x_train, yi, likelihood).to(device)
+        models.append(model)
+        likelihoods.append(likelihood)
+
+    return models, likelihoods
 
 
-def train_gp_model(gp_model, likelihood, torch_seed: int = 456,
-                   training_iterations: int = 200, lr: float = 0.03, verbose: bool = True):
-    """
-    Train exactly like the owners' example: maximize marginal log-likelihood (exact GP).
-    """
+def train_gp_model(models, likelihoods, torch_seed=456, training_iterations=200, lr=0.03, verbose=True):
     import gpytorch
     import torch
     torch.manual_seed(torch_seed)
 
-    gp_model.train()
-    likelihood.train()
+    trained_models = []
+    trained_likelihoods = []
 
-    optimizer = torch.optim.Adam(gp_model.parameters(), lr=lr)
+    for i, (gp_model, likelihood) in enumerate(zip(models, likelihoods)):
+        gp_model.train()
+        likelihood.train()
+        optimizer = torch.optim.Adam(gp_model.parameters(), lr=lr)
+        mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp_model)
 
-    mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp_model)
+        train_x = gp_model.train_inputs[0]
+        train_y = gp_model.train_targets
 
-    train_x = gp_model.train_inputs[0]  # from ExactGP base
-    train_y = gp_model.train_targets    # (N, Dout)
+        for it in range(training_iterations):
+            optimizer.zero_grad()
+            output = gp_model(train_x)
+            loss = -mll(output, train_y)
+            loss.backward()
+            optimizer.step()
+            if verbose and (it % max(1, training_iterations // 5) == 0 or it == training_iterations - 1):
+                print(f"[GP {i}] iter {it:4d}/{training_iterations}: loss={loss.item():.6f}")
 
-    for it in range(training_iterations):
-        optimizer.zero_grad()
-        output = gp_model(train_x)  # MultitaskMultivariateNormal
-        loss = -mll(output, train_y)
-        loss.backward()
-        optimizer.step()
-        if verbose and (it % max(1, training_iterations // 5) == 0 or it == training_iterations - 1):
-            print(f"[GP] iter {it:4d}/{training_iterations}: loss={loss.item():.6f}")
+        gp_model.eval()
+        likelihood.eval()
+        trained_models.append(gp_model)
+        trained_likelihoods.append(likelihood)
 
-    gp_model.eval()
-    likelihood.eval()
-    return gp_model, likelihood
+    return trained_models, trained_likelihoods
 
 
-def gp_predictor_from_model(gp_model, likelihood, device: str = "cpu") -> Callable[[np.ndarray], np.ndarray]:
-    """
-    Return a numpy->numpy callable predict_mean(Z*) consistent with your previous code.
-    """
+def gp_predictor_from_model(models, likelihoods, device="cpu"):
     import torch
-    gp_model.eval()
-    likelihood.eval()
+    for m, l in zip(models, likelihoods):
+        m.eval()
+        l.eval()
 
     def predict_mean(Zstar: np.ndarray) -> np.ndarray:
         with torch.no_grad():
             zt = torch.tensor(Zstar, dtype=torch.float32, device=device)
-            pred = likelihood(gp_model(zt))
-            # Multitask: pred.mean shape (N, Dout)
-            return pred.mean.detach().cpu().numpy()
+            preds = []
+            for m, l in zip(models, likelihoods):
+                pred = l(m(zt))
+                preds.append(pred.mean.detach().cpu().numpy().reshape(-1, 1))
+            return np.hstack(preds)
     return predict_mean
 
 
