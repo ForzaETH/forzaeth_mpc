@@ -196,7 +196,8 @@ def bicycle_model(
         a_lat - (-a_lat_max),
         a_lat - a_lat_max,
         n_right_bound,
-        n_left_bound)
+        n_left_bound,
+        sdota)
     constraint.expr_e = constraint.expr
     # read the parameters range from the yaml file
     # Model bounds
