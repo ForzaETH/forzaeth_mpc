@@ -3,6 +3,10 @@ from pbl_config.controller.mpc.KMPCConfig import (KMPCConfig,
                                                   load_KMPC_config_ros)
 from pbl_config.controller.mpc.KMPCConfigDyn import (
     KMPCConfigDyn, create_KMPC_dynamic_parameters)
+from pbl_config.controller.mpc.LBMPCConfig import (LBMPCConfig,
+                                                   load_LBMPC_config_ros)
+from pbl_config.controller.mpc.LBMPCConfigDyn import (
+    LBMPCConfigDyn, create_LBMPC_dynamic_parameters)
 from pbl_config.controller.mpc.STMPCConfig import (STMPCConfig,
                                                    load_STMPC_config_ros)
 from pbl_config.controller.mpc.STMPCConfigDyn import (
@@ -14,7 +18,8 @@ from pbl_config.controller.steer_pid.SteerPidConfigDyn import (
 from pbl_config.PacejkaTireConfig import (NotExistingFloor, PacejkaTireConfig,
                                           load_pacejka_tire_config_ros,
                                           save_pacejka_tire_config)
+from pbl_config.planner.MultiOppSplinerConfig import (
+    MultiOppSplinerConfig, load_multi_opp_spline_config_ros)
 from pbl_config.SimImprovementConfig import (SimImprovementConfig,
                                              load_sim_improvement_config)
 from pbl_config.TrailingConfig import TrailingConfig, load_trailing_config_ros
-from pbl_config.planner.MultiOppSplinerConfig import MultiOppSplinerConfig, load_multi_opp_spline_config_ros
