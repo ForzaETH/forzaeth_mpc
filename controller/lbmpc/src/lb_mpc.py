@@ -50,6 +50,9 @@ class LBMPC:
         self.controller_frequency = controller_frequency
         self.using_gokart = using_gokart
 
+        # TODO: FORCE MODEL MISMATCH TO TEST GP
+        self.tire_config.friction_coeff = 2.0
+
         # Initialize parameters
         self.mpc_init_params()
 
@@ -59,6 +62,14 @@ class LBMPC:
         # Initialize Residual model
         self.lbmpc_path = "/home/gil/catkin_ws/src/race_stack/controller/lbmpc"  # TODO: handle this
         self.use_gp = self.lbmpc_config.gp_params.use_gp
+
+        # Build the B matrix, B_d_pinv and nw
+        idx = np.asarray(self.lbmpc_config.gp_params.unc_jac_G_mat_idx, dtype=float)
+        self.B = np.diag(idx)
+        self.B = self.B[:, ~np.all(self.B == 0, axis=0)]
+        self.B_d_pinv = np.linalg.pinv(self.B)
+        self._nw_gp = self.B.shape[1]
+
         if self.use_gp:
             self._init_residual_model()
         else:
@@ -85,7 +96,7 @@ class LBMPC:
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
-            # use_cython=True, TODO: understand how works and instalation in docker
+            use_cython=True,
             path_json_ocp=path_json_ocp,
             path_json_sim=path_json_sim,
             build_c_code=build_c_code,
@@ -101,6 +112,9 @@ class LBMPC:
 
         # Apply warm start
         self.apply_warm_start(pose_frenet=pose_frenet)
+
+        self._prev_state_for_residual = None
+        self._prev_input_for_residual = None
 
     def mpc_init_params(self) -> None:
         # MPC parameters
@@ -176,14 +190,7 @@ class LBMPC:
         self._nx_gp = int(self.model.n_x)
         self._nu_gp = int(self.model.n_u)
 
-        # Build the B matrix, B_d_pinv and nw
-        idx = np.asarray(gp_cfg.unc_jac_G_mat_idx, dtype=float)
-        self.B = np.diag(idx)
-        self.B = self.B[:, ~np.all(self.B == 0, axis=0)]
-        self.B_d_pinv = np.linalg.pinv(self.B)
-        self._nw_gp = self.B.shape[1]
-
-        # Feature selection over [x, u]
+        # Feature selection over x
         input_selection = gp_cfg.input_feature_selection
         if len(input_selection) != (self._nx_gp + self._nu_gp):
             raise ValueError(
@@ -191,7 +198,7 @@ class LBMPC:
             )
         self._input_feature_selector = PyTorchFeatureSelector(input_selection)
 
-        x_path = os.path.join(self.lbmpc_path, "data/datapoints", "x_data.csv")
+        z_path = os.path.join(self.lbmpc_path, "data/datapoints", "z_data.csv")
         y_path = os.path.join(self.lbmpc_path, "data/datapoints", "y_data.csv")
 
         # Data strategy
@@ -199,7 +206,7 @@ class LBMPC:
         if self.mode == "none" or self.mode == "use_prerecorded_data":
             data_processing_strategy = VoidDataStrategy()
         elif self.mode == "record":
-            data_processing_strategy = RecordDataStrategy(x_path, y_path)
+            data_processing_strategy = RecordDataStrategy(z_path, y_path)
         elif self.mode == "learn":
             data_processing_strategy = OnlineLearningStrategy(self.max_num_data_points)
         else:
@@ -208,26 +215,31 @@ class LBMPC:
             )
 
         # buffers to save first datapoints until min_points_before_using_gp is reached
-        self._gp_buffer_x = []
+        self._gp_buffer_z = []
         self._gp_buffer_y = []
         self._gp_warmup_done = False
 
         # In case we want to try an already learned model in another track
-        x_train_data, y_train_data = None, None
+        z_train_data, y_train_data = None, None
         if self.mode == "use_prerecorded_data":
-            x_train_data, y_train_data = self._load_tensor_data(x_path, y_path)
+            z_train_data, y_train_data = self._load_tensor_data(z_path, y_path)
 
             # Apply feature selectionº
-            x_train_data = self._input_feature_selector(x_train_data)
+            z_train_data = self._input_feature_selector(z_train_data)
 
-            if x_train_data.shape[0] > self.max_num_data_points:
-                x_train_data = x_train_data[:self.max_num_data_points, :]
+            if z_train_data.shape[0] > self.max_num_data_points:
+                z_train_data = z_train_data[:self.max_num_data_points, :]
                 y_train_data = y_train_data[:self.max_num_data_points, :]
+
+        # Create one fake datapoint because l4acados requires it
+        if self.mode == "learn":
+            z_train_data = torch.zeros((1, sum(input_selection)), dtype=torch.float32)
+            y_train_data = torch.zeros((1, self._nw_gp), dtype=torch.float32)
 
         # Build GP model: full or inducing
         if not self.use_inducing_gp:
             gp_model = BatchIndependentMultitaskGPModel(
-                train_x=x_train_data,
+                train_x=z_train_data,
                 train_y=y_train_data,
                 likelihood=gpytorch.likelihoods.MultitaskGaussianLikelihood(
                     num_tasks=self._nw_gp,
@@ -243,7 +255,7 @@ class LBMPC:
             }
         else:
             gp_model = BatchIndependentInducingPointGPModel(
-                train_x=x_train_data,
+                train_x=z_train_data,
                 train_y=y_train_data,
                 likelihood=gpytorch.likelihoods.MultitaskGaussianLikelihood(
                     num_tasks=self._nw_gp,
@@ -260,7 +272,7 @@ class LBMPC:
             }
 
         # Initialize hyperparameters if provided
-        hyper_cfg = gp_cfg.hyperparameters  # TODO: load the trained hyperparams from a file
+        hyper_cfg = gp_cfg.hyperparameters
         if self.mode in ("use_prerecorded_data", "learn") and hyper_cfg:
             gp_model.initialize(
                 **{
@@ -273,15 +285,16 @@ class LBMPC:
         gp_model.eval()
         gp_model.likelihood.eval()
 
+        gp_model.train_inputs = None
+        gp_model.train_targets = None
+        gp_model.prediction_strategy = None
+
         # Wrap in residual model
         self.residual_gp = GPyTorchResidualModel(
             gp_model=gp_model,
             feature_selector=self._input_feature_selector,
             data_processing_strategy=data_processing_strategy,
         )
-
-        self._prev_state_for_residual = None
-        self._prev_input_for_residual = None
 
     def main_loop(
             self,
@@ -338,10 +351,38 @@ class LBMPC:
 
         x0 = np.array([
             self.fre_s, self.fre_d, self.fre_alpha,
-            speed_now, self.vel_y, self.measured_steer, self.yaw_rate, self.measured_acc
+            speed_now, self.vel_y, self.yaw_rate, self.measured_steer, self.measured_acc
         ], dtype=np.float64)
 
         # Record new datapoints. Until we don't have at least self.min_points_before_using_gp
+        # if (
+        #     self.use_gp
+        #     and self.residual_gp is not None
+        #     and getattr(self, "mode", None) in ("learn", "record")
+        # ):
+        #     res = self._compute_residual(new_state=x0)
+        #     if res is not None:
+        #         z_train, residual = res
+
+        #         # 1) If warm-up is not finished, collect into buffer
+        #         if not self._gp_warmup_done:
+        #             self._gp_buffer_z.append(z_train)
+        #             self._gp_buffer_y.append(residual)
+
+        #             # When we reach the threshold, flush buffer into the GP
+        #             if len(self._gp_buffer_z) >= self.min_points_before_using_gp:
+        #                 for z_b, y_b in zip(self._gp_buffer_z, self._gp_buffer_y):
+        #                     self.residual_gp.record_datapoint(z_b, y_b)
+
+        #                 # Clear buffer and mark GP as ready
+        #                 self._gp_buffer_z.clear()
+        #                 self._gp_buffer_y.clear()
+        #                 self._gp_warmup_done = True
+        #                 print("GP warmup done")
+
+        #         # 2) If warm-up is finished, directly add each new datapoint
+        #         else:
+        #             self.residual_gp.record_datapoint(z_train, residual)
         if (
             self.use_gp
             and self.residual_gp is not None
@@ -349,26 +390,8 @@ class LBMPC:
         ):
             res = self._compute_residual(new_state=x0)
             if res is not None:
-                x_train, residual = res
-
-                # 1) If warm-up is not finished, collect into buffer
-                if not self._gp_warmup_done:
-                    self._gp_buffer_x.append(x_train)
-                    self._gp_buffer_y.append(residual)
-
-                    # When we reach the threshold, flush buffer into the GP
-                    if len(self._gp_buffer_x) >= self.min_points_before_using_gp:
-                        for x_b, y_b in zip(self._gp_buffer_x, self._gp_buffer_y):
-                            self.residual_gp.record_datapoint(x_b, y_b)
-
-                        # Clear buffer and mark GP as ready
-                        self._gp_buffer_x.clear()
-                        self._gp_buffer_y.clear()
-                        self._gp_warmup_done = True
-
-                # 2) If warm-up is finished, directly add each new datapoint
-                else:
-                    self.residual_gp.record_datapoint(x_train, residual)
+                z_train, residual = res
+                self.residual_gp.record_datapoint(z_train, residual)
 
         # Update inducing points
         self._update_inducing_points_along_horizon()
@@ -436,8 +459,8 @@ class LBMPC:
             self.l4a_solver.set(i, "p", online_parameters)
 
             if i < self.lbmpc_config.N:
-                self.l4a_solver.set(i, "lbu", np.array([-50, self.lbmpc_config.ddelta_min]))
-                self.l4a_solver.set(i, "ubu", np.array([50, self.lbmpc_config.ddelta_max]))
+                self.l4a_solver.set(i, "lbu", np.array([self.lbmpc_config.ddelta_min, -50]))
+                self.l4a_solver.set(i, "ubu", np.array([self.lbmpc_config.ddelta_max, 50]))
                 self.l4a_solver.set(i + 1, "lbx",
                                     np.array([self.lbmpc_config.v_min,
                                               self.lbmpc_config.delta_min,
@@ -454,8 +477,9 @@ class LBMPC:
             msg = str(e)
             m = re.search(r'status\s+(\d+)', msg)
             status = int(m.group(1)) if m else -1
+            print(
+                f"[MPC Controller] Solver failed with message = {msg}.\n Status = {status}.\n Applying warm start again.")
             self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
-            print(f"[MPC Controller] Solver failed with status {status}. Applying warm start again.")
 
         # Actual cost of the problem, in case wanting to log
         # current_cost = self.l4a_solver.get_cost()
@@ -520,6 +544,7 @@ class LBMPC:
         warm_start[0, :] = x0
         x_prev = warm_start[0, :]
         for i in range(1, N + 1):
+            # TODO: do it with residual _predict_next_state_with_gp
             x_next = self._predict_next_state_nominal(x_prev, u0)
             warm_start[i, :] = x_next
             self.l4a_solver.set(i, "x", x_next)
@@ -646,12 +671,12 @@ class LBMPC:
         x_pred = self._predict_next_state_nominal(x_prev, u_prev)
 
         # Training input: [x_prev, u_prev] (full vector)
-        x_train = np.concatenate((x_prev, u_prev))
+        z_train = np.concatenate((x_prev, u_prev))
 
         # Residual in selected coordinates
         residual = self.B_d_pinv @ (new_state - x_pred)
 
-        return x_train, residual
+        return z_train, residual
 
     def trailing_controller(self, global_speed: float) -> float:
         # opponent: [s, d, v_s, v_d, has_los]
@@ -851,20 +876,20 @@ class LBMPC:
         return x_next_nom + delta_x
 
     @staticmethod
-    def _load_tensor_data(x_path: str, y_path: str):
+    def _load_tensor_data(z_path: str, y_path: str):
         """
         Load offline data from CSV into float32 torch tensors.
 
-        x_path: CSV with inputs, shape (N, nx+nu) or (N,)
+        z_path: CSV with inputs, shape (N, nx+nu) or (N,)
         y_path: CSV with residuals, shape (N, nw) or (N,)
         """
         try:
-            x_np = np.genfromtxt(x_path, delimiter=",")
+            x_np = np.genfromtxt(z_path, delimiter=",")
             x_tensor = torch.from_numpy(x_np).type(torch.float32)
             if x_tensor.dim() == 1:
                 x_tensor = x_tensor.unsqueeze(-1)
         except FileNotFoundError:
-            print(f"[LBMPC] File {x_path} does not exist.")
+            print(f"[LBMPC] File {z_path} does not exist.")
             x_tensor = None
 
         try:

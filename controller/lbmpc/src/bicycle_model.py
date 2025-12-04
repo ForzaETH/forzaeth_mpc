@@ -202,7 +202,7 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
         delta_dot,
         accel_dot
     )
-    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, p], [f_expl])
+    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, yaw_rate, delta, accel, jerk, derDelta, p], [f_expl])
 
     # Define initial conditions
     model.x0 = np.zeros(n_x)

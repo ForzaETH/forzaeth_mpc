@@ -5,6 +5,8 @@ import rospkg
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+NestedFloats = Union[List[float], List[List[float]]]
+
 
 class GPParamsConfig(BaseModel):
     """Configuration for the GP residual model"""
@@ -23,10 +25,10 @@ class GPParamsConfig(BaseModel):
     data_processing_mode: str = "none"
 
     # Only relevant when use_inducing_gp is True
-    num_inducing_points: int = 64
+    num_inducing_points: int = 10
 
     # Free-form hyperparameters, matched by string keys
-    hyperparameters: Optional[Dict[str, List[float]]] = None
+    hyperparameters: Optional[Dict[str, NestedFloats]] = None
 
 
 class LBMPCConfig(BaseModel):

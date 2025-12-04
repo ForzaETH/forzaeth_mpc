@@ -19,9 +19,9 @@
         "Spatialbicycle_model_model/Spatialbicycle_model_expl_vde_adj.c"
     ],
     "model": {
-        "con_h_expr": "@1=fmod(s,76.8038), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
-        "con_h_expr_0": "@1=fmod(s,76.8038), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
-        "con_h_expr_e": "@1=fmod(s,76.8038), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin))",
+        "con_h_expr": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr_0": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr_e": "@1=fmod(s,77.5251), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin))",
         "con_phi_expr": [],
         "con_phi_expr_0": [],
         "con_phi_expr_e": [],
@@ -58,7 +58,7 @@
         "dyn_impl_dae_fun": null,
         "dyn_impl_dae_fun_jac": null,
         "dyn_impl_dae_jac": null,
-        "f_expl_expr": "@1=fmod(s,76.8038), @2=(3.691*accel), @3=(0.5*@2), @4=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), @5=((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@4)-(0.2332*((4.142*@4)-atan((4.142*@4))))))))), @6=atan2(((0.153*yaw_rate)-v_y),(0.5+v_x)), @7=((18.9504*(1.057*MU))*sin((2.1651*atan(((4.8721*@6)-(1.692*((4.8721*@6)-atan((4.8721*@6))))))))), vertcat((((v_x*cos(theta))-(v_y*sin(theta)))/(1-(kapparef_s(@1){0}*n))), ((v_x*sin(theta))+(v_y*cos(theta))), (yaw_rate-(kapparef_s(@1){0}*(((v_x*cos(theta))-(v_y*sin(theta)))/(1-(kapparef_s(@1){0}*n))))), (0.270929*((((0.5*@2)+(@3*cos(delta)))-(@5*sin(delta)))+((3.691*v_y)*yaw_rate))), (0.270929*(((@7+(@3*sin(delta)))+(@5*cos(delta)))-((3.691*v_x)*yaw_rate))), (15.949*(((0.168*@5)*cos(delta))-(0.153*@7))), derDelta, jerk)",
+        "f_expl_expr": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(0.5*@2), @4=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), @5=((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@4)-(0.2332*((4.142*@4)-atan((4.142*@4))))))))), @6=atan2(((0.153*yaw_rate)-v_y),(0.5+v_x)), @7=((18.9504*(1.057*MU))*sin((2.1651*atan(((4.8721*@6)-(1.692*((4.8721*@6)-atan((4.8721*@6))))))))), vertcat((((v_x*cos(theta))-(v_y*sin(theta)))/(1-(kapparef_s(@1){0}*n))), ((v_x*sin(theta))+(v_y*cos(theta))), (yaw_rate-(kapparef_s(@1){0}*(((v_x*cos(theta))-(v_y*sin(theta)))/(1-(kapparef_s(@1){0}*n))))), (0.270929*((((0.5*@2)+(@3*cos(delta)))-(@5*sin(delta)))+((3.691*v_y)*yaw_rate))), (0.270929*(((@7+(@3*sin(delta)))+(@5*cos(delta)))-((3.691*v_x)*yaw_rate))), (15.949*(((0.168*@5)*cos(delta))-(0.153*@7))), derDelta, jerk)",
         "f_impl_expr": [],
         "gnsf_nontrivial_f_LO": 1,
         "gnsf_purely_linear": 0,
@@ -89,7 +89,7 @@
         10.0,
         0.3,
         1.0,
-        1.0,
+        2.0,
         10.0
     ],
     "problem_class": "SIM",

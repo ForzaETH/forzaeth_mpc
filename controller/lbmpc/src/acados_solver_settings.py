@@ -117,12 +117,12 @@ def build_ocp_for_l4acados(
     ocp.cost.zu_e = stmpc_config.zu * np.ones((nsh_e,))
 
     # Input bounds (same)
-    ocp.constraints.lbu_0 = np.array([constraint.jerk_min, constraint.ddelta_min])
-    ocp.constraints.ubu_0 = np.array([constraint.jerk_max, constraint.ddelta_max])
+    ocp.constraints.lbu_0 = np.array([constraint.ddelta_min, constraint.jerk_min])
+    ocp.constraints.ubu_0 = np.array([constraint.ddelta_max, constraint.jerk_max])
     ocp.constraints.idxbu_0 = np.array([0, 1])
 
-    ocp.constraints.lbu = np.array([constraint.jerk_min, constraint.ddelta_min])
-    ocp.constraints.ubu = np.array([constraint.jerk_max, constraint.ddelta_max])
+    ocp.constraints.lbu = np.array([constraint.ddelta_min, constraint.jerk_min])
+    ocp.constraints.ubu = np.array([constraint.ddelta_max, constraint.jerk_max])
     ocp.constraints.idxbu = np.array([0, 1])
 
     # State bounds (same)

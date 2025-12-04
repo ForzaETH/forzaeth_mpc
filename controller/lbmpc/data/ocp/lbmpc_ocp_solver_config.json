@@ -71,12 +71,12 @@
         "idxsphi_0": [],
         "idxsphi_e": [],
         "lbu": [
-            -50.0,
-            -3.2
+            -3.2,
+            -50.0
         ],
         "lbu_0": [
-            -50.0,
-            -3.2
+            -3.2,
+            -50.0
         ],
         "lbx": [
             0.0,
@@ -140,12 +140,12 @@
         "lsphi_0": [],
         "lsphi_e": [],
         "ubu": [
-            50.0,
-            3.2
+            3.2,
+            50.0
         ],
         "ubu_0": [
-            50.0,
-            3.2
+            3.2,
+            50.0
         ],
         "ubx": [
             12.0,
@@ -363,9 +363,9 @@
     ],
     "json_file": "/home/gil/catkin_ws/src/race_stack/controller/lbmpc/data/ocp/lbmpc_ocp_solver_config.json",
     "model": {
-        "con_h_expr": "@1=fmod(s,76.8038), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
-        "con_h_expr_0": "@1=fmod(s,76.8038), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
-        "con_h_expr_e": "@1=fmod(s,76.8038), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin))",
+        "con_h_expr": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr_0": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr_e": "@1=fmod(s,77.5251), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin))",
         "con_phi_expr": [],
         "con_phi_expr_0": [],
         "con_phi_expr_e": [],
@@ -523,7 +523,7 @@
         10.0,
         0.3,
         1.0,
-        1.0,
+        2.0,
         10.0
     ],
     "problem_class": "OCP",
