@@ -10,18 +10,19 @@ import gpytorch
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from controller.mpc.mpc_sim.plotting.vis_run_simple_rollout import \
+    plot_closed_loop_summary
 from f110_msgs.msg import Wpnt
-from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
+from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
-from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model import \
+from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model import \
     GPyTorchResidualModel
-from l4acados.models.pytorch_models.pytorch_feature_selector import \
+from lbmpc.l4acados.src.l4acados.models.pytorch_models.pytorch_feature_selector import \
     PyTorchFeatureSelector
-from learning_based_mpc.mpc_core.MPC.l4a_STMPC import STMPC_L4A
-from learning_based_mpc.mpc_core.MPC.STMPC import STMPC
-from learning_based_mpc.mpc_core.residual.gp_interface import train_gp_model
-from learning_based_mpc.validation.viz.plotting import plot_dict_kept_dropped
-from mpc_sim.plotting.vis_run_simple_rollout import plot_closed_loop_summary
+from lbmpc.test.mpc_core.MPC.l4a_STMPC import STMPC_L4A
+from lbmpc.test.mpc_core.MPC.STMPC import STMPC
+from lbmpc.test.mpc_core.residual.gp_interface import train_gp_model
+from lbmpc.test.validation.viz.plotting import plot_dict_kept_dropped
 from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,

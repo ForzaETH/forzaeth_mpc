@@ -36,7 +36,7 @@ from typing import Tuple
 
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from learning_based_mpc.mpc_core.models.bicycle_model import bicycle_model
+from lbmpc.test.mpc_core.models.bicycle_model import bicycle_model
 from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
 from single_track_mpc.utils.indicies import StateIndex
 

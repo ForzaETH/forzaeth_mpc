@@ -4,12 +4,9 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 from frenet_converter.frenet_converter import FrenetConverter
-from learning_based_mpc.l4acados.src.l4acados.controllers import \
-    ResidualLearningMPC
-from learning_based_mpc.l4acados.src.l4acados.models.residual_model import \
-    ResidualModel
-from learning_based_mpc.mpc_core.ocp.l4a_acados_settings import \
-    build_ocp_for_l4acados
+from lbmpc.l4acados.src.l4acados.controllers import ResidualLearningMPC
+from lbmpc.l4acados.src.l4acados.models.residual_model import ResidualModel
+from lbmpc.test.mpc_core.ocp.l4a_acados_settings import build_ocp_for_l4acados
 from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
 from single_track_mpc.utils.indicies import StateIndex

@@ -9,20 +9,22 @@ from typing import Callable, Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from controller.mpc.mpc_sim.plotting.vis_run_simple_rollout import \
+    plot_closed_loop_summary
 from f110_msgs.msg import Wpnt
-from l4acados.models import ResidualModel
-from learning_based_mpc.mpc_core.MPC.l4a_STMPC import STMPC_L4A
-from learning_based_mpc.mpc_core.MPC.STMPC import STMPC
-from learning_based_mpc.mpc_core.residual.gp_interface import (
-    build_multitask_gp, gp_predictor_from_model, load_gp_state, save_gp_state,
-    train_gp_model)
-from learning_based_mpc.mpc_core.utils.integrators import integrate_open_loop
-from learning_based_mpc.validation.data.dataset_one_step import \
-    build_dataset_one_step
-from learning_based_mpc.validation.viz.plotting import (
+from lbmpc.l4acados.src.l4acados.models import ResidualModel
+from lbmpc.test.mpc_core.MPC.l4a_STMPC import STMPC_L4A
+from lbmpc.test.mpc_core.MPC.STMPC import STMPC
+from lbmpc.test.mpc_core.residual.gp_interface import (build_multitask_gp,
+                                                       gp_predictor_from_model,
+                                                       load_gp_state,
+                                                       save_gp_state,
+                                                       train_gp_model)
+from lbmpc.test.mpc_core.utils.integrators import integrate_open_loop
+from lbmpc.test.validation.data.dataset_one_step import build_dataset_one_step
+from lbmpc.test.validation.viz.plotting import (
     plot_gp_training_fit, plot_residual_surfaces_vy_wz,
     plot_residual_surfaces_vy_wz_colored_by_vx, plot_three)
-from mpc_sim.plotting.vis_run_simple_rollout import plot_closed_loop_summary
 from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,

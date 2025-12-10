@@ -8,13 +8,13 @@ import gpytorch
 import numpy as np
 import torch
 from frenet_converter.frenet_converter import FrenetConverter
-from l4acados.controllers import ResidualLearningMPC
-from l4acados.models import GPyTorchResidualModel, PyTorchFeatureSelector
-from l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
+from lbmpc.l4acados.src.l4acados.controllers import ResidualLearningMPC
+from lbmpc.l4acados.src.l4acados.models import (GPyTorchResidualModel,
+                                                PyTorchFeatureSelector)
+from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
     OnlineLearningStrategy, RecordDataStrategy, VoidDataStrategy)
-from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
+from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
-from lbmpc.scripts.viz.ResidualViz import ResidualRealtimeViz
 from lbmpc.src.acados_solver_settings import build_ocp_for_l4acados
 from lbmpc.src.utils.indicies import InputIndex, StateIndex
 from lbmpc.src.utils.utils import check_file_changes, load_tensor_data
@@ -227,12 +227,6 @@ class LBMPC:
                 f"Invalid data_processing_mode: {self.mode}. Must be one of ['none', 'record', 'learn']"
             )
 
-        # Initialize visualization
-        # if self.mode == "learn":
-        #     self._viz_simple = ResidualRealtimeViz(window_seconds=20.0, target_hz=20.0)
-        # else:
-        #     self._viz_simple = None
-
         # buffers to save first datapoints until min_points_before_using_gp is reached
         self._gp_buffer_z = []
         self._gp_buffer_y = []
@@ -356,7 +350,6 @@ class LBMPC:
         _t0 = time.perf_counter()
         init_time = 0.0
         residual_time = 0.0
-        viz_time = 0.0
         rest_time = 0.0
 
         # Heading correction
@@ -439,21 +432,6 @@ class LBMPC:
             # Predicted residual {mpc first solution - nominal(x_prev, u_prev)}
             nominal_pred_x = self._predict_next_state_nominal(self.previous_pred_x, self.previous_pred_u)
             last_pred_residual = self.B_d_pinv @ (self.pred_x - nominal_pred_x)
-
-        # if self._viz_simple is not None and self.pred_x is not None and res is not None:
-        #     # Throttle updates to keep GUI snappy and loop light
-        #     if not hasattr(self, "_viz_simple_last_t"):
-        #         self._viz_simple_last_t = 0.0
-        #     now = time.perf_counter()
-        #     if (now - self._viz_simple_last_t) >= 2.0:
-        #         t_viz_start = time.perf_counter()
-        #         mu = last_pred_residual
-        #         if measured_residual is not None:
-        #             self._viz_simple.update(time.monotonic(), mu, measured_residual)
-        #         else:
-        #             self._viz_simple.update(time.monotonic(), mu, None)
-        #         self._viz_simple_last_t = now
-        #         viz_time += time.perf_counter() - t_viz_start
 
         if (measured_residual is not None) and (last_pred_residual is not None):
             mr = np.asarray(measured_residual, dtype=np.float64).reshape(-1)
@@ -579,7 +557,7 @@ class LBMPC:
         self.prev_acc = self.acceleration
         self.jerk = self.u0[InputIndex.JERK.value]
 
-        # Vizualization purposes
+        # Metrics calculation purposes
         self.previous_pred_x = self.l4a_solver.get(delayed_index - 1, "x")
         self.previous_pred_u = self.l4a_solver.get(delayed_index - 1, "u")
 
@@ -608,7 +586,6 @@ class LBMPC:
             # NEW: per-section accumulators
             self._timing_init_sum = 0.0
             self._timing_residual_sum = 0.0
-            self._timing_viz_sum = 0.0
             self._timing_rest_sum = 0.0
 
         # --- Residual performance accumulators (lazy init) ---
@@ -621,7 +598,6 @@ class LBMPC:
         self._timing_sum += _elapsed
         self._timing_init_sum += init_time
         self._timing_residual_sum += residual_time
-        self._timing_viz_sum += viz_time
         self._timing_rest_sum += rest_time
         self._timing_count += 1
 
@@ -636,14 +612,12 @@ class LBMPC:
             max_ms = self._timing_max * 1e3
             init_ms = (self._timing_init_sum / denom) * 1e3
             residual_ms = (self._timing_residual_sum / denom) * 1e3
-            viz_ms = (self._timing_viz_sum / denom) * 1e3
             rest_ms = (self._timing_rest_sum / denom) * 1e3
 
             print(
                 f"[LBMPC] Lap {self.nr_laps}: "
                 f"avg = {avg_ms:.2f} ms "
                 f"(init={init_ms:.2f}, residual={residual_ms:.2f}, "
-                f"viz={viz_ms:.2f}, rest={rest_ms:.2f}), "
                 f"max = {max_ms:.2f} ms over {self._timing_count} iters"
             )
 
@@ -670,7 +644,6 @@ class LBMPC:
             self._timing_sum = 0.0
             self._timing_init_sum = 0.0
             self._timing_residual_sum = 0.0
-            self._timing_viz_sum = 0.0
             self._timing_rest_sum = 0.0
             self._timing_count = 0
             self._timing_max = 0.0
