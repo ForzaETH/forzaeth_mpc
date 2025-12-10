@@ -1,6 +1,6 @@
-import hashlib
 import os
 import re
+import time
 from pathlib import Path
 from typing import Union
 
@@ -14,8 +14,10 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_str
     OnlineLearningStrategy, RecordDataStrategy, VoidDataStrategy)
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
+from lbmpc.scripts.viz.ResidualViz import ResidualRealtimeViz
 from lbmpc.src.acados_solver_settings import build_ocp_for_l4acados
 from lbmpc.src.utils.indicies import InputIndex, StateIndex
+from lbmpc.src.utils.utils import check_file_changes, load_tensor_data
 from pbl_config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
@@ -39,7 +41,9 @@ class LBMPC:
                  tire_config: PacejkaTireConfig,
                  trailing_config: TrailingConfig,
                  controller_frequency: float,
-                 using_gokart: bool) -> None:
+                 using_gokart: bool,
+                 lbmpc_path: str,
+                 params_path: str) -> None:
 
         # Store configs
         self.racecar_version = racecar_version
@@ -51,16 +55,17 @@ class LBMPC:
         self.using_gokart = using_gokart
 
         # TODO: FORCE MODEL MISMATCH TO TEST GP
-        self.tire_config.friction_coeff = 2.0
+        self.tire_config.friction_coeff = 0.5
+        # self.car_config.m = 10
 
         # Initialize parameters
-        self.mpc_init_params()
+        self._mpc_init_params()
 
         # Initialize solver with waypoints
-        self.mpc_initialize_solver(pose_frenet, waypoints_data)
+        self._mpc_initialize_solver(pose_frenet, waypoints_data)
 
         # Initialize Residual model
-        self.lbmpc_path = "/home/gil/catkin_ws/src/race_stack/controller/lbmpc"  # TODO: handle this
+        self.lbmpc_path = lbmpc_path
         self.use_gp = self.lbmpc_config.gp_params.use_gp
 
         # Build the B matrix, B_d_pinv and nw
@@ -77,16 +82,18 @@ class LBMPC:
             self.use_inducing_gp = False
             self.learn_online = False
             self.B = None
+            self._viz_simple = None
 
+        solver_settings_file_name = os.path.join(self.lbmpc_path, "src", "acados_solver_settings.py")
+        bicycle_model_file_name = os.path.join(self.lbmpc_path, "src", "bicycle_model.py")
+        params_file_name = os.path.join(params_path, "lb_mpc_params.yaml")
         mpc_files_to_watch = [
-            "lbmpc/src/acados_solver_settings.py",
-            "lbmpc/src/bicycle_model.py",
-            "lbmpc/src/solver.yaml",               # TODO: to modify
+            solver_settings_file_name,
+            bicycle_model_file_name,
+            params_file_name,
         ]
-        build_hash_path = "lbmpc/build/build_c_code_hash.md5"
-
-        # TODO: To be used
-        build_c_code = True  # check_file_changes(mpc_files_to_watch, build_hash_path)
+        build_hash_path = os.path.join(self.lbmpc_path, "data/hash", "build_c_code_hash.md5")
+        build_c_code = check_file_changes(mpc_files_to_watch, build_hash_path)
 
         path_json_ocp = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_ocp_solver_config.json")
         path_json_sim = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
@@ -111,12 +118,18 @@ class LBMPC:
             self.sim_solver = None
 
         # Apply warm start
-        self.apply_warm_start(pose_frenet=pose_frenet)
+        self._apply_warm_start(pose_frenet=pose_frenet)
 
         self._prev_state_for_residual = None
         self._prev_input_for_residual = None
+        self.last_status = 0
+        self.x_pred_nom = None
+        self.pred_x = None
+        self.previous_pred_x = None
+        self.previous_pred_u = None
+        self.count = 0
 
-    def mpc_init_params(self) -> None:
+    def _mpc_init_params(self) -> None:
         # MPC parameters
         self.t_MPC = 1 / self.lbmpc_config.MPC_freq
         self.t_delay = self.lbmpc_config.t_delay + self.t_MPC  # TODO: decide what to do with delay
@@ -142,7 +155,7 @@ class LBMPC:
         self.v_diff = None
         self.i_gap = 0
 
-    def mpc_initialize_solver(self, pose_frenet: np.ndarray, waypoints_data: np.ndarray) -> None:
+    def _mpc_initialize_solver(self, pose_frenet: np.ndarray, waypoints_data: np.ndarray) -> None:
         """Initialize solver with waypoints data (no ROS dependency)"""
 
         # Extract waypoint data - assuming format: [x, y, vx, kappa, s, d_left, d_right]
@@ -157,7 +170,7 @@ class LBMPC:
         # Initialize frenet converter
         self.fren_conv = FrenetConverter(x, y)
 
-        coords_path = self.transform_waypoints_to_coords_from_array(waypoints_data=waypoints_data)
+        coords_path = self._transform_waypoints_to_coords_from_array(waypoints_data=waypoints_data)
         self.spline = SplineTrack(coords_direct=coords_path)
 
         # Initialize lap counter
@@ -214,6 +227,12 @@ class LBMPC:
                 f"Invalid data_processing_mode: {self.mode}. Must be one of ['none', 'record', 'learn']"
             )
 
+        # Initialize visualization
+        # if self.mode == "learn":
+        #     self._viz_simple = ResidualRealtimeViz(window_seconds=20.0, target_hz=20.0)
+        # else:
+        #     self._viz_simple = None
+
         # buffers to save first datapoints until min_points_before_using_gp is reached
         self._gp_buffer_z = []
         self._gp_buffer_y = []
@@ -222,7 +241,7 @@ class LBMPC:
         # In case we want to try an already learned model in another track
         z_train_data, y_train_data = None, None
         if self.mode == "use_prerecorded_data":
-            z_train_data, y_train_data = self._load_tensor_data(z_path, y_path)
+            z_train_data, y_train_data = load_tensor_data(z_path, y_path)
 
             # Apply feature selectionº
             z_train_data = self._input_feature_selector(z_train_data)
@@ -254,6 +273,9 @@ class LBMPC:
                 "kernel.outputscale": "covar_module.outputscale",
             }
         else:
+            num_inducing = gp_cfg.num_inducing_points
+            in_dim = int(sum(input_selection))
+            inducing_zeros = torch.zeros((num_inducing, in_dim), dtype=torch.float32)
             gp_model = BatchIndependentInducingPointGPModel(
                 train_x=z_train_data,
                 train_y=y_train_data,
@@ -262,7 +284,7 @@ class LBMPC:
                 ),
                 residual_dimension=self._nw_gp,
                 input_dimension=sum(input_selection),
-                inducing_points=gp_cfg.num_inducing_points,  # TODO: wrong initialization
+                inducing_points=inducing_zeros,
                 use_ard=True,
             )
             hyperparameter_names_dict = {
@@ -331,6 +353,12 @@ class LBMPC:
         self.track_length = self.spline.track_length
         self.comp_time = compute_time
 
+        _t0 = time.perf_counter()
+        init_time = 0.0
+        residual_time = 0.0
+        viz_time = 0.0
+        rest_time = 0.0
+
         # Heading correction
         center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
@@ -353,6 +381,9 @@ class LBMPC:
             self.fre_s, self.fre_d, self.fre_alpha,
             speed_now, self.vel_y, self.yaw_rate, self.measured_steer, self.measured_acc
         ], dtype=np.float64)
+
+        _t1 = time.perf_counter()
+        init_time = _t1 - _t0
 
         # Record new datapoints. Until we don't have at least self.min_points_before_using_gp
         # if (
@@ -383,15 +414,58 @@ class LBMPC:
         #         # 2) If warm-up is finished, directly add each new datapoint
         #         else:
         #             self.residual_gp.record_datapoint(z_train, residual)
+        res = None
+        measured_residual = None
+        last_pred_residual = None
         if (
             self.use_gp
             and self.residual_gp is not None
             and getattr(self, "mode", None) in ("learn", "record")
         ):
+            t_res_start = time.perf_counter()
             res = self._compute_residual(new_state=x0)
-            if res is not None:
+            self.count += 1
+            if res is not None and (self.last_status == 0 or self.last_status ==
+                                    2) and self.nr_laps >= 3 and self.count >= 1:
                 z_train, residual = res
                 self.residual_gp.record_datapoint(z_train, residual)
+                self.count = 0
+            residual_time += time.perf_counter() - t_res_start
+
+        if self.pred_x is not None and res is not None:
+            # measured residual r_k = B^+ (x_k - f_nominal(x_{k-1}, u_{k-1}))
+            _, measured_residual = res
+
+            # Predicted residual {mpc first solution - nominal(x_prev, u_prev)}
+            nominal_pred_x = self._predict_next_state_nominal(self.previous_pred_x, self.previous_pred_u)
+            last_pred_residual = self.B_d_pinv @ (self.pred_x - nominal_pred_x)
+
+        # if self._viz_simple is not None and self.pred_x is not None and res is not None:
+        #     # Throttle updates to keep GUI snappy and loop light
+        #     if not hasattr(self, "_viz_simple_last_t"):
+        #         self._viz_simple_last_t = 0.0
+        #     now = time.perf_counter()
+        #     if (now - self._viz_simple_last_t) >= 2.0:
+        #         t_viz_start = time.perf_counter()
+        #         mu = last_pred_residual
+        #         if measured_residual is not None:
+        #             self._viz_simple.update(time.monotonic(), mu, measured_residual)
+        #         else:
+        #             self._viz_simple.update(time.monotonic(), mu, None)
+        #         self._viz_simple_last_t = now
+        #         viz_time += time.perf_counter() - t_viz_start
+
+        if (measured_residual is not None) and (last_pred_residual is not None):
+            mr = np.asarray(measured_residual, dtype=np.float64).reshape(-1)
+            pr = np.asarray(last_pred_residual, dtype=np.float64).reshape(-1)
+
+            # Use only the first 3 residual components as requested
+            if mr.size >= 3 and pr.size >= 3:
+                abs_err = np.abs(pr[:3] - mr[:3])
+                self._res_abs_err_sum += abs_err
+                self._res_err_count += 1
+
+        rest_start = time.perf_counter()
 
         # Update inducing points
         self._update_inducing_points_along_horizon()
@@ -406,7 +480,7 @@ class LBMPC:
 
         # Trailing control
         if (self.state == "TRAILING") and (self.opponent is not None):
-            self.trailing_command = self.trailing_controller(self.waypoint_array_in_map[0, 2])
+            self.trailing_command = self._trailing_controller(self.waypoint_array_in_map[0, 2])
         else:
             self.i_gap = 0  # reset integral if not trailing
 
@@ -477,9 +551,18 @@ class LBMPC:
             msg = str(e)
             m = re.search(r'status\s+(\d+)', msg)
             status = int(m.group(1)) if m else -1
-            print(
-                f"[MPC Controller] Solver failed with message = {msg}.\n Status = {status}.\n Applying warm start again.")
-            self.apply_warm_start(pose_frenet=[self.fre_s, self.fre_d, self.fre_alpha])
+            # print(
+            # f"[MPC Controller] Solver failed with message = {msg}.\n Status =
+            # {status}.\n Applying warm start again.")
+            self._apply_warm_start(
+                pose_frenet=[
+                    self.fre_s,
+                    self.fre_d,
+                    self.fre_alpha],
+                actual_speed=self.speed_now,
+                actual_acc=self.measured_acc)
+
+        self.last_status = status
 
         # Actual cost of the problem, in case wanting to log
         # current_cost = self.l4a_solver.get_cost()
@@ -496,6 +579,10 @@ class LBMPC:
         self.prev_acc = self.acceleration
         self.jerk = self.u0[InputIndex.JERK.value]
 
+        # Vizualization purposes
+        self.previous_pred_x = self.l4a_solver.get(delayed_index - 1, "x")
+        self.previous_pred_u = self.l4a_solver.get(delayed_index - 1, "u")
+
         # Update steering buffer
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
         self.steering_angle_buf[0] = self.steering_angle
@@ -506,6 +593,88 @@ class LBMPC:
 
         self._prev_state_for_residual = x0.copy()
         self._prev_input_for_residual = self.u0.copy()    # [ddelta, jerk]
+
+        # Comput time
+        # Comput time (total + per-section)
+        _now = time.perf_counter()
+        rest_time = _now - rest_start          # everything after rest_start
+        _elapsed = _now - _t0                  # full main_loop duration
+
+        if not hasattr(self, "_timing_sum"):
+            self._timing_sum = 0.0
+            self._timing_count = 0
+            self._timing_max = 0.0
+            self._timing_last_report = time.perf_counter()
+            # NEW: per-section accumulators
+            self._timing_init_sum = 0.0
+            self._timing_residual_sum = 0.0
+            self._timing_viz_sum = 0.0
+            self._timing_rest_sum = 0.0
+
+        # --- Residual performance accumulators (lazy init) ---
+        if not hasattr(self, "_res_abs_err_sum"):
+            # We track per-component absolute error for the 3D residual
+            self._res_abs_err_sum = np.zeros(3, dtype=np.float64)
+            self._res_err_count = 0
+            self._res_last_lap = -1
+
+        self._timing_sum += _elapsed
+        self._timing_init_sum += init_time
+        self._timing_residual_sum += residual_time
+        self._timing_viz_sum += viz_time
+        self._timing_rest_sum += rest_time
+        self._timing_count += 1
+
+        if _elapsed > self._timing_max:
+            self._timing_max = _elapsed
+
+        # Print once per lap
+        if self.nr_laps > getattr(self, "_timing_last_lap", -1):
+            denom = max(1, self._timing_count)
+
+            avg_ms = (self._timing_sum / denom) * 1e3
+            max_ms = self._timing_max * 1e3
+            init_ms = (self._timing_init_sum / denom) * 1e3
+            residual_ms = (self._timing_residual_sum / denom) * 1e3
+            viz_ms = (self._timing_viz_sum / denom) * 1e3
+            rest_ms = (self._timing_rest_sum / denom) * 1e3
+
+            print(
+                f"[LBMPC] Lap {self.nr_laps}: "
+                f"avg = {avg_ms:.2f} ms "
+                f"(init={init_ms:.2f}, residual={residual_ms:.2f}, "
+                f"viz={viz_ms:.2f}, rest={rest_ms:.2f}), "
+                f"max = {max_ms:.2f} ms over {self._timing_count} iters"
+            )
+
+            # ----- NEW: Residual performance printout -----
+            if self._res_err_count > 0:
+                mae = self._res_abs_err_sum / float(self._res_err_count)
+                # Report the three components explicitly; rename labels if you prefer
+                print(
+                    "[Residual] Lap {}: MAE | r[0]={:.4e}, r[1]={:.4e}, r[2]={:.4e} "
+                    "(based on {} samples)".format(
+                        self.nr_laps, mae[0], mae[1], mae[2], self._res_err_count
+                    )
+                )
+            else:
+                print(f"[Residual] Lap {self.nr_laps}: no residual data available this lap.")
+
+            # Reset residual counters for the next lap
+            self._res_abs_err_sum[:] = 0.0
+            self._res_err_count = 0
+            self._res_last_lap = self.nr_laps
+            # ---------------------------------------------
+
+            # reset timing stats for the next lap
+            self._timing_sum = 0.0
+            self._timing_init_sum = 0.0
+            self._timing_residual_sum = 0.0
+            self._timing_viz_sum = 0.0
+            self._timing_rest_sum = 0.0
+            self._timing_count = 0
+            self._timing_max = 0.0
+            self._timing_last_lap = self.nr_laps
 
         states_list = None
         if status == 0 or status == 2:
@@ -518,14 +687,10 @@ class LBMPC:
         else:
             return 0.0, 0.0, 0.0, self.measured_steer, states_list, status
 
-    def apply_warm_start(self, pose_frenet: np.ndarray):
+    def _apply_warm_start(self, pose_frenet: np.ndarray, actual_speed=1.0, actual_acc=1.0):
         """
         Generates and applies a simple initial guess considering constant inputs.
         """
-        # TODO: add them as params
-        const_acc = 1.0
-        const_steer_vel = 0.0
-
         nx = int(self.model.n_x)
         nu = int(self.model.n_u)
         N = self.lbmpc_config.N
@@ -534,9 +699,10 @@ class LBMPC:
         x0[StateIndex.POS_ON_CENTER_LINE_S.value] = pose_frenet[0]
         x0[StateIndex.MIN_DIST_TO_CENTER_LINE_N.value] = pose_frenet[1]
         x0[StateIndex.ORIENTATION_THETA.value] = pose_frenet[2]
-        x0[StateIndex.VELOCITY_V_X.value] = 1.0  # TODO: perhaps max(actual_speed, 1.0) ?
-        x0[StateIndex.ACCEL.value] = const_acc
+        x0[StateIndex.VELOCITY_V_X.value] = max(actual_speed, 1.0)
+        x0[StateIndex.ACCEL.value] = actual_acc
 
+        const_steer_vel = 0.0
         u0 = np.zeros(nu)
         u0[InputIndex.D_STEERING_ANGLE.value] = const_steer_vel
 
@@ -553,7 +719,7 @@ class LBMPC:
             x_prev = x_next
 
     # TODO: Shouldn't we use the previous results?
-    def update_warm_start(self) -> None:
+    def _update_warm_start(self) -> None:
         """
         Propagate states along the horizon with the current inputs,
         using the learned model (nominal + GP).
@@ -574,7 +740,7 @@ class LBMPC:
                 next_inputs = self.l4a_solver.get(i + 1, "u")
                 self.l4a_solver.set(i, "u", next_inputs)
 
-    def propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
+    def _propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
         """
         Forward propagate current state over self.t_delay with discrete steps of the nominal model.
         """
@@ -600,61 +766,6 @@ class LBMPC:
 
         return x
 
-    # # TODO: when acados sim validated, remove this
-    # def propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
-    #     """
-    #     RK45 forward propagation using acados model.
-    #     """
-    #     x0 = np.concatenate((states, [inputs[0]], [0]), axis=0)
-    #     self.t_delay = 0.0
-
-    #     solution = solve_ivp(  # TODO: use acados sim
-    #         self._dynamics_of_car,
-    #         t_span=[0, self.t_delay],
-    #         y0=x0,
-    #         method='RK45',
-    #         atol=1e-4,
-    #         rtol=1e-4
-    #     )
-
-    #     sol = [x[-1] for x in solution.y]
-
-    #     # Heading saturation
-    #     if abs(sol[5]) > self.constraint.delta_max:
-    #         sol[5] = np.sign(sol[5]) * self.constraint.delta_max
-    #     # Longitudinal velocity saturation
-    #     if abs(sol[3]) > self.constraint.v_x_max:
-    #         sol[3] = np.sign(sol[3]) * self.constraint.v_x_max
-    #     # Min velocity
-    #     if abs(sol[3]) < self.constraint.v_x_min:
-    #         sol[3] = self.constraint.v_x_min
-
-    #     return np.array(sol)[:-2]
-
-    # TODO: when acados sim validated, remove this function
-    def _dynamics_of_car(self, t, x0) -> list:
-        '''
-        Used for forward propagation. This function takes the dynamics from the acados model.
-        '''
-
-        s = x0[0]
-        n = x0[1]
-        theta = x0[2]
-        v_x = x0[3]
-        v_y = x0[4]
-        yaw_rate = x0[5]
-        delta = x0[6]
-        accel = x0[7]
-        derDelta = x0[8]
-        jerk = x0[9]
-        xdot = self.model.f_expl_func(
-            s, n, theta, v_x, v_y, yaw_rate, delta, accel, derDelta, jerk, self.model_params.p)
-
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), 0.0, 0.0]
-
-        return xdot
-
     def _compute_residual(self, new_state: np.ndarray):
         """
         Compute residual y = B^+ (x_meas(k) - f(x(k-1), u(k-1))).
@@ -668,17 +779,17 @@ class LBMPC:
         u_prev = self._prev_input_for_residual
 
         # 1-step prediction with nominal model
-        x_pred = self._predict_next_state_nominal(x_prev, u_prev)
+        x_pred_nom = self._predict_next_state_nominal(x_prev, u_prev)
 
         # Training input: [x_prev, u_prev] (full vector)
         z_train = np.concatenate((x_prev, u_prev))
 
         # Residual in selected coordinates
-        residual = self.B_d_pinv @ (new_state - x_pred)
+        residual = self.B_d_pinv @ (new_state - x_pred_nom)
 
         return z_train, residual
 
-    def trailing_controller(self, global_speed: float) -> float:
+    def _trailing_controller(self, global_speed: float) -> float:
         # opponent: [s, d, v_s, v_d, has_los]
         self.gap = (self.opponent[0] - self.position_in_map_frenet[0]) % self.track_length
         self.gap_actual = self.gap
@@ -702,7 +813,7 @@ class LBMPC:
 
         return trailing_cmd
 
-    def transform_waypoints_to_coords_from_array(self, waypoints_data: np.ndarray) -> np.ndarray:
+    def _transform_waypoints_to_coords_from_array(self, waypoints_data: np.ndarray) -> np.ndarray:
         """
         Build track coordinates (left boundary, centerline, right boundary) from an
         ndarray of waypoints.
@@ -834,27 +945,13 @@ class LBMPC:
         One-step nominal prediction using either acados sim_solver (if available)
         or the continuous model with Euler discretization.
         """
-        if self.sim_solver is not None:
-            # Use acados sim solver created by ResidualLearningMPC
-            self.sim_solver.set("x", x.astype(float))
-            self.sim_solver.set("u", u.astype(float))
-            self.sim_solver.set("p", np.array(self.model_params.p, dtype=float))
-            status = self.sim_solver.solve()
-            if status != 0:
-                # fall back to Euler if sim fails
-                state_with_input = np.concatenate((x, u))
-                xdot = self._dynamics_of_car(0.0, state_with_input)
-                Ts = 1.0 / self.lbmpc_config.MPC_freq
-                return x + Ts * np.array(xdot)[: self.model.n_x]
-
-            x_next = self.sim_solver.get("x")
-            return np.array(x_next, dtype=float).reshape(-1)
-
-        # Fallback: continuous-time model + Euler
-        state_with_input = np.concatenate((x, u))
-        xdot = self._dynamics_of_car(0.0, state_with_input)
-        Ts = 1.0 / self.lbmpc_config.MPC_freq
-        return x + Ts * np.array(xdot)[: self.model.n_x]
+        # Use acados sim solver created by ResidualLearningMPC
+        self.sim_solver.set("x", x.astype(float))
+        self.sim_solver.set("u", u.astype(float))
+        self.sim_solver.set("p", np.array(self.model_params.p, dtype=float))
+        status = self.sim_solver.solve()  # TODO: Use status to print if something is wrong at least
+        x_next = self.sim_solver.get("x")
+        return np.array(x_next, dtype=float).reshape(-1)
 
     def _predict_next_state_with_gp(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         """
@@ -869,62 +966,8 @@ class LBMPC:
 
         xu = np.concatenate((x, u))[None, :]  # shape (1, nx+nu)
         # GPyTorchResidualModel interface: TODO: check actual method name
-        mu_residual, _ = self.residual_gp.predict(xu)
+        mu_residual, _ = self.residual_gp.value_and_jacobian(xu)
         mu_residual = mu_residual.detach().cpu().numpy().reshape(-1)  # (nw,)
 
         delta_x = self.B @ mu_residual  # (nx,)
         return x_next_nom + delta_x
-
-    @staticmethod
-    def _load_tensor_data(z_path: str, y_path: str):
-        """
-        Load offline data from CSV into float32 torch tensors.
-
-        z_path: CSV with inputs, shape (N, nx+nu) or (N,)
-        y_path: CSV with residuals, shape (N, nw) or (N,)
-        """
-        try:
-            x_np = np.genfromtxt(z_path, delimiter=",")
-            x_tensor = torch.from_numpy(x_np).type(torch.float32)
-            if x_tensor.dim() == 1:
-                x_tensor = x_tensor.unsqueeze(-1)
-        except FileNotFoundError:
-            print(f"[LBMPC] File {z_path} does not exist.")
-            x_tensor = None
-
-        try:
-            y_np = np.genfromtxt(y_path, delimiter=",")
-            y_tensor = torch.from_numpy(y_np).type(torch.float32)
-            if y_tensor.dim() == 1:
-                y_tensor = y_tensor.unsqueeze(-1)
-        except FileNotFoundError:
-            print(f"[LBMPC] File {y_path} does not exist.")
-            y_tensor = None
-
-        return x_tensor, y_tensor
-
-
-def check_file_changes(file_paths, hash_file_path) -> bool:
-    """
-        Return True if any of the files in `file_paths` changed since last call.
-
-        It computes an MD5 over the concatenation of the file contents and compares
-        it with the MD5 stored in `hash_file_path`. If it's different (or the file
-        does not exist), it writes the new hash and returns True.
-
-        This is the same idea as in the ZOGPMPC controller.
-        """
-    m = hashlib.md5()
-    for fp in file_paths:
-        with open(fp, "rb") as f:
-            m.update(f.read())
-    new_hash = m.hexdigest()
-
-    hash_path = Path(hash_file_path)
-    if hash_path.exists():
-        old_hash = hash_path.read_text().strip()
-        if old_hash == new_hash:
-            return False
-
-    hash_path.write_text(new_hash)
-    return True

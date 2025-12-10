@@ -63,7 +63,7 @@ def main():
 
 
 def train_gp_model(
-    gp_model, torch_seed=None, training_iterations=400, learning_rate=0.1
+    gp_model, torch_seed=None, training_iterations=1000, learning_rate=0.01
 ):
     if torch_seed is not None:
         torch.manual_seed(torch_seed)
@@ -89,8 +89,10 @@ def train_gp_model(
 
     for i in range(training_iterations):
         optimizer.zero_grad()
-        output = likelihood(gp_model(train_x))
-        loss = -mll(output, train_y.reshape((train_y.numel(),)))
+        # output = likelihood(gp_model(train_x))
+        # loss = -mll(output, train_y.reshape((train_y.numel(),)))
+        output = gp_model(train_x)
+        loss = -mll(output, train_y)
 
         num_loss_below_threshold = (
             num_loss_below_threshold + 1 if abs(loss - prev_loss) < 5e-4 else 0
