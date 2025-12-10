@@ -8,12 +8,11 @@ import gpytorch
 import numpy as np
 import torch
 from frenet_converter.frenet_converter import FrenetConverter
-from lbmpc.l4acados.src.l4acados.controllers import ResidualLearningMPC
-from lbmpc.l4acados.src.l4acados.models import (GPyTorchResidualModel,
-                                                PyTorchFeatureSelector)
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
+from l4acados.controllers import ResidualLearningMPC
+from l4acados.models import GPyTorchResidualModel, PyTorchFeatureSelector
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
     OnlineLearningStrategy, RecordDataStrategy, VoidDataStrategy)
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
 from lbmpc.src.acados_solver_settings import build_ocp_for_l4acados
 from lbmpc.src.utils.indicies import InputIndex, StateIndex
@@ -378,6 +377,11 @@ class LBMPC:
         _t1 = time.perf_counter()
         init_time = _t1 - _t0
 
+        # Delay compensation
+        self.t_delay = 0.0
+        propagated_x = x0
+        self.propagated_x = propagated_x
+
         # Record new datapoints. Until we don't have at least self.min_points_before_using_gp
         # if (
         #     self.use_gp
@@ -410,13 +414,14 @@ class LBMPC:
         res = None
         measured_residual = None
         last_pred_residual = None
+        self.nominal_pred_x = None
         if (
             self.use_gp
             and self.residual_gp is not None
             and getattr(self, "mode", None) in ("learn", "record")
         ):
             t_res_start = time.perf_counter()
-            res = self._compute_residual(new_state=x0)
+            res = self._compute_residual(new_state=propagated_x)  # x0
             self.count += 1
             if res is not None and (self.last_status == 0 or self.last_status ==
                                     2) and self.nr_laps >= 3 and self.count >= 1:
@@ -432,6 +437,7 @@ class LBMPC:
             # Predicted residual {mpc first solution - nominal(x_prev, u_prev)}
             nominal_pred_x = self._predict_next_state_nominal(self.previous_pred_x, self.previous_pred_u)
             last_pred_residual = self.B_d_pinv @ (self.pred_x - nominal_pred_x)
+            self.nominal_pred_x = nominal_pred_x
 
         if (measured_residual is not None) and (last_pred_residual is not None):
             mr = np.asarray(measured_residual, dtype=np.float64).reshape(-1)
@@ -443,14 +449,25 @@ class LBMPC:
                 self._res_abs_err_sum += abs_err
                 self._res_err_count += 1
 
+        viz_information = None
+        if (self.propagated_x is not None) and (self.pred_x is not None):
+            # If nominal_pred_x was not computed this step, fill with NaNs to keep size consistent
+            if self.nominal_pred_x is None:
+                nominal_pred_x_for_viz = np.full_like(self.pred_x, np.nan, dtype=np.float64)
+            else:
+                nominal_pred_x_for_viz = np.asarray(self.nominal_pred_x, dtype=np.float64).reshape(-1)
+
+            propagated_for_viz = np.asarray(self.propagated_x, dtype=np.float64).reshape(-1)
+            pred_for_viz = np.asarray(self.pred_x, dtype=np.float64).reshape(-1)
+
+            viz_information = np.concatenate(
+                [propagated_for_viz, pred_for_viz, nominal_pred_x_for_viz]
+            )
+
         rest_start = time.perf_counter()
 
         # Update inducing points
         self._update_inducing_points_along_horizon()
-
-        # Delay compensation
-        self.t_delay = 0.0
-        propagated_x = x0
 
         # Fix initial state
         self.l4a_solver.set(0, "lbx", propagated_x)
@@ -617,7 +634,7 @@ class LBMPC:
             print(
                 f"[LBMPC] Lap {self.nr_laps}: "
                 f"avg = {avg_ms:.2f} ms "
-                f"(init={init_ms:.2f}, residual={residual_ms:.2f}, "
+                f"(init={init_ms:.2f}, residual={residual_ms:.2f}, rest={rest_ms:.2f}) "
                 f"max = {max_ms:.2f} ms over {self._timing_count} iters"
             )
 
@@ -656,9 +673,9 @@ class LBMPC:
                 result = self.l4a_solver.get(node, "x").tolist()
                 for item in result:
                     states_list.append(item)
-            return self.speed, self.acceleration, self.jerk, self.steering_angle, states_list, status
+            return self.speed, self.acceleration, self.jerk, self.steering_angle, states_list, status, viz_information
         else:
-            return 0.0, 0.0, 0.0, self.measured_steer, states_list, status
+            return 0.0, 0.0, 0.0, self.measured_steer, states_list, status, viz_information
 
     def _apply_warm_start(self, pose_frenet: np.ndarray, actual_speed=1.0, actual_acc=1.0):
         """

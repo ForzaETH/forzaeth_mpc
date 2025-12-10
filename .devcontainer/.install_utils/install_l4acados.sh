@@ -8,7 +8,7 @@ echo "=== [install_l4acados] start ==="
 PROJECT_DIR="${PROJECT_DIR:-/home/${USER:-$(whoami)}/catkin_ws/src/race_stack}"
 
 # Submodule path
-L4A_REL="controller/mpc/learning_based_mpc/l4acados"
+L4A_REL="controller/lbmpc/l4acados"
 L4A_DIR="${PROJECT_DIR}/${L4A_REL}"
 L4A_EXTERNAL_DIR="${L4A_DIR}/external"
 

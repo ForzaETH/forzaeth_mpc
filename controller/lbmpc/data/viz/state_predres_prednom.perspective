@@ -1,0 +1,181 @@
+{
+  "keys": {},
+  "groups": {
+    "mainwindow": {
+      "keys": {
+        "geometry": {
+          "repr(QByteArray.hex)": "QtCore.QByteArray(b'01d9d0cb0003000000000046000004530000077f000008e700000046000004780000077f000008e70000000000000000078000000046000004780000077f000008e7')",
+          "type": "repr(QByteArray.hex)",
+          "pretty-print": "     F S     F x          F x    "
+        },
+        "state": {
+          "repr(QByteArray.hex)": "QtCore.QByteArray(b'000000ff00000000fd00000001000000030000073a00000446fc0100000001fc000000000000073a0000011300fffffffc0200000003fb00000042007200710074005f0070006c006f0074005f005f0050006c006f0074005f005f0031005f005f00440061007400610050006c006f007400570069006400670065007401000000140000016d0000008800fffffffb00000042007200710074005f0070006c006f0074005f005f0050006c006f0074005f005f0032005f005f00440061007400610050006c006f007400570069006400670065007401000001870000015e0000008800fffffffb00000042007200710074005f0070006c006f0074005f005f0050006c006f0074005f005f0033005f005f00440061007400610050006c006f007400570069006400670065007401000002eb0000016f0000008800ffffff0000073a0000000000000004000000040000000800000008fc00000001000000030000000100000036004d0069006e0069006d0069007a006500640044006f0063006b00570069006400670065007400730054006f006f006c0062006100720000000000ffffffff0000000000000000')",
+          "type": "repr(QByteArray.hex)",
+          "pretty-print": "                   :                                              m                                           ^                                           o     :                                                      "
+        }
+      },
+      "groups": {
+        "toolbar_areas": {
+          "keys": {
+            "MinimizedDockWidgetsToolbar": {
+              "repr": "8",
+              "type": "repr"
+            }
+          },
+          "groups": {}
+        }
+      }
+    },
+    "pluginmanager": {
+      "keys": {
+        "running-plugins": {
+          "repr": "{'rqt_plot/Plot': [1, 2, 3]}",
+          "type": "repr"
+        }
+      },
+      "groups": {
+        "plugin__rqt_plot__Plot__1": {
+          "keys": {},
+          "groups": {
+            "dock_widget__DataPlotWidget": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'MatPlot'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "autoscroll": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "plot_type": {
+                  "repr": "1",
+                  "type": "repr"
+                },
+                "topics": {
+                  "repr": "['/lbmpc/viz_information/data[3]', '/lbmpc/viz_information/data[11]', '/lbmpc/viz_information/data[19]']",
+                  "type": "repr"
+                },
+                "x_limits": {
+                  "repr": "[287.7968108654022, 372.9214618206024]",
+                  "type": "repr"
+                },
+                "y_limits": {
+                  "repr": "[2.9366876927504006, 6.1686864962051855]",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        },
+        "plugin__rqt_plot__Plot__2": {
+          "keys": {},
+          "groups": {
+            "dock_widget__DataPlotWidget": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'MatPlot (2)'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "autoscroll": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "plot_type": {
+                  "repr": "1",
+                  "type": "repr"
+                },
+                "topics": {
+                  "repr": "['/lbmpc/viz_information/data[4]', '/lbmpc/viz_information/data[12]', '/lbmpc/viz_information/data[20]']",
+                  "type": "repr"
+                },
+                "x_limits": {
+                  "repr": "[229.34818744659424, 305.0025968551636]",
+                  "type": "repr"
+                },
+                "y_limits": {
+                  "repr": "[-0.2850012803103017, 0.5]",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        },
+        "plugin__rqt_plot__Plot__3": {
+          "keys": {},
+          "groups": {
+            "dock_widget__DataPlotWidget": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'MatPlot (3)'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "autoscroll": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "plot_type": {
+                  "repr": "1",
+                  "type": "repr"
+                },
+                "topics": {
+                  "repr": "['/lbmpc/viz_information/data[5]', '/lbmpc/viz_information/data[13]', '/lbmpc/viz_information/data[21]']",
+                  "type": "repr"
+                },
+                "x_limits": {
+                  "repr": "[225.89942455291748, 269.8906409740448]",
+                  "type": "repr"
+                },
+                "y_limits": {
+                  "repr": "[-2.1239841663640107, 2.459204732187002]",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}
