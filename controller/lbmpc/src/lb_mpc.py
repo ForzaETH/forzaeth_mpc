@@ -600,7 +600,6 @@ class LBMPC:
             self._timing_count = 0
             self._timing_max = 0.0
             self._timing_last_report = time.perf_counter()
-            # NEW: per-section accumulators
             self._timing_init_sum = 0.0
             self._timing_residual_sum = 0.0
             self._timing_rest_sum = 0.0
@@ -638,7 +637,6 @@ class LBMPC:
                 f"max = {max_ms:.2f} ms over {self._timing_count} iters"
             )
 
-            # ----- NEW: Residual performance printout -----
             if self._res_err_count > 0:
                 mae = self._res_abs_err_sum / float(self._res_err_count)
                 # Report the three components explicitly; rename labels if you prefer
@@ -690,9 +688,9 @@ class LBMPC:
         x0[StateIndex.MIN_DIST_TO_CENTER_LINE_N.value] = pose_frenet[1]
         x0[StateIndex.ORIENTATION_THETA.value] = pose_frenet[2]
         x0[StateIndex.VELOCITY_V_X.value] = max(actual_speed, 1.0)
-        x0[StateIndex.ACCEL.value] = actual_acc
+        x0[StateIndex.ACCEL.value] = actual_acc  # Maybe 0.0
 
-        const_steer_vel = 0.0
+        const_steer_vel = 0.0  # to figure out
         u0 = np.zeros(nu)
         u0[InputIndex.D_STEERING_ANGLE.value] = const_steer_vel
 
