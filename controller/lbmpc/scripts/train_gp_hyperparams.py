@@ -2,7 +2,7 @@
 import gpytorch
 import numpy as np
 import torch
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import \
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import \
     BatchIndependentMultitaskGPModel
 
 

@@ -54,7 +54,7 @@ class LBMPC:
         self.using_gokart = using_gokart
 
         # TODO: FORCE MODEL MISMATCH TO TEST GP
-        self.tire_config.friction_coeff = 0.5
+        # self.tire_config.friction_coeff = 0.5
         # self.car_config.m = 10
 
         # Initialize parameters
@@ -546,9 +546,8 @@ class LBMPC:
             msg = str(e)
             m = re.search(r'status\s+(\d+)', msg)
             status = int(m.group(1)) if m else -1
-            # print(
-            # f"[MPC Controller] Solver failed with message = {msg}.\n Status =
-            # {status}.\n Applying warm start again.")
+            print(
+                f"[MPC Controller] Solver failed with message={msg}.\n Status={status}.\n Applying warm start again.")
             self._apply_warm_start(
                 pose_frenet=[
                     self.fre_s,
