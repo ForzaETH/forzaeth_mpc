@@ -133,7 +133,7 @@ class LBMPC:
         self.sampling_time_mpc = 1 / self.lbmpc_config.MPC_freq
         self.comput_time = 0.01  # Initial guess, updated with measured computation times
         self.t_delay = self.lbmpc_config.t_delay + self.comput_time
-        self.ma_alpha = self.sampling_time_mpc / (self.sampling_time_mpc + 1.0)  # Moving average window of 1.0 seconds
+        self.ma_alpha = self.sampling_time_mpc / (self.sampling_time_mpc + 5.0)  # Moving average window of 1.0 seconds
         # buffer to save last control inputs
         self.buffer_len = 20
         self.buffer_prev_solutions = np.zeros((2, self.buffer_len), dtype=np.float64)
@@ -160,6 +160,9 @@ class LBMPC:
         self.gap_actual = None
         self.v_diff = None
         self.i_gap = 0
+
+        # First time that exceeds certain velocity
+        self.first_time_done = False
 
     def _mpc_initialize_solver(self, pose_frenet: np.ndarray, waypoints_data: np.ndarray) -> None:
         """Initialize solver with waypoints data (no ROS dependency)"""
@@ -384,6 +387,17 @@ class LBMPC:
         _t1 = time.perf_counter()
         init_time = _t1 - _t0
 
+        if speed_now > 4.0 and not self.first_time_done:
+            self.first_time_done = True
+            print("First time done!")
+
+        if not self.first_time_done:
+            self.t_delay = 0.05
+            self.steps_delay = 3
+        else:
+            self.t_delay = 0.15
+            self.steps_delay = 1
+
         # Simulated delay compensation
         self.propagated_x = self._propagate_time_delay(x0) if self.delay_sim else x0
 
@@ -494,7 +508,7 @@ class LBMPC:
                 if (self.state == "OVERTAKE") and (self.opponent is not None):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
-            if (i < self.lbmpc_config.steps_delay and not self.delay_sim) or speed_now < 2.0:
+            if i < self.lbmpc_config.steps_delay:
                 multiplier = 1e6
                 online_parameters = np.array([
                     target_v_speed,
@@ -568,7 +582,8 @@ class LBMPC:
 
         self.u0 = self.l4a_solver.get(0, "u")
         self.prev_acc = self.l4a_solver.get(0, "x")[StateIndex.ACCEL.value]
-        delayed_index = self.lbmpc_config.steps_delay + 1 if not self.delay_sim else 1
+        delayed_index = self.lbmpc_config.steps_delay + 1 # if not self.delay_sim else 1
+        # delayed_index = delayed_index if speed_now > 2.0 else delayed_index + 3
         self.pred_x = self.l4a_solver.get(delayed_index, "x")
 
         self.steering_angle = self.pred_x[StateIndex.STEERING_ANGLE_DELTA.value]
@@ -589,8 +604,9 @@ class LBMPC:
             self.l4a_solver.get(j, "x")[:2] for j in range(self.lbmpc_config.N + 1)
         ])
 
-        self._prev_state_for_residual = x0.copy()
-        self._prev_input_for_residual = self.u0.copy()    # [ddelta, jerk]
+        # TODO: think about this
+        self._prev_state_for_residual = self.previous_pred_x # x0.copy()
+        self._prev_input_for_residual = self.previous_pred_u # self.u0.copy()    # [ddelta, jerk]
 
         # Comput time
         # Comput time (total + per-section)
@@ -600,7 +616,7 @@ class LBMPC:
 
         # Update computational time calculation with moving average
         self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
-        self.t_delay = float(self.lbmpc_config.t_delay) + float(self.comput_time)
+        self.t_delay = float(self.lbmpc_config.t_delay) # + float(self.comput_time)
         # Shift all solutions and att the new one
         self.buffer_prev_solutions[:, 1:] = self.buffer_prev_solutions[:, :-1]
         self.buffer_prev_solutions[:, 0] = np.asarray(self.u0, dtype=np.float64).reshape(2,)
@@ -746,11 +762,12 @@ class LBMPC:
         x = x0
         n_steps = int(np.floor(self.t_delay / self.sampling_time_mpc))
         n_steps = min(n_steps, self.buffer_len, self.buf_filled)
-        for j in range(n_steps - 1, -1, -1):
-            x = self._predict_next_state_nominal(  # TODO: use residual as well
-                x,
-                self.buffer_prev_solutions[:, j]
-            )
+        if x[StateIndex.VELOCITY_V_X.value] > 1.5:
+            for j in range(n_steps - 1, -1, -1):
+                x = self._predict_next_state_nominal(  # TODO: use residual as well
+                    x,
+                    self.buffer_prev_solutions[:, j]
+                )
 
         # Saturations as before
         if abs(x[StateIndex.STEERING_ANGLE_DELTA.value]) > self.constraint.delta_max:
