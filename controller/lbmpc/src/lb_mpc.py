@@ -130,8 +130,15 @@ class LBMPC:
 
     def _mpc_init_params(self) -> None:
         # MPC parameters
-        self.t_MPC = 1 / self.lbmpc_config.MPC_freq
-        self.t_delay = self.lbmpc_config.t_delay + self.t_MPC  # TODO: decide what to do with delay
+        self.sampling_time_mpc = 1 / self.lbmpc_config.MPC_freq
+        self.comput_time = 0.01  # Initial guess, updated with measured computation times
+        self.t_delay = self.lbmpc_config.t_delay + self.comput_time
+        self.ma_alpha = self.sampling_time_mpc / (self.sampling_time_mpc + 1.0)  # Moving average window of 1.0 seconds
+        # buffer to save last control inputs
+        self.buffer_len = 20
+        self.buffer_prev_solutions = np.zeros((2, self.buffer_len), dtype=np.float64)
+        self.buf_filled = 0
+        self.delay_sim = self.lbmpc_config.delay_sim
 
         # Steering angle buffer
         buf_size = 2
@@ -377,10 +384,8 @@ class LBMPC:
         _t1 = time.perf_counter()
         init_time = _t1 - _t0
 
-        # Delay compensation
-        self.t_delay = 0.0
-        propagated_x = x0
-        self.propagated_x = propagated_x
+        # Simulated delay compensation
+        self.propagated_x = self._propagate_time_delay(x0) if self.delay_sim else x0
 
         # Record new datapoints. Until we don't have at least self.min_points_before_using_gp
         # if (
@@ -421,7 +426,7 @@ class LBMPC:
             and getattr(self, "mode", None) in ("learn", "record")
         ):
             t_res_start = time.perf_counter()
-            res = self._compute_residual(new_state=propagated_x)  # x0
+            res = self._compute_residual(new_state=self.propagated_x)
             self.count += 1
             if res is not None and (self.last_status == 0 or self.last_status ==
                                     2) and self.nr_laps >= 3 and self.count >= 1:
@@ -470,8 +475,8 @@ class LBMPC:
         self._update_inducing_points_along_horizon()
 
         # Fix initial state
-        self.l4a_solver.set(0, "lbx", propagated_x)
-        self.l4a_solver.set(0, "ubx", propagated_x)
+        self.l4a_solver.set(0, "lbx", self.propagated_x)
+        self.l4a_solver.set(0, "ubx", self.propagated_x)
 
         # Trailing control
         if (self.state == "TRAILING") and (self.opponent is not None):
@@ -489,7 +494,7 @@ class LBMPC:
                 if (self.state == "OVERTAKE") and (self.opponent is not None):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
-            if i < self.lbmpc_config.steps_delay:
+            if (i < self.lbmpc_config.steps_delay and not self.delay_sim) or speed_now < 2.0:
                 multiplier = 1e6
                 online_parameters = np.array([
                     target_v_speed,
@@ -561,10 +566,9 @@ class LBMPC:
         # Actual cost of the problem, in case wanting to log
         # current_cost = self.l4a_solver.get_cost()
 
-        # Output
         self.u0 = self.l4a_solver.get(0, "u")
         self.prev_acc = self.l4a_solver.get(0, "x")[StateIndex.ACCEL.value]
-        delayed_index = self.lbmpc_config.steps_delay + 1
+        delayed_index = self.lbmpc_config.steps_delay + 1 if not self.delay_sim else 1
         self.pred_x = self.l4a_solver.get(delayed_index, "x")
 
         self.steering_angle = self.pred_x[StateIndex.STEERING_ANGLE_DELTA.value]
@@ -593,6 +597,14 @@ class LBMPC:
         _now = time.perf_counter()
         rest_time = _now - rest_start          # everything after rest_start
         _elapsed = _now - _t0                  # full main_loop duration
+
+        # Update computational time calculation with moving average
+        self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
+        self.t_delay = float(self.lbmpc_config.t_delay) + float(self.comput_time)
+        # Shift all solutions and att the new one
+        self.buffer_prev_solutions[:, 1:] = self.buffer_prev_solutions[:, :-1]
+        self.buffer_prev_solutions[:, 0] = np.asarray(self.u0, dtype=np.float64).reshape(2,)
+        self.buf_filled = min(self.buf_filled + 1, self.buffer_len)
 
         if not hasattr(self, "_timing_sum"):
             self._timing_sum = 0.0
@@ -727,20 +739,18 @@ class LBMPC:
                 next_inputs = self.l4a_solver.get(i + 1, "u")
                 self.l4a_solver.set(i, "u", next_inputs)
 
-    def _propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
+    def _propagate_time_delay(self, x0: np.ndarray) -> np.ndarray:
         """
         Forward propagate current state over self.t_delay with discrete steps of the nominal model.
         """
-        x = states.copy()
-        u = inputs.copy()
-
-        # Number of MPC steps that correspond to the delay
-        # TODO: think better way to do this: using previous inputs, using different time step if its the case
-        n_steps = int(round(self.t_delay * self.controller_frequency))
-        n_steps = max(n_steps, 0)
-
-        for _ in range(n_steps):
-            x = self._predict_next_state_nominal(x, u)
+        x = x0
+        n_steps = int(np.floor(self.t_delay / self.sampling_time_mpc))
+        n_steps = min(n_steps, self.buffer_len, self.buf_filled)
+        for j in range(n_steps - 1, -1, -1):
+            x = self._predict_next_state_nominal(  # TODO: use residual as well
+                x,
+                self.buffer_prev_solutions[:, j]
+            )
 
         # Saturations as before
         if abs(x[StateIndex.STEERING_ANGLE_DELTA.value]) > self.constraint.delta_max:

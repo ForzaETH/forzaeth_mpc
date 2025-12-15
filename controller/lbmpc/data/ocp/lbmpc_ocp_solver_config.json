@@ -71,17 +71,17 @@
         "idxsphi_0": [],
         "idxsphi_e": [],
         "lbu": [
-            -3.2,
-            -50.0
+            -5.0,
+            -200.0
         ],
         "lbu_0": [
-            -3.2,
-            -50.0
+            -5.0,
+            -200.0
         ],
         "lbx": [
             0.0,
             -0.4,
-            -10.0
+            -15.0
         ],
         "lbx_0": [
             0.0,
@@ -96,7 +96,7 @@
         "lbx_e": [
             0.0,
             -0.4,
-            -10.0
+            -15.0
         ],
         "lg": [],
         "lg_e": [],
@@ -140,17 +140,17 @@
         "lsphi_0": [],
         "lsphi_e": [],
         "ubu": [
-            3.2,
-            50.0
+            5.0,
+            200.0
         ],
         "ubu_0": [
-            3.2,
-            50.0
+            5.0,
+            200.0
         ],
         "ubx": [
             12.0,
             0.4,
-            10.0
+            15.0
         ],
         "ubx_0": [
             0.0,
@@ -165,7 +165,7 @@
         "ubx_e": [
             12.0,
             0.4,
-            10.0
+            15.0
         ],
         "ug": [],
         "ug_e": [],
@@ -363,8 +363,8 @@
     ],
     "json_file": "/home/gil/catkin_ws/src/race_stack/controller/lbmpc/data/ocp/lbmpc_ocp_solver_config.json",
     "model": {
-        "con_h_expr": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
-        "con_h_expr_0": "@1=fmod(s,77.5251), @2=(3.691*accel), @3=(atan2(((-v_y)-(0.168*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.321)/a_lat_max))+sq(((0.270929*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((17.2584*(2.6476*MU))*sin((0.4375*atan(((4.142*@3)-(0.2332*((4.142*@3)-atan((4.142*@3)))))))))*sin(delta)))+((3.691*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr": "@1=fmod(s,77.5251), @2=(3.56*accel), @3=(atan2(((-v_y)-(0.174*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.325)/a_lat_max))+sq(((0.280899*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((16.226*(1.392*MU))*sin((0.4626*atan(((7.016*@3)-(0.5023*((7.016*@3)-atan((7.016*@3)))))))))*sin(delta)))+((3.56*v_y)*yaw_rate)))/a_long_max))))",
+        "con_h_expr_0": "@1=fmod(s,77.5251), @2=(3.56*accel), @3=(atan2(((-v_y)-(0.174*yaw_rate)),(0.5+v_x))+delta), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin), (sq((((sq(v_x)*tan(delta))/0.325)/a_lat_max))+sq(((0.280899*((((0.5*@2)+((0.5*@2)*cos(delta)))-(((16.226*(1.392*MU))*sin((0.4626*atan(((7.016*@3)-(0.5023*((7.016*@3)-atan((7.016*@3)))))))))*sin(delta)))+((3.56*v_y)*yaw_rate)))/a_long_max))))",
         "con_h_expr_e": "@1=fmod(s,77.5251), vertcat(((n+right_bound_s(@1){0})-safety_margin), ((n-left_bound_s(@1){0})+safety_margin))",
         "con_phi_expr": [],
         "con_phi_expr_0": [],
@@ -378,12 +378,12 @@
         "cost_conl_custom_outer_hess": [],
         "cost_conl_custom_outer_hess_0": [],
         "cost_conl_custom_outer_hess_e": [],
-        "cost_expr_ext_cost": "((((((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target))))+(weight_qjerk*sq(jerk)))+(weight_ddelta*sq(derDelta)))+(100*sq(v_y)))",
-        "cost_expr_ext_cost_0": "((((((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target))))+(weight_qjerk*sq(jerk)))+(weight_ddelta*sq(derDelta)))+(100*sq(v_y)))",
+        "cost_expr_ext_cost": "(((((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target))))+(weight_qjerk*sq(jerk)))+(weight_ddelta*sq(derDelta)))",
+        "cost_expr_ext_cost_0": "(((((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target))))+(weight_qjerk*sq(jerk)))+(weight_ddelta*sq(derDelta)))",
         "cost_expr_ext_cost_custom_hess": [],
         "cost_expr_ext_cost_custom_hess_0": [],
         "cost_expr_ext_cost_custom_hess_e": [],
-        "cost_expr_ext_cost_e": "((terminal_multiplier*(((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target)))))+(terminal_multiplier*(100*sq(v_y))))",
+        "cost_expr_ext_cost_e": "(terminal_multiplier*(((weight_qn*sq((n-overtake_d)))+(weight_qalpha*sq(theta)))+(weight_qv*sq((v_x-V_target)))))",
         "cost_psi_expr": [],
         "cost_psi_expr_0": [],
         "cost_psi_expr_e": [],
@@ -513,17 +513,17 @@
         0.0,
         2.0,
         100.0,
-        10.0,
-        100.0,
+        50.0,
+        200.0,
+        0.01,
+        0.01,
         1.0,
-        1.0,
-        0.5,
         10.0,
-        -10.0,
-        10.0,
+        -15.0,
+        15.0,
         0.3,
         1.0,
-        0.5,
+        1.0,
         1.5
     ],
     "problem_class": "OCP",

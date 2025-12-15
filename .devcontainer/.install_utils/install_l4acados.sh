@@ -95,11 +95,11 @@ PY
 
 # ---- Install l4acados (editable or not; with gpytorch extras) ----
 if [ "${EDITABLE}" = false ] ; then
-  echo "[install_l4acados] pip install ${L4A_DIR}[gpytorch]"
-  /usr/bin/python3 -m pip install --no-cache-dir "${L4A_DIR}[gpytorch]"
+  echo "[install_l4acados] pip install ${L4A_DIR}[gpytorch-exo]"
+  /usr/bin/python3 -m pip install --no-cache-dir "${L4A_DIR}[gpytorch-exo]"
 else
-  echo "[install_l4acados] pip install -e ${L4A_DIR}[gpytorch]"
-  /usr/bin/python3 -m pip install --no-cache-dir -e "${L4A_DIR}[gpytorch]"
+  echo "[install_l4acados] pip install -e ${L4A_DIR}[gpytorch-exo]"
+  /usr/bin/python3 -m pip install --no-cache-dir -e "${L4A_DIR}[gpytorch-exo]"
 fi
 
 # ---- Done ----

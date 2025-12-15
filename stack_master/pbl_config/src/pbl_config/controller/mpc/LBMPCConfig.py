@@ -40,8 +40,10 @@ class LBMPCConfig(BaseModel):
     """Prediction horizon"""
     t_delay: float
     """Delay in seconds accounted for propagation before the MPC is applied"""
+    delay_sim: bool
+    """Weather to use simulated model to compensate for delay"""
     steps_delay: int
-    """Delays for the steering angle"""
+    """Delays for the steering angle in case of delay_sim = False"""
     MPC_freq: int
     """Frequency of the MPC controller"""
     track_safety_margin: float
