@@ -17,6 +17,8 @@ class CarConfig(BaseModel):
     """Distance from the center of mass to the rear axle"""
     wheelbase: float
     """Wheelbase of the car"""
+    width_m: float
+    """Width of the car"""
     h_cg: float
     """Height of the center of gravity"""
     a_max: float
@@ -47,6 +49,8 @@ class CarConfig(BaseModel):
     """Steering Angle Time Constant"""
     max_steering_angle: float
     """Maximum Steering Angle in radians"""
+    min_radius_curv_m: float
+    """Maximum Radius of Curvature in meters"""
     max_steering_velocity: float
     """Maximum Steering Velocity"""
     racecar_version: str
