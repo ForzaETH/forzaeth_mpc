@@ -8,7 +8,7 @@ import gpytorch
 import numpy as np
 import torch
 from frenet_converter.frenet_converter import FrenetConverter
-from l4acados.controllers import ResidualLearningMPC
+from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
 from l4acados.models import GPyTorchResidualModel, PyTorchFeatureSelector
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
     OnlineLearningStrategy, RecordDataStrategy, VoidDataStrategy)
@@ -98,7 +98,7 @@ class LBMPC:
         path_json_sim = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
 
         # Create the Residual model from l4acados
-        self.l4a_solver = ResidualLearningMPC(
+        self.l4a_solver = ZeroOrderGPMPC(   # ResidualLearningMPC(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
@@ -582,7 +582,7 @@ class LBMPC:
 
         self.u0 = self.l4a_solver.get(0, "u")
         self.prev_acc = self.l4a_solver.get(0, "x")[StateIndex.ACCEL.value]
-        delayed_index = self.lbmpc_config.steps_delay + 1 # if not self.delay_sim else 1
+        delayed_index = self.lbmpc_config.steps_delay + 1  # if not self.delay_sim else 1
         # delayed_index = delayed_index if speed_now > 2.0 else delayed_index + 3
         self.pred_x = self.l4a_solver.get(delayed_index, "x")
 
@@ -605,8 +605,8 @@ class LBMPC:
         ])
 
         # TODO: think about this
-        self._prev_state_for_residual = self.previous_pred_x # x0.copy()
-        self._prev_input_for_residual = self.previous_pred_u # self.u0.copy()    # [ddelta, jerk]
+        self._prev_state_for_residual = self.previous_pred_x  # x0.copy()
+        self._prev_input_for_residual = self.previous_pred_u  # self.u0.copy()    # [ddelta, jerk]
 
         # Comput time
         # Comput time (total + per-section)
@@ -616,7 +616,7 @@ class LBMPC:
 
         # Update computational time calculation with moving average
         self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
-        self.t_delay = float(self.lbmpc_config.t_delay) # + float(self.comput_time)
+        self.t_delay = float(self.lbmpc_config.t_delay)  # + float(self.comput_time)
         # Shift all solutions and att the new one
         self.buffer_prev_solutions[:, 1:] = self.buffer_prev_solutions[:, :-1]
         self.buffer_prev_solutions[:, 0] = np.asarray(self.u0, dtype=np.float64).reshape(2,)

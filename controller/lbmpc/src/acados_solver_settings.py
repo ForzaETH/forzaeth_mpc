@@ -10,7 +10,7 @@ can wrap it with a residual model later.
 from typing import Tuple
 
 import numpy as np
-from acados_template import AcadosModel, AcadosOcp
+from acados_template import AcadosModel, AcadosOcp, ZoroDescription
 from lbmpc.src.bicycle_model import bicycle_model
 from lbmpc.src.utils.indicies import StateIndex
 from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
@@ -187,4 +187,53 @@ def build_ocp_for_l4acados(
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_max_iter = 1
 
+    ocp = add_zoro_description(ocp, stmpc_config)
+
     return ocp, model, constraint, params
+
+
+def add_zoro_description(ocp, stmpc_config):
+    """
+    Attaches the ZoroDescription object required by the ZeroOrderGPMPC class.
+    Configures it to tighten the specific track constraints defined in build_ocp.
+    """
+    # Create the description object
+    zoro_description = ZoroDescription()
+
+    # 1. Uncertainty Configuration
+    # This matrix P0 represents initial state uncertainty diagonal
+    zoro_description.P0_mat = np.diag([0.001, 0.001, 0.001, 0.001, 0.001, 0.001,
+                                      0.001, 0.001])  # TODO Adjust size to match nx
+    zoro_description.W_mat = np.diag([0.001, 0.001, 0.001])  # TODO
+
+    # Identify which noise matrix from the external GP affects the dynamics
+    # Assuming G matrix maps noise to states.
+    zoro_description.unc_jac_G_mat = np.eye(ocp.dims.nx)  # TODO
+
+    # 2. Scaling
+    zoro_description.backoff_scaling_gamma = 2.0  # 2-sigma confidence (approx 95%)
+
+    # 3. Define WHICH constraints to tighten
+
+    # Our constraints are:
+    # h[0]: [0, track_max]  <-- We need to lower the Upper Bound (uh)
+    # h[1]: [-track_max, 0] <-- We need to raise the Lower Bound (lh)
+    # h[2]: [0, 1]          <-- Ignore (probably not affected by spatial uncertainty)
+
+    zoro_description.idx_uh_t = [0]  # Tighten upper bound of h[0]
+    zoro_description.idx_lh_t = [1]  # Tighten lower bound of h[1]
+
+    # Also tighten state bounds if necessary
+    zoro_description.idx_lbx_t = []
+    zoro_description.idx_ubx_t = []
+
+    # 4. Flags expected by the ZOMPC class
+    zoro_description.input_P0_diag = False
+    zoro_description.input_W_diag = False
+    zoro_description.input_W_add_diag = False
+    zoro_description.output_P_matrices = True
+
+    # Attach to OCP
+    ocp.zoro_description = zoro_description
+
+    return ocp
