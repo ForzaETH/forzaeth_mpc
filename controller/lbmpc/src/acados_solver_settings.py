@@ -13,10 +13,10 @@ import numpy as np
 from acados_template import AcadosModel, AcadosOcp, ZoroDescription
 from lbmpc.src.bicycle_model import bicycle_model
 from lbmpc.src.utils.indicies import StateIndex
-from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
+from pbl_config import CarConfig, LBMPCConfig, PacejkaTireConfig
 
 
-def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:
+def get_parameters(cfg: LBMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:
     params = np.array([
         2,  # initial velocity (placeholder, overwritten online)
         cfg.qadv,
@@ -38,7 +38,7 @@ def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarr
 
 def build_ocp_for_l4acados(
     s0, kapparef, d_left, d_right,
-        stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig
+        lbmpc_config: LBMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig
 ) -> Tuple[AcadosOcp, object, object, object]:
     """
     Returns the *same* OCP as `acados_settings.acados_settings`, but without
@@ -56,7 +56,7 @@ def build_ocp_for_l4acados(
 
     # Export nominal model, constraints & params *exactly* as before
     model, constraint, params = bicycle_model(
-        s0, kapparef, d_left, d_right, stmpc_config, car_config, tire_config
+        s0, kapparef, d_left, d_right, lbmpc_config, car_config, tire_config
     )
 
     # Wrap into AcadosModel (unchanged from your original file)
@@ -73,7 +73,7 @@ def build_ocp_for_l4acados(
     ocp.model = model_ac
 
     # Parameters (same order & meaning)
-    p = get_parameters(stmpc_config, tire_config)
+    p = get_parameters(lbmpc_config, tire_config)
     params.p = p
     ocp.parameter_values = p
 
@@ -86,7 +86,7 @@ def build_ocp_for_l4acados(
     nsh_e = constraint.expr_e.shape[0]
     ns = nsh + nsbx + nsbu
 
-    ocp.dims.N = stmpc_config.N
+    ocp.dims.N = lbmpc_config.N
     ocp.dims.nx = nx
     ocp.dims.nu = nu
     ocp.dims.ny = 0
@@ -99,22 +99,22 @@ def build_ocp_for_l4acados(
     ocp.model.cost_expr_ext_cost_e = model.cost_expr_ext_cost_e
 
     # Slack weights (same values/shape as original)
-    Zl, Zu, zl, zu = stmpc_config.Zl, stmpc_config.Zu, stmpc_config.zl, stmpc_config.zu
-    ocp.cost.Zl_0 = stmpc_config.Zl * np.ones((nsh,))
-    ocp.cost.Zu_0 = stmpc_config.Zu * np.ones((nsh,))
+    Zl, Zu, zl, zu = lbmpc_config.Zl, lbmpc_config.Zu, lbmpc_config.zl, lbmpc_config.zu
+    ocp.cost.Zl_0 = lbmpc_config.Zl * np.ones((nsh,))
+    ocp.cost.Zu_0 = lbmpc_config.Zu * np.ones((nsh,))
     # must have in the cost function, but not used (quadratic cost is enough to handle the constraints)
-    ocp.cost.zl_0 = stmpc_config.zl * np.ones((nsh,))
-    ocp.cost.zu_0 = stmpc_config.zu * np.ones((nsh,))
+    ocp.cost.zl_0 = lbmpc_config.zl * np.ones((nsh,))
+    ocp.cost.zu_0 = lbmpc_config.zu * np.ones((nsh,))
     # from 1 to N-1
-    ocp.cost.Zl = stmpc_config.Zl * np.ones((ns,))
-    ocp.cost.Zu = stmpc_config.Zu * np.ones((ns,))
-    ocp.cost.zl = stmpc_config.zl * np.ones((ns,))
-    ocp.cost.zu = stmpc_config.zu * np.ones((ns,))
+    ocp.cost.Zl = lbmpc_config.Zl * np.ones((ns,))
+    ocp.cost.Zu = lbmpc_config.Zu * np.ones((ns,))
+    ocp.cost.zl = lbmpc_config.zl * np.ones((ns,))
+    ocp.cost.zu = lbmpc_config.zu * np.ones((ns,))
     # at stage N
-    ocp.cost.Zl_e = stmpc_config.Zl * np.ones((nsh_e,))
-    ocp.cost.Zu_e = stmpc_config.Zu * np.ones((nsh_e,))
-    ocp.cost.zl_e = stmpc_config.zl * np.ones((nsh_e,))
-    ocp.cost.zu_e = stmpc_config.zu * np.ones((nsh_e,))
+    ocp.cost.Zl_e = lbmpc_config.Zl * np.ones((nsh_e,))
+    ocp.cost.Zu_e = lbmpc_config.Zu * np.ones((nsh_e,))
+    ocp.cost.zl_e = lbmpc_config.zl * np.ones((nsh_e,))
+    ocp.cost.zu_e = lbmpc_config.zu * np.ones((nsh_e,))
 
     # Input bounds (same)
     ocp.constraints.lbu_0 = np.array([constraint.ddelta_min, constraint.jerk_min])
@@ -174,8 +174,8 @@ def build_ocp_for_l4acados(
     # ocp.solver_options.as_rti_level = 1
 
     # Solver options (kept as in your original)
-    ocp.solver_options.Tsim = 1 / stmpc_config.MPC_freq
-    ocp.solver_options.tf = stmpc_config.N / stmpc_config.MPC_freq
+    ocp.solver_options.Tsim = 1 / lbmpc_config.MPC_freq
+    ocp.solver_options.tf = lbmpc_config.N / lbmpc_config.MPC_freq
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.nlp_solver_type = "SQP_RTI"  # L4acados assumes SQP w/ GN
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
@@ -187,12 +187,12 @@ def build_ocp_for_l4acados(
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_max_iter = 1
 
-    ocp = add_zoro_description(ocp, stmpc_config)
+    ocp = add_zoro_description(ocp, lbmpc_config)
 
     return ocp, model, constraint, params
 
 
-def add_zoro_description(ocp, stmpc_config):
+def add_zoro_description(ocp, lbmpc_config):
     """
     Attaches the ZoroDescription object required by the ZeroOrderGPMPC class.
     Configures it to tighten the specific track constraints defined in build_ocp.
@@ -202,16 +202,19 @@ def add_zoro_description(ocp, stmpc_config):
 
     # 1. Uncertainty Configuration
     # This matrix P0 represents initial state uncertainty diagonal
-    zoro_description.P0_mat = np.diag([0.001, 0.001, 0.001, 0.001, 0.001, 0.001,
-                                      0.001, 0.001])  # TODO Adjust size to match nx
-    zoro_description.W_mat = np.diag([0.001, 0.001, 0.001])  # TODO
+    zoro_description.P0_mat = np.diag([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    zoro_description.W_mat = np.diag([0.0, 0.0, 0.0])
 
     # Identify which noise matrix from the external GP affects the dynamics
     # Assuming G matrix maps noise to states.
-    zoro_description.unc_jac_G_mat = np.eye(ocp.dims.nx)  # TODO
+    idx = np.asarray(lbmpc_config.gp_params.unc_jac_G_mat_idx, dtype=float)
+    unc_jac_G_mat = np.diag(idx)
+    unc_jac_G_mat = unc_jac_G_mat[:, ~np.all(unc_jac_G_mat == 0, axis=0)]
+    zoro_description.unc_jac_G_mat = unc_jac_G_mat
+    zoro_description.fdbk_K_mat = np.zeros((ocp.dims.nu, ocp.dims.nx))
 
     # 2. Scaling
-    zoro_description.backoff_scaling_gamma = 2.0  # 2-sigma confidence (approx 95%)
+    zoro_description.backoff_scaling_gamma = 0.1  # 2-sigma confidence -> approx 95% | 1-sigma confidence -> 68%
 
     # 3. Define WHICH constraints to tighten
 
@@ -220,17 +223,18 @@ def add_zoro_description(ocp, stmpc_config):
     # h[1]: [-track_max, 0] <-- We need to raise the Lower Bound (lh)
     # h[2]: [0, 1]          <-- Ignore (probably not affected by spatial uncertainty)
 
-    zoro_description.idx_uh_t = [0]  # Tighten upper bound of h[0]
-    zoro_description.idx_lh_t = [1]  # Tighten lower bound of h[1]
+    zoro_description.idx_uh_t = [1]  # Tighten lower bound of h[0]
+    zoro_description.idx_lh_t = [0]  # Tighten upper bound of h[1]
 
     # Also tighten state bounds if necessary
     zoro_description.idx_lbx_t = []
     zoro_description.idx_ubx_t = []
 
     # 4. Flags expected by the ZOMPC class
-    zoro_description.input_P0_diag = False
-    zoro_description.input_W_diag = False
-    zoro_description.input_W_add_diag = False
+    zoro_description.input_P0_diag = True
+    zoro_description.input_P0 = False
+    zoro_description.input_W_diag = True
+    zoro_description.input_W_add_diag = True
     zoro_description.output_P_matrices = True
 
     # Attach to OCP

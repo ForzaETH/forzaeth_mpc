@@ -22,6 +22,8 @@ from pbl_config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
 from scipy.integrate import solve_ivp
 from single_track_mpc.utils.splinify import SplineTrack
 
+from .offline_viz_logger import OfflineMPCLogger
+
 try:
     from casadi import DM
     _HAS_DM = True
@@ -98,15 +100,36 @@ class LBMPC:
         path_json_sim = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
 
         # Create the Residual model from l4acados
-        self.l4a_solver = ZeroOrderGPMPC(   # ResidualLearningMPC(
+        self.l4a_solver = ZeroOrderGPMPC(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
-            use_cython=True,
+            use_cython=False,
             path_json_ocp=path_json_ocp,
             path_json_sim=path_json_sim,
             build_c_code=build_c_code,
         )
+
+        # ---- offline viz logger ----
+        try:
+            nx = int(self.ocp.dims.nx)
+            nu = int(self.ocp.dims.nu)
+            N = int(self.lbmpc_config.N)
+            state_names = [e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value)]
+            input_names = [e.name.lower() for e in sorted(InputIndex, key=lambda x: x.value)]
+
+            self.offlog = OfflineMPCLogger(
+                root_dir=self.lbmpc_path,
+                nx=nx, nu=nu, N=N,
+                state_names=state_names,
+                input_names=input_names,
+                enable=True,
+                flush_every=25,
+                horizon_stride=4,
+            )
+        except Exception as e:
+            print(f"[offline_viz] logger disabled: {e}")
+            self.offlog = None
 
         # Keep a handle to the sim solver and set its default horizon
         if hasattr(self.l4a_solver, "sim_solver"):
@@ -254,9 +277,9 @@ class LBMPC:
                 y_train_data = y_train_data[:self.max_num_data_points, :]
 
         # Create one fake datapoint because l4acados requires it
-        if self.mode == "learn":
-            z_train_data = torch.zeros((1, sum(input_selection)), dtype=torch.float32)
-            y_train_data = torch.zeros((1, self._nw_gp), dtype=torch.float32)
+        # if self.mode == "learn":
+        #     z_train_data = torch.zeros((1, sum(input_selection)), dtype=torch.float32)
+        #     y_train_data = torch.zeros((1, self._nw_gp), dtype=torch.float32)
 
         # Build GP model: full or inducing
         if not self.use_inducing_gp:
@@ -310,9 +333,10 @@ class LBMPC:
         gp_model.eval()
         gp_model.likelihood.eval()
 
-        gp_model.train_inputs = None
-        gp_model.train_targets = None
-        gp_model.prediction_strategy = None
+        if self.mode == "learn":
+            gp_model.train_inputs = None
+            gp_model.train_targets = None
+            gp_model.prediction_strategy = None
 
         # Wrap in residual model
         self.residual_gp = GPyTorchResidualModel(
@@ -443,7 +467,7 @@ class LBMPC:
             res = self._compute_residual(new_state=self.propagated_x)
             self.count += 1
             if res is not None and (self.last_status == 0 or self.last_status ==
-                                    2) and self.nr_laps >= 3 and self.count >= 1:
+                                    2) and self.nr_laps >= 2 and self.count >= 1:
                 z_train, residual = res
                 self.residual_gp.record_datapoint(z_train, residual)
                 self.count = 0
@@ -690,6 +714,48 @@ class LBMPC:
             self._timing_count = 0
             self._timing_max = 0.0
             self._timing_last_lap = self.nr_laps
+
+        # ---- offline logging (best-effort, never break control loop) ----
+        if getattr(self, "offlog", None) is not None:
+            try:
+                # gp size best-effort
+                gp_n = None
+                try:
+                    gp_n = int(self.residual_gp.gp_model.train_inputs[0].shape[0])
+                except Exception:
+                    gp_n = None
+
+                x_nom = self.nominal_pred_x if (self.nominal_pred_x is not None) else np.full_like(self.pred_x, np.nan)
+                self.offlog.log_step(
+                    lap=self.nr_laps,
+                    status=self.last_status,
+                    x_meas=x0,
+                    x_prop=self.propagated_x,
+                    x_pred_delay=self.pred_x,
+                    x_nom_pred=x_nom,
+                    u0=self.u0,
+                    t_total=_elapsed, t_init=init_time, t_residual=residual_time, t_rest=rest_time,
+                    r_meas=measured_residual,
+                    r_pred=last_pred_residual,
+                    gp_num_points=gp_n
+                )
+
+                # horizon logging: predicted traj + bounds + covariances
+                cov_arr = getattr(self.l4a_solver, "covariances_array", None)
+                # indices used by ZoRO tightening (keep them in your config and pass here)
+                idx_lh_t = getattr(self.ocp.zoro_description, "idx_lh_t", [])
+                idx_uh_t = getattr(self.ocp.zoro_description, "idx_uh_t", [])
+                self.offlog.log_horizon(
+                    solver=self.l4a_solver,
+                    lap=self.nr_laps,
+                    covariances_array=cov_arr,
+                    idx_lh_t=list(idx_lh_t) if idx_lh_t is not None else [],
+                    idx_uh_t=list(idx_uh_t) if idx_uh_t is not None else [],
+                )
+
+                self.offlog.tick()
+            except Exception as e:
+                print(f"[offline_viz] log failed: {e}")
 
         states_list = None
         if status == 0 or status == 2:
