@@ -12,7 +12,7 @@ from typing import Tuple
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, ZoroDescription
 from lbmpc.src.bicycle_model import bicycle_model
-from lbmpc.src.utils.indicies import StateIndex
+from lbmpc.src.utils.indicies import InputIndex, StateIndex
 from pbl_config import CarConfig, LBMPCConfig, PacejkaTireConfig
 
 
@@ -202,7 +202,7 @@ def add_zoro_description(ocp, lbmpc_config):
 
     # 1. Uncertainty Configuration
     # This matrix P0 represents initial state uncertainty diagonal
-    zoro_description.P0_mat = np.diag([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    zoro_description.P0_mat = np.diag([8e-2, 8e-2, 5e-2, 5e-1, 5e-1, 1e-1, 0.0, 0.0])
     zoro_description.W_mat = np.diag([0.0, 0.0, 0.0])
 
     # Identify which noise matrix from the external GP affects the dynamics
@@ -211,10 +211,60 @@ def add_zoro_description(ocp, lbmpc_config):
     unc_jac_G_mat = np.diag(idx)
     unc_jac_G_mat = unc_jac_G_mat[:, ~np.all(unc_jac_G_mat == 0, axis=0)]
     zoro_description.unc_jac_G_mat = unc_jac_G_mat
-    zoro_description.fdbk_K_mat = np.zeros((ocp.dims.nu, ocp.dims.nx))
+
+    # ---------- OPTION 1 - If not using linear feedback
+    # zoro_description.fdbk_K_mat = np.zeros((ocp.dims.nu, ocp.dims.nx))
+
+    # ---------- OPTION 2- If using linear feedback with constant K
+    # --- (calculated with the script: build_k.py)
+    # K_lqr = np.array([
+    #     [0.0, 6.831301, 9.928423, 0.0, 0.825643, 0.33575, 13.06181, 0.0],
+    #     [0.0, 0.0, 0.0, 11.83216, 0.0, 0.0, 0.0, 4.864599],
+    # ], dtype=float)
+    # zoro_description.fdbk_K_mat = K_lqr
+
+    # ---------- OPTION 3 - If using linear feedback with time varying K
+    nx = ocp.dims.nx
+    nu = ocp.dims.nu
+    zoro_description.fdbk_K_mat = np.zeros((nu, nx), dtype=float)
+    zoro_description.feedback_optimization_mode = "RICCATI_CONSTANT_COST"
+
+    Q = np.zeros((nx, nx))
+    R = np.zeros((nu, nu))
+    S = np.zeros((nu, nx))
+
+    qn = float(lbmpc_config.qn)
+    qalpha = float(lbmpc_config.qalpha)
+    qv = float(lbmpc_config.qv)
+
+    qjerk = float(lbmpc_config.qjerk)
+    qddelta = float(lbmpc_config.qddelta)
+
+    # Lateral deviation minimization (only if available)
+    qvy = 100.0 if getattr(lbmpc_config, "vy_minimization", False) else 0.0
+
+    # State penalties
+    Q[StateIndex.MIN_DIST_TO_CENTER_LINE_N, StateIndex.MIN_DIST_TO_CENTER_LINE_N] = qn
+    Q[StateIndex.ORIENTATION_THETA, StateIndex.ORIENTATION_THETA] = qalpha
+    Q[StateIndex.VELOCITY_V_X, StateIndex.VELOCITY_V_X] = qv
+    Q[StateIndex.VELOCITY_V_Y, StateIndex.VELOCITY_V_Y] = qvy
+
+    # Input penalties
+    R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = qddelta
+    R[InputIndex.JERK, InputIndex.JERK] = qjerk
+    tm = float(lbmpc_config.terminal_multiplier) if hasattr(lbmpc_config, "terminal_multiplier") else 1.0
+    Qe = tm * Q.copy()
+    eps = 1e-6
+    R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = max(R[0, 0], eps)
+    R[InputIndex.JERK, InputIndex.JERK] = max(R[1, 1], eps)
+
+    zoro_description.riccati_Q_const = Q
+    zoro_description.riccati_R_const = R
+    zoro_description.riccati_S_const = S
+    zoro_description.riccati_Q_const_e = Qe
 
     # 2. Scaling
-    zoro_description.backoff_scaling_gamma = 0.1  # 2-sigma confidence -> approx 95% | 1-sigma confidence -> 68%
+    zoro_description.backoff_scaling_gamma = 1.0  # 2-sigma confidence -> approx 95% | 1-sigma confidence -> 68%
 
     # 3. Define WHICH constraints to tighten
 

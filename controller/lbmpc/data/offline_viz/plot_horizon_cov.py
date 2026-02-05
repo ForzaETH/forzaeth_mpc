@@ -198,7 +198,7 @@ def plot_horizon_with_cov(
     )
 
     # ----------------- right: map -----------------
-    ax_map.plot(ref_xy[:, 0], ref_xy[:, 1], lw=2, label="Raceline / Centerline")
+    ax_map.plot(ref_xy[:, 0], ref_xy[:, 1], lw=2, label="Raceline")
     ax_map.plot(left_b[:, 0], left_b[:, 1], ls="--", label="Left limit")
     ax_map.plot(right_b[:, 0], right_b[:, 1], ls="--", label="Right limit")
     ax_map.plot(xy_pred[:, 0], xy_pred[:, 1], ls=":", lw=2, label="Predicted traj (mean)")
@@ -283,14 +283,14 @@ def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
     ], dtype=float)
 
 
-def build_arrays_for_step(hp: pd.DataFrame, hc: pd.DataFrame, step: int, lap: int):
+def build_arrays_for_step(hp: pd.DataFrame, hc: pd.DataFrame, step: int):
     # Filter
-    hp_s = hp[(hp["step"] == step) & (hp["lap"] == lap)].copy()
-    hc_s = hc[(hc["step"] == step) & (hc["lap"] == lap)].copy()
+    hp_s = hp[(hp["step"] == step)].copy()
+    hc_s = hc[(hc["step"] == step)].copy()
     if hp_s.empty:
-        raise RuntimeError(f"No rows found in horizon_pred.csv for step={step}, lap={lap}")
+        raise RuntimeError(f"No rows found in horizon_pred.csv for step={step}")
     if hc_s.empty:
-        raise RuntimeError(f"No rows found in horizon_covdig.csv for step={step}, lap={lap}")
+        raise RuntimeError(f"No rows found in horizon_covdig.csv for step={step}")
 
     # Sort by node
     hp_s = hp_s.sort_values("node")
@@ -347,9 +347,8 @@ def build_arrays_for_step(hp: pd.DataFrame, hc: pd.DataFrame, step: int, lap: in
 
 def main():
 
-    step = 1452
-    lap = 5
-    ellipse_stride = 5
+    step = 2300
+    ellipse_stride = 4
     base_dir = "/home/gil/catkin_ws/src/race_stack/controller/lbmpc/data/offline_viz/"
     csv_dir = base_dir + "csv"
     fig_dir = base_dir + "figs"
@@ -361,7 +360,7 @@ def main():
     hp = pd.read_csv(hp_path)
     hc = pd.read_csv(hc_path)
 
-    X, Pdiag, idx_map = build_arrays_for_step(hp, hc, step=step, lap=lap)
+    X, Pdiag, idx_map = build_arrays_for_step(hp, hc, step=step)
 
     # === Waypoints & configs ===
     gb_waypoints: GlobalWaypoints = read_global_waypoints("GLC_pit_rbring1")
@@ -378,7 +377,7 @@ def main():
     )
 
     titles = {
-        "suptitle": f"Prediction Horizon @ step={step}, lap={lap}",
+        "suptitle": f"Prediction Horizon @ step={step}",
         "map_title": "Track + predicted trajectory (mean + covariance ellipses)",
     }
 
@@ -395,7 +394,7 @@ def main():
         cfg=cfg,
     )
 
-    out_path = os.path.join(fig_dir, f"horizon_step_{step:06d}_lap{lap}.png")
+    out_path = os.path.join(fig_dir, f"horizon_step_{step:06d}.png")
     fig.savefig(out_path, dpi=180)
     print(f"Saved: {out_path}")
 
