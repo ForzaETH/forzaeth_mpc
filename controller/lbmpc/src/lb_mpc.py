@@ -56,7 +56,7 @@ class LBMPC:
         self.using_gokart = using_gokart
 
         # TODO: FORCE MODEL MISMATCH TO TEST GP
-        # self.tire_config.friction_coeff = 0.5
+        # self.tire_config.friction_coeff = 1.5
         # self.car_config.m = 10
 
         # Initialize parameters
@@ -535,7 +535,7 @@ class LBMPC:
             if i < self.lbmpc_config.steps_delay:
                 multiplier = 1e6
                 online_parameters = np.array([
-                    target_v_speed,
+                    target_v_speed*0.9,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -552,7 +552,7 @@ class LBMPC:
                 ], dtype=np.float64)
             else:
                 online_parameters = np.array([
-                    target_v_speed,
+                    target_v_speed*0.9,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -741,17 +741,17 @@ class LBMPC:
                 )
 
                 # horizon logging: predicted traj + bounds + covariances
-                cov_arr = getattr(self.l4a_solver, "covariances_array", None)
-                # indices used by ZoRO tightening (keep them in your config and pass here)
-                idx_lh_t = getattr(self.ocp.zoro_description, "idx_lh_t", [])
-                idx_uh_t = getattr(self.ocp.zoro_description, "idx_uh_t", [])
-                self.offlog.log_horizon(
-                    solver=self.l4a_solver,
-                    lap=self.nr_laps,
-                    covariances_array=cov_arr,
-                    idx_lh_t=list(idx_lh_t) if idx_lh_t is not None else [],
-                    idx_uh_t=list(idx_uh_t) if idx_uh_t is not None else [],
-                )
+                # cov_arr = getattr(self.l4a_solver, "covariances_array", None)
+                # # indices used by ZoRO tightening (keep them in your config and pass here)
+                # idx_lh_t = None #getattr(self.ocp.zoro_description, "idx_lh_t", [])
+                # idx_uh_t = None #getattr(self.ocp.zoro_description, "idx_uh_t", [])
+                # self.offlog.log_horizon(
+                #     solver=self.l4a_solver,
+                #     lap=self.nr_laps,
+                #     covariances_array=cov_arr,
+                #     idx_lh_t=list(idx_lh_t) if idx_lh_t is not None else [],
+                #     idx_uh_t=list(idx_uh_t) if idx_uh_t is not None else [],
+                # )
 
                 self.offlog.tick()
             except Exception as e:

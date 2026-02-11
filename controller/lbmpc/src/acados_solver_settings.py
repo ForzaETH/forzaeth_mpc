@@ -202,7 +202,7 @@ def add_zoro_description(ocp, lbmpc_config):
 
     # 1. Uncertainty Configuration
     # This matrix P0 represents initial state uncertainty diagonal
-    zoro_description.P0_mat = np.diag([8e-2, 8e-2, 5e-2, 5e-1, 5e-1, 1e-1, 0.0, 0.0])
+    zoro_description.P0_mat = np.diag([1e-1, 1e-1, 5e-2, 5e-1, 5e-1, 5e-2, 0.0, 0.0])
     zoro_description.W_mat = np.diag([0.0, 0.0, 0.0])
 
     # Identify which noise matrix from the external GP affects the dynamics

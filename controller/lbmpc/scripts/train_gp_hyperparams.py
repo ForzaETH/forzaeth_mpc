@@ -63,7 +63,7 @@ def main():
 
 
 def train_gp_model(
-    gp_model, torch_seed=None, training_iterations=1000, learning_rate=0.01
+    gp_model, torch_seed=None, training_iterations=400, learning_rate=0.02
 ):
     if torch_seed is not None:
         torch.manual_seed(torch_seed)
