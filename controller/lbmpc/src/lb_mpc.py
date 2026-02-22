@@ -415,18 +415,6 @@ class LBMPC:
             self.first_time_done = True
             print("First time done!")
 
-        # if not self.first_time_done:
-        #     self.steps_delay = 4
-        # else:
-        #     self.steps_delay = self.lbmpc_config.steps_delay
-
-        if not self.first_time_done:
-            self.t_delay = 0.05
-            self.steps_delay = 4
-        else:
-            self.t_delay = 0.2
-            self.steps_delay = 1
-
         # Simulated delay compensation
         self.propagated_x = self._propagate_time_delay(x0) if self.delay_sim else x0
 
@@ -654,7 +642,7 @@ class LBMPC:
         # Update computational time calculation with moving average
         self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
         if self._gp_warmup_done == True:
-            self.t_delay = float(self.lbmpc_config.t_delay) + 0.015
+            self.t_delay = float(self.lbmpc_config.t_delay) + 0.01
         else:
             self.t_delay = float(self.lbmpc_config.t_delay) # + float(self.comput_time)
 
