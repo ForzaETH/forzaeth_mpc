@@ -55,9 +55,11 @@ class OfflineMPCLogger:
             step_cols = (
                 ["t_wall", "t_rel", "step", "lap", "status"]
                 + [f"x_meas_{n}" for n in self.state_names]
-                + [f"x_prop_{n}" for n in self.state_names]
-                + [f"x_pred_delay_{n}" for n in self.state_names]
-                + [f"x_nom_pred_{n}" for n in self.state_names]
+                + [f"x_nom_delayed_{n}" for n in self.state_names]
+                + [f"x_pred_delayed_{n}" for n in self.state_names]
+                + [f"x_meas_prop_{n}" for n in self.state_names]
+                + [f"x_pred_{n}" for n in self.state_names]
+                + [f"x_nom_{n}" for n in self.state_names]
                 + [f"u0_{n}" for n in self.input_names]
                 + ["t_total_ms", "t_init_ms", "t_residual_ms", "t_rest_ms"]
                 + ["r_meas_0", "r_meas_1", "r_meas_2", "r_pred_0", "r_pred_1", "r_pred_2"]
@@ -126,7 +128,7 @@ class OfflineMPCLogger:
         return None
 
     def log_step(self, lap, status,
-                 x_meas, x_prop, x_pred_delay, x_nom_pred,
+                 x_meas, x_nom_delayed, x_pred_delayed, x_meas_prop, x_pred, x_nom,
                  u0,
                  t_total, t_init, t_residual, t_rest,
                  r_meas, r_pred,
@@ -138,11 +140,27 @@ class OfflineMPCLogger:
         t_wall = time.time()
         t_rel = time.perf_counter() - self.t0_perf
 
-        x_meas = np.asarray(x_meas, dtype=float).reshape(-1)
-        x_prop = np.asarray(x_prop, dtype=float).reshape(-1)
-        x_pred_delay = np.asarray(x_pred_delay, dtype=float).reshape(-1)
-        x_nom_pred = np.asarray(x_nom_pred, dtype=float).reshape(-1)
-        u0 = np.asarray(u0, dtype=float).reshape(-1)
+        # --- Helper to safely parse arrays or return zeros of the correct size ---
+        def _safe_arr(val, expected_size):
+            if val is None:
+                return np.zeros(expected_size)
+            return np.asarray(val, dtype=float).reshape(-1)
+
+        # Convert all incoming state/input vectors to flat numpy arrays safely
+        x_meas         = _safe_arr(x_meas, self.nx)
+        x_nom_delayed  = _safe_arr(x_nom_delayed, self.nx)
+        x_pred_delayed = _safe_arr(x_pred_delayed, self.nx)
+        x_meas_prop    = _safe_arr(x_meas_prop, self.nx)
+        x_pred         = _safe_arr(x_pred, self.nx)
+        x_nom          = _safe_arr(x_nom, self.nx)
+
+        u0             = _safe_arr(u0, self.nu)
+
+        # Safe fallbacks for timing variables in case they are None
+        t_total    = t_total if t_total is not None else 0.0
+        t_init     = t_init if t_init is not None else 0.0
+        t_residual = t_residual if t_residual is not None else 0.0
+        t_rest     = t_rest if t_rest is not None else 0.0
 
         # residuals (store first 3)
         rm = np.full(3, np.nan)
@@ -154,12 +172,15 @@ class OfflineMPCLogger:
             rr = np.asarray(r_pred, dtype=float).reshape(-1)
             rp[: min(3, rr.size)] = rr[: min(3, rr.size)]
 
+        # Build the row matching the new header order
         row = (
             [t_wall, t_rel, self.step, int(lap), int(status)]
             + x_meas.tolist()
-            + x_prop.tolist()
-            + x_pred_delay.tolist()
-            + x_nom_pred.tolist()
+            + x_nom_delayed.tolist()
+            + x_pred_delayed.tolist()
+            + x_meas_prop.tolist()
+            + x_pred.tolist()
+            + x_nom.tolist()
             + u0.tolist()
             + [1e3 * t_total, 1e3 * t_init, 1e3 * t_residual, 1e3 * t_rest]
             + rm.tolist() + rp.tolist()

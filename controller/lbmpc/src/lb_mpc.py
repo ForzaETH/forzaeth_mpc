@@ -56,7 +56,7 @@ class LBMPC:
         self.using_gokart = using_gokart
 
         # TODO: FORCE MODEL MISMATCH TO TEST GP
-        # self.tire_config.friction_coeff = 1.5
+        # self.tire_config.friction_coeff = 0.5
         # self.car_config.m = 10
 
         # Initialize parameters
@@ -100,7 +100,7 @@ class LBMPC:
         path_json_sim = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
 
         # Create the Residual model from l4acados
-        self.l4a_solver = ZeroOrderGPMPC(
+        self.l4a_solver = ResidualLearningMPC(  # ZeroOrderGPMPC(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
@@ -155,7 +155,7 @@ class LBMPC:
         # MPC parameters
         self.sampling_time_mpc = 1 / self.lbmpc_config.MPC_freq
         self.comput_time = 0.01  # Initial guess, updated with measured computation times
-        self.t_delay = self.lbmpc_config.t_delay + self.comput_time
+        self.t_delay = self.lbmpc_config.t_delay # + self.comput_time
         self.ma_alpha = self.sampling_time_mpc / (self.sampling_time_mpc + 5.0)  # Moving average window of 1.0 seconds
         # buffer to save last control inputs
         self.buffer_len = 20
@@ -186,6 +186,7 @@ class LBMPC:
 
         # First time that exceeds certain velocity
         self.first_time_done = False
+        self._gp_warmup_done = False
 
     def _mpc_initialize_solver(self, pose_frenet: np.ndarray, waypoints_data: np.ndarray) -> None:
         """Initialize solver with waypoints data (no ROS dependency)"""
@@ -262,7 +263,6 @@ class LBMPC:
         # buffers to save first datapoints until min_points_before_using_gp is reached
         self._gp_buffer_z = []
         self._gp_buffer_y = []
-        self._gp_warmup_done = False
 
         # In case we want to try an already learned model in another track
         z_train_data, y_train_data = None, None
@@ -411,15 +411,20 @@ class LBMPC:
         _t1 = time.perf_counter()
         init_time = _t1 - _t0
 
-        if speed_now > 4.0 and not self.first_time_done:
+        if speed_now > 3.0 and not self.first_time_done:
             self.first_time_done = True
             print("First time done!")
 
+        # if not self.first_time_done:
+        #     self.steps_delay = 4
+        # else:
+        #     self.steps_delay = self.lbmpc_config.steps_delay
+
         if not self.first_time_done:
             self.t_delay = 0.05
-            self.steps_delay = 3
+            self.steps_delay = 4
         else:
-            self.t_delay = 0.15
+            self.t_delay = 0.2
             self.steps_delay = 1
 
         # Simulated delay compensation
@@ -458,19 +463,21 @@ class LBMPC:
         measured_residual = None
         last_pred_residual = None
         self.nominal_pred_x = None
+        self.nomres_pred_x = None
         if (
             self.use_gp
             and self.residual_gp is not None
             and getattr(self, "mode", None) in ("learn", "record")
         ):
             t_res_start = time.perf_counter()
-            res = self._compute_residual(new_state=self.propagated_x)
+            res = self._compute_residual(new_state=x0)
             self.count += 1
             if res is not None and (self.last_status == 0 or self.last_status ==
                                     2) and self.nr_laps >= 2 and self.count >= 1:
                 z_train, residual = res
                 self.residual_gp.record_datapoint(z_train, residual)
                 self.count = 0
+                self._gp_warmup_done = True
             residual_time += time.perf_counter() - t_res_start
 
         if self.pred_x is not None and res is not None:
@@ -478,9 +485,14 @@ class LBMPC:
             _, measured_residual = res
 
             # Predicted residual {mpc first solution - nominal(x_prev, u_prev)}
-            nominal_pred_x = self._predict_next_state_nominal(self.previous_pred_x, self.previous_pred_u)
-            last_pred_residual = self.B_d_pinv @ (self.pred_x - nominal_pred_x)
+            nominal_pred_x = self._predict_next_state_nominal(
+                self._prev_state_for_residual,
+                self._prev_input_for_residual)  # (self.previous_pred_x, self.previous_pred_u)
+            nomres_pred_x = self._predict_next_state_with_gp(self._prev_state_for_residual,
+                                                             self._prev_input_for_residual)
+            last_pred_residual = self.B_d_pinv @ (nomres_pred_x - nominal_pred_x)
             self.nominal_pred_x = nominal_pred_x
+            self.nomres_pred_x = nomres_pred_x
 
         if (measured_residual is not None) and (last_pred_residual is not None):
             mr = np.asarray(measured_residual, dtype=np.float64).reshape(-1)
@@ -493,18 +505,19 @@ class LBMPC:
                 self._res_err_count += 1
 
         viz_information = None
-        if (self.propagated_x is not None) and (self.pred_x is not None):
+        if (x0 is not None) and (self.nomres_pred_x is not None):
             # If nominal_pred_x was not computed this step, fill with NaNs to keep size consistent
             if self.nominal_pred_x is None:
-                nominal_pred_x_for_viz = np.full_like(self.pred_x, np.nan, dtype=np.float64)
+                nominal_pred_x_for_viz = np.full_like(self.nomres_pred_x, np.nan, dtype=np.float64)
             else:
                 nominal_pred_x_for_viz = np.asarray(self.nominal_pred_x, dtype=np.float64).reshape(-1)
 
-            propagated_for_viz = np.asarray(self.propagated_x, dtype=np.float64).reshape(-1)
-            pred_for_viz = np.asarray(self.pred_x, dtype=np.float64).reshape(-1)
+            state_for_viz = np.asarray(x0, dtype=np.float64).reshape(-1)
+            pred_for_viz = np.asarray(self.nomres_pred_x, dtype=np.float64).reshape(-1)
 
+            # Visualize the real one step mismatch without propagating delay
             viz_information = np.concatenate(
-                [propagated_for_viz, pred_for_viz, nominal_pred_x_for_viz]
+                [state_for_viz, pred_for_viz, nominal_pred_x_for_viz]
             )
 
         rest_start = time.perf_counter()
@@ -535,7 +548,7 @@ class LBMPC:
             if i < self.lbmpc_config.steps_delay:
                 multiplier = 1e6
                 online_parameters = np.array([
-                    target_v_speed*0.9,
+                    target_v_speed*0.6,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -552,7 +565,7 @@ class LBMPC:
                 ], dtype=np.float64)
             else:
                 online_parameters = np.array([
-                    target_v_speed*0.9,
+                    target_v_speed*0.6,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -628,23 +641,33 @@ class LBMPC:
             self.l4a_solver.get(j, "x")[:2] for j in range(self.lbmpc_config.N + 1)
         ])
 
-        # TODO: think about this
-        self._prev_state_for_residual = self.previous_pred_x  # x0.copy()
-        self._prev_input_for_residual = self.previous_pred_u  # self.u0.copy()    # [ddelta, jerk]
+        self._prev_state_for_residual = x0.copy()
+        self._prev_input_for_residual = np.zeros(2) # self.u0.copy()    # [ddelta, jerk]
+
+        # # Comput time
+        # # Comput time (total + per-section)
+        # _now = time.perf_counter()
+        # rest_time = _now - rest_start          # everything after rest_start
+        # _elapsed = _now - _t0                  # full main_loop duration
+        _elapsed = 0.0
+
+        # Update computational time calculation with moving average
+        self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
+        if self._gp_warmup_done == True:
+            self.t_delay = float(self.lbmpc_config.t_delay) + 0.015
+        else:
+            self.t_delay = float(self.lbmpc_config.t_delay) # + float(self.comput_time)
+
+        # Shift all solutions and att the new one
+        self.buffer_prev_solutions[:, 1:] = self.buffer_prev_solutions[:, :-1]
+        self.buffer_prev_solutions[:, 0] = np.asarray(self.u0, dtype=np.float64).reshape(2,)
+        self.buf_filled = min(self.buf_filled + 1, self.buffer_len)
 
         # Comput time
         # Comput time (total + per-section)
         _now = time.perf_counter()
         rest_time = _now - rest_start          # everything after rest_start
         _elapsed = _now - _t0                  # full main_loop duration
-
-        # Update computational time calculation with moving average
-        self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
-        self.t_delay = float(self.lbmpc_config.t_delay)  # + float(self.comput_time)
-        # Shift all solutions and att the new one
-        self.buffer_prev_solutions[:, 1:] = self.buffer_prev_solutions[:, :-1]
-        self.buffer_prev_solutions[:, 0] = np.asarray(self.u0, dtype=np.float64).reshape(2,)
-        self.buf_filled = min(self.buf_filled + 1, self.buffer_len)
 
         if not hasattr(self, "_timing_sum"):
             self._timing_sum = 0.0
@@ -725,14 +748,16 @@ class LBMPC:
                 except Exception:
                     gp_n = None
 
-                x_nom = self.nominal_pred_x if (self.nominal_pred_x is not None) else np.full_like(self.pred_x, np.nan)
+                x_nom = self._predict_next_state_nominal(self.previous_pred_x, self.previous_pred_u)
                 self.offlog.log_step(
                     lap=self.nr_laps,
                     status=self.last_status,
-                    x_meas=x0,
-                    x_prop=self.propagated_x,
-                    x_pred_delay=self.pred_x,
-                    x_nom_pred=x_nom,
+                    x_meas=x0,  # Actual measured state, corresponding to time td
+                    x_nom_delayed=self.nominal_pred_x,  # Nominal prediction corresponding to time td
+                    x_pred_delayed=self.nomres_pred_x,  # Total prediction corresponding to time td
+                    x_meas_prop=self.propagated_x,  # Propagated measured state corresponding to the actual t = 0
+                    x_pred=self.pred_x,  # Propagated measure
+                    x_nom=x_nom,
                     u0=self.u0,
                     t_total=_elapsed, t_init=init_time, t_residual=residual_time, t_rest=rest_time,
                     r_meas=measured_residual,
@@ -743,8 +768,8 @@ class LBMPC:
                 # horizon logging: predicted traj + bounds + covariances
                 # cov_arr = getattr(self.l4a_solver, "covariances_array", None)
                 # # indices used by ZoRO tightening (keep them in your config and pass here)
-                # idx_lh_t = None #getattr(self.ocp.zoro_description, "idx_lh_t", [])
-                # idx_uh_t = None #getattr(self.ocp.zoro_description, "idx_uh_t", [])
+                # idx_lh_t = getattr(self.ocp.zoro_description, "idx_lh_t", [])
+                # idx_uh_t = getattr(self.ocp.zoro_description, "idx_uh_t", [])
                 # self.offlog.log_horizon(
                 #     solver=self.l4a_solver,
                 #     lap=self.nr_laps,
@@ -830,7 +855,7 @@ class LBMPC:
         n_steps = min(n_steps, self.buffer_len, self.buf_filled)
         if x[StateIndex.VELOCITY_V_X.value] > 1.5:
             for j in range(n_steps - 1, -1, -1):
-                x = self._predict_next_state_nominal(  # TODO: use residual as well
+                x = self._predict_next_state_nominal( #_predict_next_state_with_gp(
                     x,
                     self.buffer_prev_solutions[:, j]
                 )
@@ -1041,13 +1066,25 @@ class LBMPC:
         """
         x_next_nom = self._predict_next_state_nominal(x, u)
 
-        if not (self.use_gp and self.residual_gp is not None and self._gp_warmup_done):
+        # Make sure self._gp_warmup_done is actually being set to True somewhere in main_loop!
+        if not (self.use_gp and self.residual_gp is not None and getattr(self, "_gp_warmup_done", False)):
             return x_next_nom
 
+        # 1. Prepare the input as a float32 PyTorch tensor
         xu = np.concatenate((x, u))[None, :]  # shape (1, nx+nu)
-        # GPyTorchResidualModel interface: TODO: check actual method name
-        mu_residual, _ = self.residual_gp.value_and_jacobian(xu)
-        mu_residual = mu_residual.detach().cpu().numpy().reshape(-1)  # (nw,)
+        xu_tensor = torch.tensor(xu, dtype=torch.float32)
 
+        # 2. Get the GP prediction safely without tracking gradients
+        with torch.no_grad():
+            # Apply your configured feature selector (from _init_residual_model)
+            xu_selected = self._input_feature_selector(xu_tensor)
+
+            # Query the underlying GPyTorch model
+            gp_pred = self.residual_gp.gp_model(xu_selected)
+
+            # Extract the mean of the prediction and convert back to numpy
+            mu_residual = gp_pred.mean.detach().cpu().numpy().reshape(-1)  # (nw,)
+
+        # 3. Project the residual back into the full state space
         delta_x = self.B @ mu_residual  # (nx,)
         return x_next_nom + delta_x
