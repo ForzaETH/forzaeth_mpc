@@ -29,6 +29,8 @@ class STMPCConfig(BaseModel):
     # Cost function settings #
     qjerk: float
     """jerk cost weight"""
+    qjerk_start: float
+    """jerk cost weight on the yeet on the start mode"""
     qddelta: float
     """steering angle rate cost weight"""
     qadv: float
@@ -39,6 +41,8 @@ class STMPCConfig(BaseModel):
     """heading deviation cost weight"""
     qv: float
     """velocity tracking cost weight"""
+    qv_start: float
+    """velocity tracking cost weight on the yeet on the start mode"""
 
     Zl: float
     """quadratic coefficient state slack variable"""
@@ -61,8 +65,12 @@ class STMPCConfig(BaseModel):
     """Maximum velocity"""
     a_min: float
     """Minimum acceleration (Maximum Breaking)"""
+    a_min_start: float
+    """Minimum acceleration (Maximum Breaking) on the yeet on the start mode"""
     a_max: float
     """Maximum acceleration"""
+    a_max_start: float
+    """Maximum acceleration on the yeet on the start mode"""
 
     # input bounds
     ddelta_min: float
@@ -77,6 +85,8 @@ class STMPCConfig(BaseModel):
     # nonlinear constraint
     alat_max: float
     """Maximum lateral acceleration"""
+    alat_max_start: float
+    """Maximum lateral acceleration on the yeet on the start mode"""
 
     # Cost Flags
     vy_minimization: bool

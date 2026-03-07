@@ -18,20 +18,30 @@ class STMPCConfigDyn(BaseModel):
     """Limits on the advancement cost"""
     qv: Tuple[float, float]
     """Limits on the velocity cost"""
+    qv_start: Tuple[float, float]
+    """Limits on the velocity cost on the start mode"""
     qn: Tuple[float, float]
     """Limits on the lateral deviation cost"""
     qalpha: Tuple[float, float]
     """Limits on the heading deviation cost"""
     qjerk: Tuple[float, float]
     """Limits on the jerk cost"""
+    qjerk_start: Tuple[float, float]
+    """Limits on the jerk cost on the start mode"""
     qddelta: Tuple[float, float]
     """Limits on the steering angle rate cost"""
     alat_max: Tuple[float, float]
     """Limits on the maximum lateral acceleration"""
+    alat_max_start: Tuple[float, float]
+    """Limits on the maximum lateral acceleration on the start mode"""
     a_min: Tuple[float, float]
     """Limits on the minimum acceleration (Maximum Breaking)"""
+    a_min_start: Tuple[float, float]
+    """Limits on the minimum acceleration on the start mode"""
     a_max: Tuple[float, float]
     """Limits on the maximum acceleration"""
+    a_max_start: Tuple[float, float]
+    """Limits on the maximum acceleration on the start mode"""
     track_safety_margin: Tuple[float, float]
     """Limits on the track safety margin"""
     terminal_multiplier: Tuple[float, float]
