@@ -19,7 +19,7 @@ from plotting_fnc import *
 from single_track_mpc.bicycle_model import bicycle_model
 from single_track_mpc.utils.indicies import StateIndex
 from single_track_mpc.utils.splinify import SplineTrack
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float32MultiArray
 from visualization_msgs.msg import Marker, MarkerArray
 
 
@@ -39,10 +39,10 @@ class tireNode:
         # self.glob2frenet = rospy.ServiceProxy('convert_glob2frenet_service', Glob2Frenet)
         # self.frenet2glob = rospy.ServiceProxy('convert_frenet2glob_service', Frenet2Glob)
 
-        rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
+        rospy.Subscriber("/mpc_controller/states", Float32MultiArray, self._states)
 
-        self.v_x_pub = rospy.Publisher("/mpc_controller/v_x", Float64MultiArray, queue_size=10)
-        self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
+        self.v_x_pub = rospy.Publisher("/mpc_controller/v_x", Float32MultiArray, queue_size=10)
+        self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float32MultiArray, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
         self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
         self.d_left_pub = rospy.Publisher("/mpc_controller/d_left", MarkerArray, queue_size=10)
@@ -50,10 +50,10 @@ class tireNode:
         self.d_right_pub = rospy.Publisher("/mpc_controller/d_right", MarkerArray, queue_size=10)
         self.pred_pos_pub = rospy.Publisher("/mpc_controller/predicted_position", MarkerArray, queue_size=10)
 
-        self.acc_x_pub = rospy.Publisher("/mpc_controller/acc_x", Float64MultiArray, queue_size=10)
-        self.acc_y_pub = rospy.Publisher("/mpc_controller/acc_y", Float64MultiArray, queue_size=10)
-        self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float64MultiArray, queue_size=10)
-        self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float64MultiArray, queue_size=10)
+        self.acc_x_pub = rospy.Publisher("/mpc_controller/acc_x", Float32MultiArray, queue_size=10)
+        self.acc_y_pub = rospy.Publisher("/mpc_controller/acc_y", Float32MultiArray, queue_size=10)
+        self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float32MultiArray, queue_size=10)
+        self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float32MultiArray, queue_size=10)
 
         self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
 
@@ -132,7 +132,7 @@ class tireNode:
     #############
     # Callbacks #
     #############
-    def _states(self, states: Float64MultiArray) -> None:
+    def _states(self, states: Float32MultiArray) -> None:
         """slip angle callback callback. Normally not used."""
         self.states_k_1 = self.states
         self.states= states.data
@@ -249,13 +249,13 @@ class tireNode:
 
     def publish_states(self, states: list) -> None:
         """Publishes states into /mpc_controller/states"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.states_pub.publish(msg)
 
     def publish_propagated_states(self, states: list) -> None:
         """Publishes propagated state into /mpc_controller/states_propagated"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.states_propagated_pub.publish(msg)
 
@@ -337,7 +337,7 @@ class tireNode:
 
     def publish_tireforce(self, states: list) -> None:
         """Publishes states into /mpc_controller/states"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.tireforce__pub.publish(msg)
 
@@ -356,7 +356,7 @@ class tireNode:
             self.acc_y[i] = x_dot[4]
             self.ellipse[i] = (x_dot[3]/self.stmpc_config.a_max)**2 + (x_dot[4]/self.stmpc_config.alat_max)**2
 
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = self.acc_x
         self.acc_x_pub.publish(msg)
         msg.data = self.acc_y
