@@ -78,6 +78,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     nsbx = 0  # state soft constraint
     nsbu = 0
     nsh = constraint.expr.shape[0]
+    nsh_e = constraint.expr_e.shape[0]
     ns = nsh + nsbx + nsbu
 
     # discretization
@@ -154,6 +155,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
             -100,
             0,
             -model.n_max,
+            0
         ]
     )
     Nonlinear_constraint_max = np.array(
@@ -162,11 +164,12 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
             0,
             model.n_max,
             0,
+            10_000 # forward advancement upper limit, basically infinite
         ]
     )
     Nonlinear_constraint_index = np.array([num for num in range(nsh)])
     Nonlinear_soft_min_value = np.zeros(nsh)
-    Nonlinear_soft_max_value = np.zeros(nsh) + np.array([0, 0, 0.1, 0.1])
+    Nonlinear_soft_max_value = np.zeros(nsh) + np.array([0, 0, 0.1, 0.1, 0])
 
     # at stage 0
     ocp.constraints.lh_0 = Nonlinear_constraint_min
@@ -182,11 +185,11 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     ocp.constraints.idxsh = Nonlinear_constraint_index
 
     # at stage N
-    ocp.constraints.lh_e = Nonlinear_constraint_min
-    ocp.constraints.uh_e = Nonlinear_constraint_max
-    ocp.constraints.lsh_e = Nonlinear_soft_min_value
-    ocp.constraints.ush_e = Nonlinear_soft_max_value
-    ocp.constraints.idxsh_e = Nonlinear_constraint_index
+    ocp.constraints.lh_e = Nonlinear_constraint_min[:nsh_e]
+    ocp.constraints.uh_e = Nonlinear_constraint_max[:nsh_e]
+    ocp.constraints.lsh_e = Nonlinear_soft_min_value[:nsh_e]
+    ocp.constraints.ush_e = Nonlinear_soft_max_value[:nsh_e]
+    ocp.constraints.idxsh_e = Nonlinear_constraint_index[:nsh_e]
 
     # set intial condition
     ocp.constraints.x0 = model.x0
