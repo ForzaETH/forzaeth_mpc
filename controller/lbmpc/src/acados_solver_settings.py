@@ -187,13 +187,14 @@ def build_ocp_for_l4acados(
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_max_iter = 1
 
-    if lbmpc_config.gp_params.use_zoro:
-        ocp = add_zoro_description(ocp, lbmpc_config)
+    stochastic_mode = lbmpc_config.gp_params.stochastic_mode
+    if stochastic_mode != "disabled":
+        ocp = add_zoro_description(ocp, lbmpc_config, stochastic_mode)
 
     return ocp, model, constraint, params
 
 
-def add_zoro_description(ocp, lbmpc_config):
+def add_zoro_description(ocp, lbmpc_config, stochastic_mode):
     """
     Attaches the ZoroDescription object required by the ZeroOrderGPMPC class.
     Configures it to tighten the specific track constraints defined in build_ocp.
@@ -204,65 +205,73 @@ def add_zoro_description(ocp, lbmpc_config):
     # 1. Uncertainty Configuration
     # This matrix P0 represents initial state uncertainty diagonal
     zoro_description.P0_mat = np.diag([1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 5e-3, 0.0, 0.0])
-    zoro_description.W_mat = np.diag([0.0, 0.0])
 
     # Identify which noise matrix from the external GP affects the dynamics
     # Assuming G matrix maps noise to states.
     idx = np.asarray(lbmpc_config.gp_params.unc_jac_G_mat_idx, dtype=float)
     unc_jac_G_mat = np.diag(idx)
     unc_jac_G_mat = unc_jac_G_mat[:, ~np.all(unc_jac_G_mat == 0, axis=0)]
+    nw = unc_jac_G_mat.shape[1]
+    if nw == 0:
+        raise ValueError(
+            "stochastic_mode is enabled, but unc_jac_G_mat_idx does not activate any disturbance channel."
+        )
+
+    zoro_description.W_mat = np.diag(np.zeros((nw,), dtype=float))
     zoro_description.unc_jac_G_mat = unc_jac_G_mat
 
-    # ---------- OPTION 1 - If not using linear feedback
-    # zoro_description.fdbk_K_mat = np.zeros((ocp.dims.nu, ocp.dims.nx))
-
-    # ---------- OPTION 2- If using linear feedback with constant K
-    # --- (calculated with the script: build_k.py)
-    # K_lqr = np.array([
-    #     [0.0, 6.831301, 9.928423, 0.0, 0.825643, 0.33575, 13.06181, 0.0],
-    #     [0.0, 0.0, 0.0, 11.83216, 0.0, 0.0, 0.0, 4.864599],
-    # ], dtype=float)
-    # zoro_description.fdbk_K_mat = K_lqr
-
-    # ---------- OPTION 3 - If using linear feedback with time varying K
     nx = ocp.dims.nx
     nu = ocp.dims.nu
-    zoro_description.fdbk_K_mat = np.zeros((nu, nx), dtype=float)
-    zoro_description.feedback_optimization_mode = "RICCATI_CONSTANT_COST"
+    if stochastic_mode == "open_loop":
+        zoro_description.fdbk_K_mat = np.zeros((nu, nx), dtype=float)
+    elif stochastic_mode == "lqr":
+        # Calculated in scripts/build_k.py
+        zoro_description.fdbk_K_mat = np.array([
+            [0.0, 6.831301, 9.928423, 0.0, 0.825643, 0.33575, 13.06181, 0.0],
+            [0.0, 0.0, 0.0, 11.83216, 0.0, 0.0, 0.0, 4.864599],
+        ], dtype=float)
+    elif stochastic_mode == "riccati":
+        zoro_description.fdbk_K_mat = np.zeros((nu, nx), dtype=float)
+        zoro_description.feedback_optimization_mode = "RICCATI_CONSTANT_COST"
 
-    Q = np.zeros((nx, nx))
-    R = np.zeros((nu, nu))
-    S = np.zeros((nu, nx))
+        Q = np.zeros((nx, nx))
+        R = np.zeros((nu, nu))
+        S = np.zeros((nu, nx))
 
-    qn = float(lbmpc_config.qn)
-    qalpha = float(lbmpc_config.qalpha)
-    qv = float(lbmpc_config.qv)
+        qn = float(lbmpc_config.qn)
+        qalpha = float(lbmpc_config.qalpha)
+        qv = float(lbmpc_config.qv)
 
-    qjerk = float(lbmpc_config.qjerk)
-    qddelta = float(lbmpc_config.qddelta)
+        qjerk = float(lbmpc_config.qjerk)
+        qddelta = float(lbmpc_config.qddelta)
 
-    # Lateral deviation minimization (only if available)
-    qvy = 100.0 if getattr(lbmpc_config, "vy_minimization", False) else 0.0
+        # Lateral deviation minimization (only if available)
+        qvy = 100.0 if getattr(lbmpc_config, "vy_minimization", False) else 0.0
 
-    # State penalties
-    Q[StateIndex.MIN_DIST_TO_CENTER_LINE_N, StateIndex.MIN_DIST_TO_CENTER_LINE_N] = qn
-    Q[StateIndex.ORIENTATION_THETA, StateIndex.ORIENTATION_THETA] = qalpha
-    Q[StateIndex.VELOCITY_V_X, StateIndex.VELOCITY_V_X] = qv
-    Q[StateIndex.VELOCITY_V_Y, StateIndex.VELOCITY_V_Y] = qvy
+        # State penalties
+        Q[StateIndex.MIN_DIST_TO_CENTER_LINE_N, StateIndex.MIN_DIST_TO_CENTER_LINE_N] = qn
+        Q[StateIndex.ORIENTATION_THETA, StateIndex.ORIENTATION_THETA] = qalpha
+        Q[StateIndex.VELOCITY_V_X, StateIndex.VELOCITY_V_X] = qv
+        Q[StateIndex.VELOCITY_V_Y, StateIndex.VELOCITY_V_Y] = qvy
 
-    # Input penalties
-    R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = qddelta
-    R[InputIndex.JERK, InputIndex.JERK] = qjerk
-    tm = float(lbmpc_config.terminal_multiplier) if hasattr(lbmpc_config, "terminal_multiplier") else 1.0
-    Qe = tm * Q.copy()
-    eps = 1e-6
-    R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = max(R[0, 0], eps)
-    R[InputIndex.JERK, InputIndex.JERK] = max(R[1, 1], eps)
+        # Input penalties
+        R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = qddelta
+        R[InputIndex.JERK, InputIndex.JERK] = qjerk
+        tm = float(lbmpc_config.terminal_multiplier) if hasattr(lbmpc_config, "terminal_multiplier") else 1.0
+        Qe = tm * Q.copy()
+        eps = 1e-6
+        R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = max(R[0, 0], eps)
+        R[InputIndex.JERK, InputIndex.JERK] = max(R[1, 1], eps)
 
-    zoro_description.riccati_Q_const = Q
-    zoro_description.riccati_R_const = R
-    zoro_description.riccati_S_const = S
-    zoro_description.riccati_Q_const_e = Qe
+        zoro_description.riccati_Q_const = Q
+        zoro_description.riccati_R_const = R
+        zoro_description.riccati_S_const = S
+        zoro_description.riccati_Q_const_e = Qe
+    else:
+        raise ValueError(
+            f"Unsupported stochastic_mode '{stochastic_mode}'. "
+            "Expected one of ['open_loop', 'lqr', 'riccati']."
+        )
 
     # 2. Scaling
     zoro_description.backoff_scaling_gamma = 1.0  # 2-sigma confidence -> approx 95% | 1-sigma confidence -> 68%

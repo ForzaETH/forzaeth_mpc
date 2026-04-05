@@ -3,7 +3,8 @@ from typing import Dict, List, Optional, Union
 
 import rospkg
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import (BaseModel, ConfigDict, ValidationError, field_validator,
+                      model_validator)
 
 NestedFloats = Union[List[float], List[List[float]]]
 
@@ -13,11 +14,10 @@ class GPParamsConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     use_gp: bool = True
-    use_zoro: bool = False
+    stochastic_mode: str = "disabled"
     enable_offline_logging: bool = True
     log_offline_horizon: bool = False
     use_inducing_gp: bool = False
-    min_points_before_using_gp: int = 100
     max_num_data_points: int = 2000
 
     # Mandatory: same name as in YAML
@@ -43,6 +43,34 @@ class GPParamsConfig(BaseModel):
                 "data_processing_mode must be one of ['learn', 'use_learnt_model']"
             )
         return normalized
+
+    @field_validator("stochastic_mode")
+    @classmethod
+    def validate_stochastic_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        aliases = {
+            "none": "disabled",
+            "off": "disabled",
+            "zero_feedback": "open_loop",
+            "constant_feedback": "lqr",
+            "time_varying_feedback": "riccati",
+        }
+        normalized = aliases.get(normalized, normalized)
+
+        allowed = {"disabled", "open_loop", "lqr", "riccati"}
+        if normalized not in allowed:
+            raise ValueError(
+                "stochastic_mode must be one of ['disabled', 'open_loop', 'lqr', 'riccati']"
+            )
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_mode_consistency(self):
+        if not self.use_gp and self.stochastic_mode != "disabled":
+            raise ValueError(
+                "stochastic_mode must be 'disabled' when use_gp is false"
+            )
+        return self
 
 
 class LBMPCConfig(BaseModel):

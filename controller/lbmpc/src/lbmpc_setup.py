@@ -36,7 +36,6 @@ class ResidualModelSetup:
     residual_gp: GPyTorchResidualModel
     input_feature_selector: PyTorchFeatureSelector
     use_inducing_gp: bool
-    min_points_before_using_gp: int
     max_num_data_points: int
     nx_gp: int
     nu_gp: int
@@ -150,7 +149,6 @@ def initialize_residual_model(
     nw_gp: int,
 ) -> ResidualModelSetup:
     use_inducing_gp = gp_cfg.use_inducing_gp
-    min_points_before_using_gp = gp_cfg.min_points_before_using_gp
     max_num_data_points = gp_cfg.max_num_data_points
 
     nx_gp = int(model.n_x)
@@ -249,7 +247,6 @@ def initialize_residual_model(
         residual_gp=residual_gp,
         input_feature_selector=input_feature_selector,
         use_inducing_gp=use_inducing_gp,
-        min_points_before_using_gp=min_points_before_using_gp,
         max_num_data_points=max_num_data_points,
         nx_gp=nx_gp,
         nu_gp=nu_gp,

@@ -61,7 +61,8 @@ class LBMPC:
         # Initialize Residual model
         self.lbmpc_path = lbmpc_path
         self.use_gp = self.lbmpc_config.gp_params.use_gp
-        self.use_zoro = self.lbmpc_config.gp_params.use_zoro
+        self.stochastic_mode = self.lbmpc_config.gp_params.stochastic_mode
+        self.use_zoro = self.stochastic_mode != "disabled"
         self.enable_offline_logging = self.lbmpc_config.gp_params.enable_offline_logging
         self.log_offline_horizon = (
             self.lbmpc_config.gp_params.log_offline_horizon and self.use_zoro
@@ -84,7 +85,6 @@ class LBMPC:
             self.residual_gp = residual_setup.residual_gp
             self._input_feature_selector = residual_setup.input_feature_selector
             self.use_inducing_gp = residual_setup.use_inducing_gp
-            self.min_points_before_using_gp = residual_setup.min_points_before_using_gp
             self.max_num_data_points = residual_setup.max_num_data_points
             self._nx_gp = residual_setup.nx_gp
             self._nu_gp = residual_setup.nu_gp
@@ -95,7 +95,6 @@ class LBMPC:
             self.residual_gp = None
             self._input_feature_selector = None
             self.use_inducing_gp = False
-            self.min_points_before_using_gp = 0
             self.max_num_data_points = 0
             self._nx_gp = 0
             self._nu_gp = 0
@@ -110,7 +109,10 @@ class LBMPC:
 
         model_cls = ZeroOrderGPMPC if self.use_zoro else ResidualLearningMPC
         model_name = "ZeroOrderGPMPC" if self.use_zoro else "ResidualLearningMPC"
-        print(f"[LBMPC] Using {model_name}")
+        print(
+            f"[LBMPC] Using {model_name} "
+            f"(stochastic_mode={self.stochastic_mode})"
+        )
         self.l4a_solver = model_cls(
             ocp=self.ocp,
             B=self.B,
