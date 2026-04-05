@@ -55,7 +55,7 @@ class tireNode:
         self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float32MultiArray, queue_size=10)
         self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float32MultiArray, queue_size=10)
 
-        if self.ctrl_algo == "STMPC":
+        if self.ctrl_algo in ("STMPC", "LBMPC"):
             self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
         else:
             self.mpc_dyn_rec_client = None

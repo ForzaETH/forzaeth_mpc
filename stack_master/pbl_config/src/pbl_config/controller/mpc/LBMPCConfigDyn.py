@@ -50,7 +50,7 @@ def create_LBMPC_dynamic_parameters(gen: ParameterGenerator):
         racecar_version=default_car)  # using the default_car version by default
 
     # load the dynamic reconfigure parameters
-    relative_path = f'/config/{default_car}/single_track_mpc_dyn_params.yaml'
+    relative_path = f'/config/{default_car}/lb_mpc_dyn_params.yaml'
     config_path = rospkg.RosPack().get_path('stack_master') + relative_path
     with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
