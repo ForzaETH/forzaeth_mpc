@@ -13,8 +13,8 @@ from frenet_converter.frenet_converter import FrenetConverter
 from dynamic_reconfigure.client import Client
 from dynamic_reconfigure.msg import Config
 from nav_msgs.msg import Odometry
-from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
-                        load_STMPC_config_ros)
+from pbl_config import (load_LBMPC_config_ros, load_car_config_ros,
+                        load_pacejka_tire_config_ros, load_STMPC_config_ros)
 from plotting_fnc import *
 from single_track_mpc.bicycle_model import bicycle_model
 from single_track_mpc.utils.indicies import StateIndex
@@ -55,7 +55,10 @@ class tireNode:
         self.ellipse_pub = rospy.Publisher("/mpc_controller/ellipse", Float32MultiArray, queue_size=10)
         self.horizon_pub = rospy.Publisher("/mpc_controller/horizon", Float32MultiArray, queue_size=10)
 
-        self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
+        if self.ctrl_algo == "STMPC":
+            self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.stmpc_config_cb)
+        else:
+            self.mpc_dyn_rec_client = None
 
         self._initialize_path()
 
@@ -63,7 +66,11 @@ class tireNode:
         dir_path = rospkg.RosPack().get_path("stack_master")
         self.racecar_version = rospy.get_param("/racecar_version")
         self.floor = rospy.get_param("/floor")
-        self.stmpc_config = load_STMPC_config_ros(self.racecar_version)
+        self.ctrl_algo = rospy.get_param("controller_manager/ctrl_algo", "STMPC")
+        if self.ctrl_algo == "LBMPC":
+            self.stmpc_config = load_LBMPC_config_ros(self.racecar_version)
+        else:
+            self.stmpc_config = load_STMPC_config_ros(self.racecar_version)
         self.car_config = load_car_config_ros(self.racecar_version)
         self.tire_config = load_pacejka_tire_config_ros(self.racecar_version, self.floor)
 
