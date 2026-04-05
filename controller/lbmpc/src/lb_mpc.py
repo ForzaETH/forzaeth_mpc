@@ -12,12 +12,13 @@ from frenet_converter.frenet_converter import FrenetConverter
 from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
 from l4acados.models import GPyTorchResidualModel, PyTorchFeatureSelector
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_data_processing_strategy import (
-    OnlineLearningStrategy, RecordDataStrategy, VoidDataStrategy)
+    OnlineLearningStrategy, VoidDataStrategy)
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
 from lbmpc.src.acados_solver_settings import build_ocp_for_l4acados
 from lbmpc.src.utils.indicies import InputIndex, StateIndex
-from lbmpc.src.utils.utils import check_file_changes, load_tensor_data
+from lbmpc.src.utils.utils import (check_file_changes, load_gp_model_bundle,
+                                   save_gp_model_bundle)
 from pbl_config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
@@ -283,42 +284,44 @@ class LBMPC:
             )
         self._input_feature_selector = PyTorchFeatureSelector(input_selection)
 
-        z_path = os.path.join(self.lbmpc_path, "data/datapoints", "z_data.csv")
-        y_path = os.path.join(self.lbmpc_path, "data/datapoints", "y_data.csv")
+        self.learnt_gp_model_path = os.path.join(
+            self.lbmpc_path, "data", "models", "latest_gp_model.pt"
+        )
 
         # Data strategy
         self.mode = gp_cfg.data_processing_mode
-        if self.mode == "none" or self.mode == "use_prerecorded_data":
-            data_processing_strategy = VoidDataStrategy()
-        elif self.mode == "record":
-            data_processing_strategy = RecordDataStrategy(z_path, y_path)
-        elif self.mode == "learn":
+        if self.mode == "learn":
             data_processing_strategy = OnlineLearningStrategy(self.max_num_data_points)
+        elif self.mode == "use_learnt_model":
+            data_processing_strategy = VoidDataStrategy()
         else:
             raise ValueError(
-                f"Invalid data_processing_mode: {self.mode}. Must be one of ['none', 'record', 'learn']"
+                f"Invalid data_processing_mode: {self.mode}. Must be one of ['learn', 'use_learnt_model']"
             )
 
         # buffers to save first datapoints until min_points_before_using_gp is reached
         self._gp_buffer_z = []
         self._gp_buffer_y = []
 
-        # In case we want to try an already learned model in another track
+        learnt_gp_bundle = None
         z_train_data, y_train_data = None, None
-        if self.mode == "use_prerecorded_data":
-            z_train_data, y_train_data = load_tensor_data(z_path, y_path)
+        learnt_num_points = None
+        if self.mode == "use_learnt_model":
+            learnt_gp_bundle = load_gp_model_bundle(self.learnt_gp_model_path)
+            if learnt_gp_bundle is None:
+                raise FileNotFoundError(
+                    f"[LBMPC] No learnt GP model found at {self.learnt_gp_model_path}. "
+                    "Run once with gp_params.data_processing_mode='learn' first."
+                )
+            z_train_data = learnt_gp_bundle.get("train_x")
+            y_train_data = learnt_gp_bundle.get("train_y")
+            if z_train_data is None or y_train_data is None:
+                raise ValueError(
+                    f"[LBMPC] Learnt GP bundle at {self.learnt_gp_model_path} does not contain training data."
+                )
+            learnt_num_points = int(z_train_data.shape[0])
 
-            # Apply feature selectionº
-            z_train_data = self._input_feature_selector(z_train_data)
-
-            if z_train_data.shape[0] > self.max_num_data_points:
-                z_train_data = z_train_data[:self.max_num_data_points, :]
-                y_train_data = y_train_data[:self.max_num_data_points, :]
-
-        # Create one fake datapoint because l4acados requires it
-        # if self.mode == "learn":
-        #     z_train_data = torch.zeros((1, sum(input_selection)), dtype=torch.float32)
-        #     y_train_data = torch.zeros((1, self._nw_gp), dtype=torch.float32)
+        input_dimension = int(sum(input_selection))
 
         # Build GP model: full or inducing
         if not self.use_inducing_gp:
@@ -329,7 +332,7 @@ class LBMPC:
                     num_tasks=self._nw_gp,
                 ),
                 residual_dimension=self._nw_gp,
-                input_dimension=sum(input_selection),
+                input_dimension=input_dimension,
                 use_ard=True,
             )
             hyperparameter_names_dict = {
@@ -348,7 +351,7 @@ class LBMPC:
                     num_tasks=self._nw_gp,
                 ),
                 residual_dimension=self._nw_gp,
-                input_dimension=sum(input_selection),
+                input_dimension=input_dimension,
                 inducing_points=inducing_zeros,
                 use_ard=True,
             )
@@ -358,9 +361,10 @@ class LBMPC:
                 "kernel.outputscale": "covar_module.base_kernel.outputscale",
             }
 
-        # Initialize hyperparameters if provided
         hyper_cfg = gp_cfg.hyperparameters
-        if self.mode in ("use_prerecorded_data", "learn") and hyper_cfg:
+        if learnt_gp_bundle is not None:
+            self._load_learnt_gp_model(gp_model, learnt_gp_bundle, input_dimension)
+        elif hyper_cfg:
             gp_model.initialize(
                 **{
                     hyperparameter_names_dict[key]: torch.Tensor(hyper_cfg[key])
@@ -376,6 +380,12 @@ class LBMPC:
             gp_model.train_inputs = None
             gp_model.train_targets = None
             gp_model.prediction_strategy = None
+        elif self.mode == "use_learnt_model":
+            self._gp_warmup_done = True
+            print(
+                f"[LBMPC] Loaded learnt GP model from {self.learnt_gp_model_path} "
+                f"with {learnt_num_points} points."
+            )
 
         # Wrap in residual model
         self.residual_gp = GPyTorchResidualModel(
@@ -383,6 +393,69 @@ class LBMPC:
             feature_selector=self._input_feature_selector,
             data_processing_strategy=data_processing_strategy,
         )
+
+    def _load_learnt_gp_model(self, gp_model, bundle: dict, input_dimension: int) -> None:
+        metadata = bundle.get("metadata", {})
+
+        saved_input_dim = metadata.get("input_dimension")
+        if saved_input_dim is not None and int(saved_input_dim) != int(input_dimension):
+            raise ValueError(
+                f"[LBMPC] Learnt GP model input dimension mismatch: saved {saved_input_dim}, "
+                f"current {input_dimension}."
+            )
+
+        saved_residual_dim = metadata.get("residual_dimension")
+        if saved_residual_dim is not None and int(saved_residual_dim) != int(self._nw_gp):
+            raise ValueError(
+                f"[LBMPC] Learnt GP residual dimension mismatch: saved {saved_residual_dim}, "
+                f"current {self._nw_gp}."
+            )
+
+        saved_use_inducing_gp = metadata.get("use_inducing_gp")
+        if saved_use_inducing_gp is not None and bool(saved_use_inducing_gp) != bool(self.use_inducing_gp):
+            raise ValueError(
+                "[LBMPC] Learnt GP model was saved with a different use_inducing_gp setting."
+            )
+
+        saved_num_inducing_points = metadata.get("num_inducing_points")
+        if (
+            self.use_inducing_gp
+            and saved_num_inducing_points is not None
+            and int(saved_num_inducing_points) != int(self.lbmpc_config.gp_params.num_inducing_points)
+        ):
+            raise ValueError(
+                f"[LBMPC] Learnt GP model uses {saved_num_inducing_points} inducing points, "
+                f"but the current config requests {self.lbmpc_config.gp_params.num_inducing_points}."
+            )
+
+        try:
+            gp_model.load_state_dict(bundle["gp_model_state_dict"])
+            gp_model.likelihood.load_state_dict(bundle["likelihood_state_dict"])
+        except Exception as exc:
+            raise RuntimeError(
+                f"[LBMPC] Failed to load learnt GP model from {self.learnt_gp_model_path}: {exc}"
+            ) from exc
+
+    def _save_learnt_gp_model(self) -> None:
+        if not (self.use_gp and self.residual_gp is not None and self.mode == "learn"):
+            return
+
+        metadata = {
+            "input_dimension": int(sum(self.lbmpc_config.gp_params.input_feature_selection)),
+            "residual_dimension": int(self._nw_gp),
+            "use_inducing_gp": bool(self.use_inducing_gp),
+            "num_inducing_points": int(self.lbmpc_config.gp_params.num_inducing_points),
+            "racecar_version": self.racecar_version,
+        }
+
+        try:
+            save_gp_model_bundle(
+                self.learnt_gp_model_path,
+                self.residual_gp.gp_model,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            print(f"[LBMPC] Failed to save learnt GP model to {self.learnt_gp_model_path}: {exc}")
 
     def main_loop(
             self,
@@ -457,11 +530,11 @@ class LBMPC:
         # Simulated delay compensation
         self.propagated_x = self._propagate_time_delay(x0) if self.delay_sim else x0
 
-        # Record new datapoints. Until we don't have at least self.min_points_before_using_gp
+        # Historical warm-up buffering path kept for reference from the older CSV-based workflow.
         # if (
         #     self.use_gp
         #     and self.residual_gp is not None
-        #     and getattr(self, "mode", None) in ("learn", "record")
+        #     and getattr(self, "mode", None) == "learn"
         # ):
         #     res = self._compute_residual(new_state=x0)
         #     if res is not None:
@@ -494,15 +567,21 @@ class LBMPC:
         if (
             self.use_gp
             and self.residual_gp is not None
-            and getattr(self, "mode", None) in ("learn", "record")
+            and getattr(self, "mode", None) in ("learn", "use_learnt_model")
         ):
             t_res_start = time.perf_counter()
             res = self._compute_residual(new_state=x0)
             self.count += 1
-            if res is not None and (self.last_status == 0 or self.last_status ==
-                                    2) and self.nr_laps >= 2 and self.count >= 1:
+            if (
+                self.mode == "learn"
+                and res is not None
+                and (self.last_status == 0 or self.last_status == 2)
+                and self.nr_laps >= 2
+                and self.count >= 1
+            ):
                 z_train, residual = res
                 self.residual_gp.record_datapoint(z_train, residual)
+                self._save_learnt_gp_model()
                 self.count = 0
                 self._gp_warmup_done = True
             residual_time += time.perf_counter() - t_res_start
@@ -851,7 +930,7 @@ class LBMPC:
     def _update_warm_start(self) -> None:
         """
         Propagate states along the horizon with the current inputs,
-        using the learned model (nominal + GP).
+        using the learnt model (nominal + GP).
         """
         for i in range(self.lbmpc_config.N + 1):
             current_state = self.l4a_solver.get(i, "x")
@@ -1083,7 +1162,7 @@ class LBMPC:
 
     def _predict_next_state_with_gp(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
         """
-        Learned prediction:
+        Learnt prediction:
             x_next ≈ f_nominal(x,u) + B * μ_residual(x,u)
         Only active if use_gp and warm-up already finished.
         """

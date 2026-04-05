@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Union
 
 import rospkg
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 NestedFloats = Union[List[float], List[List[float]]]
 
@@ -21,14 +21,25 @@ class GPParamsConfig(BaseModel):
     unc_jac_G_mat_idx: List[int]
     input_feature_selection: List[int]
 
-    # 'none' | 'record' | 'learn' | 'use_prerecorded_data'
-    data_processing_mode: str = "none"
+    data_processing_mode: str = "learn"
+    """GP operating mode: 'learn' updates and saves the model, 'use_learnt_model' loads the last saved one."""
 
     # Only relevant when use_inducing_gp is True
     num_inducing_points: int = 10
 
     # Free-form hyperparameters, matched by string keys
     hyperparameters: Optional[Dict[str, NestedFloats]] = None
+
+    @field_validator("data_processing_mode")
+    @classmethod
+    def validate_data_processing_mode(cls, value: str) -> str:
+        normalized = "use_learnt_model" if value == "use_learnet_model" else value
+        allowed = {"learn", "use_learnt_model"}
+        if normalized not in allowed:
+            raise ValueError(
+                "data_processing_mode must be one of ['learn', 'use_learnt_model']"
+            )
+        return normalized
 
 
 class LBMPCConfig(BaseModel):

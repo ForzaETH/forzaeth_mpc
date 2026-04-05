@@ -1,4 +1,5 @@
 import hashlib
+import os
 
 import numpy as np
 import torch
@@ -57,3 +58,41 @@ def load_tensor_data(z_path: str, y_path: str):
         y_tensor = None
 
     return x_tensor, y_tensor
+
+
+def _state_dict_to_cpu(state_dict: dict) -> dict:
+    cpu_state_dict = {}
+    for key, value in state_dict.items():
+        if torch.is_tensor(value):
+            cpu_state_dict[key] = value.detach().cpu()
+        else:
+            cpu_state_dict[key] = value
+    return cpu_state_dict
+
+
+def save_gp_model_bundle(model_path: str, gp_model, metadata: dict = None) -> None:
+    train_x = None
+    train_inputs = getattr(gp_model, "train_inputs", None)
+    if train_inputs is not None and len(train_inputs) > 0:
+        train_x = train_inputs[0]
+
+    train_y = getattr(gp_model, "train_targets", None)
+
+    bundle = {
+        "gp_model_state_dict": _state_dict_to_cpu(gp_model.state_dict()),
+        "likelihood_state_dict": _state_dict_to_cpu(gp_model.likelihood.state_dict()),
+        "train_x": train_x.detach().cpu() if torch.is_tensor(train_x) else train_x,
+        "train_y": train_y.detach().cpu() if torch.is_tensor(train_y) else train_y,
+        "metadata": metadata or {},
+    }
+
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    tmp_path = f"{model_path}.tmp"
+    torch.save(bundle, tmp_path)
+    os.replace(tmp_path, model_path)
+
+
+def load_gp_model_bundle(model_path: str):
+    if not os.path.exists(model_path):
+        return None
+    return torch.load(model_path, map_location="cpu")
