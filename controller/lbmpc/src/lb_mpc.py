@@ -104,7 +104,7 @@ class LBMPC:
         )
 
         # Create the Residual model from l4acados
-        self.l4a_solver = ResidualLearningMPC(  # ZeroOrderGPMPC(
+        self.l4a_solver = ZeroOrderGPMPC(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,

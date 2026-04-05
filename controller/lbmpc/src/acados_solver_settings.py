@@ -187,7 +187,7 @@ def build_ocp_for_l4acados(
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_max_iter = 1
 
-    # ocp = add_zoro_description(ocp, lbmpc_config)
+    ocp = add_zoro_description(ocp, lbmpc_config)
 
     return ocp, model, constraint, params
 
@@ -202,8 +202,8 @@ def add_zoro_description(ocp, lbmpc_config):
 
     # 1. Uncertainty Configuration
     # This matrix P0 represents initial state uncertainty diagonal
-    zoro_description.P0_mat = np.diag([1e-1, 1e-1, 5e-2, 5e-1, 5e-1, 5e-2, 0.0, 0.0])
-    zoro_description.W_mat = np.diag([0.0, 0.0, 0.0])
+    zoro_description.P0_mat = np.diag([1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 5e-3, 0.0, 0.0])
+    zoro_description.W_mat = np.diag([0.0, 0.0])
 
     # Identify which noise matrix from the external GP affects the dynamics
     # Assuming G matrix maps noise to states.
