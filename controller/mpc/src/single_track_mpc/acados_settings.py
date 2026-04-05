@@ -180,11 +180,13 @@ def acados_settings(s0, kapparef, d_left, d_right,
     Nonlinear_constraint_min = np.array([
         0,
         -model.track_max,
+        0,
         0])
     Nonlinear_constraint_max = np.array([
         model.track_max,
         0,
-        1])
+        1,
+        10_000]) # forward advancement upper limit, basically infinite
     # Nonlinear_soft_min_value = np.zeros(nsh)
     # Nonlinear_soft_max_value = np.zeros(nsh) + np.array([0.1, 0.1, 0])
     Nonlinear_constraint_index = np.array([num for num in range(nsh)])
