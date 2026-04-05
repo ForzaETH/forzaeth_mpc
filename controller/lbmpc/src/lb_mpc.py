@@ -70,6 +70,11 @@ class LBMPC:
         # Initialize Residual model
         self.lbmpc_path = lbmpc_path
         self.use_gp = self.lbmpc_config.gp_params.use_gp
+        self.use_zoro = self.lbmpc_config.gp_params.use_zoro
+        self.enable_offline_logging = self.lbmpc_config.gp_params.enable_offline_logging
+        self.log_offline_horizon = (
+            self.lbmpc_config.gp_params.log_offline_horizon and self.use_zoro
+        )
 
         # Build the B matrix, B_d_pinv and nw
         idx = np.asarray(self.lbmpc_config.gp_params.unc_jac_G_mat_idx, dtype=float)
@@ -104,8 +109,10 @@ class LBMPC:
             path_json_sim=path_json_sim,
         )
 
-        # Create the Residual model from l4acados
-        self.l4a_solver = ZeroOrderGPMPC(
+        model_cls = ZeroOrderGPMPC if self.use_zoro else ResidualLearningMPC
+        model_name = "ZeroOrderGPMPC" if self.use_zoro else "ResidualLearningMPC"
+        print(f"[LBMPC] Using {model_name}")
+        self.l4a_solver = model_cls(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
@@ -116,24 +123,30 @@ class LBMPC:
         )
 
         # ---- offline viz logger ----
-        try:
-            nx = int(self.ocp.dims.nx)
-            nu = int(self.ocp.dims.nu)
-            N = int(self.lbmpc_config.N)
-            state_names = [e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value)]
-            input_names = [e.name.lower() for e in sorted(InputIndex, key=lambda x: x.value)]
+        if self.lbmpc_config.gp_params.log_offline_horizon and not self.use_zoro:
+            print("[offline_viz] Horizon logging requested, but use_zoro is False. Disabling horizon logging.")
 
-            self.offlog = OfflineMPCLogger(
-                root_dir=self.lbmpc_path,
-                nx=nx, nu=nu, N=N,
-                state_names=state_names,
-                input_names=input_names,
-                enable=True,
-                flush_every=25,
-                horizon_stride=4,
-            )
-        except Exception as e:
-            print(f"[offline_viz] logger disabled: {e}")
+        if self.enable_offline_logging:
+            try:
+                nx = int(self.ocp.dims.nx)
+                nu = int(self.ocp.dims.nu)
+                N = int(self.lbmpc_config.N)
+                state_names = [e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value)]
+                input_names = [e.name.lower() for e in sorted(InputIndex, key=lambda x: x.value)]
+
+                self.offlog = OfflineMPCLogger(
+                    root_dir=self.lbmpc_path,
+                    nx=nx, nu=nu, N=N,
+                    state_names=state_names,
+                    input_names=input_names,
+                    enable=True,
+                    flush_every=25,
+                    horizon_stride=4,
+                )
+            except Exception as e:
+                print(f"[offline_viz] logger disabled: {e}")
+                self.offlog = None
+        else:
             self.offlog = None
 
         # Keep a handle to the sim solver and set its default horizon
@@ -530,35 +543,6 @@ class LBMPC:
         # Simulated delay compensation
         self.propagated_x = self._propagate_time_delay(x0) if self.delay_sim else x0
 
-        # Historical warm-up buffering path kept for reference from the older CSV-based workflow.
-        # if (
-        #     self.use_gp
-        #     and self.residual_gp is not None
-        #     and getattr(self, "mode", None) == "learn"
-        # ):
-        #     res = self._compute_residual(new_state=x0)
-        #     if res is not None:
-        #         z_train, residual = res
-
-        #         # 1) If warm-up is not finished, collect into buffer
-        #         if not self._gp_warmup_done:
-        #             self._gp_buffer_z.append(z_train)
-        #             self._gp_buffer_y.append(residual)
-
-        #             # When we reach the threshold, flush buffer into the GP
-        #             if len(self._gp_buffer_z) >= self.min_points_before_using_gp:
-        #                 for z_b, y_b in zip(self._gp_buffer_z, self._gp_buffer_y):
-        #                     self.residual_gp.record_datapoint(z_b, y_b)
-
-        #                 # Clear buffer and mark GP as ready
-        #                 self._gp_buffer_z.clear()
-        #                 self._gp_buffer_y.clear()
-        #                 self._gp_warmup_done = True
-        #                 print("GP warmup done")
-
-        #         # 2) If warm-up is finished, directly add each new datapoint
-        #         else:
-        #             self.residual_gp.record_datapoint(z_train, residual)
         res = None
         measured_residual = None
         last_pred_residual = None
@@ -867,18 +851,17 @@ class LBMPC:
                     gp_num_points=gp_n
                 )
 
-                # horizon logging: predicted traj + bounds + covariances
-                # cov_arr = getattr(self.l4a_solver, "covariances_array", None)
-                # # indices used by ZoRO tightening (keep them in your config and pass here)
-                # idx_lh_t = getattr(self.ocp.zoro_description, "idx_lh_t", [])
-                # idx_uh_t = getattr(self.ocp.zoro_description, "idx_uh_t", [])
-                # self.offlog.log_horizon(
-                #     solver=self.l4a_solver,
-                #     lap=self.nr_laps,
-                #     covariances_array=cov_arr,
-                #     idx_lh_t=list(idx_lh_t) if idx_lh_t is not None else [],
-                #     idx_uh_t=list(idx_uh_t) if idx_uh_t is not None else [],
-                # )
+                if self.log_offline_horizon:
+                    cov_arr = getattr(self.l4a_solver, "covariances_array", None)
+                    idx_lh_t = getattr(self.ocp.zoro_description, "idx_lh_t", [])
+                    idx_uh_t = getattr(self.ocp.zoro_description, "idx_uh_t", [])
+                    self.offlog.log_horizon(
+                        solver=self.l4a_solver,
+                        lap=self.nr_laps,
+                        covariances_array=cov_arr,
+                        idx_lh_t=list(idx_lh_t) if idx_lh_t is not None else [],
+                        idx_uh_t=list(idx_uh_t) if idx_uh_t is not None else [],
+                    )
 
                 self.offlog.tick()
             except Exception as e:

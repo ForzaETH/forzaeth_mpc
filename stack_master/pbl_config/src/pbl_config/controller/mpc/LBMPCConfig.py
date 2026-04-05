@@ -13,6 +13,9 @@ class GPParamsConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     use_gp: bool = True
+    use_zoro: bool = False
+    enable_offline_logging: bool = True
+    log_offline_horizon: bool = False
     use_inducing_gp: bool = False
     min_points_before_using_gp: int = 100
     max_num_data_points: int = 2000

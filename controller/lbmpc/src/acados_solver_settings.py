@@ -187,7 +187,8 @@ def build_ocp_for_l4acados(
     ocp.solver_options.print_level = 0
     ocp.solver_options.nlp_solver_max_iter = 1
 
-    ocp = add_zoro_description(ocp, lbmpc_config)
+    if lbmpc_config.gp_params.use_zoro:
+        ocp = add_zoro_description(ocp, lbmpc_config)
 
     return ocp, model, constraint, params
 
