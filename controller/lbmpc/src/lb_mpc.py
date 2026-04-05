@@ -486,10 +486,10 @@ class LBMPC:
             mr = np.asarray(measured_residual, dtype=np.float64).reshape(-1)
             pr = np.asarray(last_pred_residual, dtype=np.float64).reshape(-1)
 
-            # Use only the first 3 residual components as requested
-            if mr.size >= 3 and pr.size >= 3:
-                abs_err = np.abs(pr[:3] - mr[:3])
-                self._res_abs_err_sum += abs_err
+            residual_dim = min(mr.size, pr.size, self._res_abs_err_sum.size)
+            if residual_dim > 0:
+                abs_err = np.abs(pr[:residual_dim] - mr[:residual_dim])
+                self._res_abs_err_sum[:residual_dim] += abs_err
                 self._res_err_count += 1
 
         viz_information = None
@@ -536,7 +536,7 @@ class LBMPC:
             if i < self.lbmpc_config.steps_delay:
                 multiplier = 1e6
                 online_parameters = np.array([
-                    target_v_speed*0.6,
+                    target_v_speed,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -553,7 +553,7 @@ class LBMPC:
                 ], dtype=np.float64)
             else:
                 online_parameters = np.array([
-                    target_v_speed*0.6,
+                    target_v_speed,
                     self.lbmpc_config.qadv,
                     self.lbmpc_config.qv,
                     self.lbmpc_config.qn,
@@ -668,8 +668,7 @@ class LBMPC:
 
         # --- Residual performance accumulators (lazy init) ---
         if not hasattr(self, "_res_abs_err_sum"):
-            # We track per-component absolute error for the 3D residual
-            self._res_abs_err_sum = np.zeros(3, dtype=np.float64)
+            self._res_abs_err_sum = np.zeros(self._nw_gp, dtype=np.float64)
             self._res_err_count = 0
             self._res_last_lap = -1
 
@@ -701,13 +700,10 @@ class LBMPC:
 
             if self._res_err_count > 0:
                 mae = self._res_abs_err_sum / float(self._res_err_count)
-                # Report the three components explicitly; rename labels if you prefer
-                print(
-                    "[Residual] Lap {}: MAE | r[0]={:.4e}, r[1]={:.4e}, r[2]={:.4e} "
-                    "(based on {} samples)".format(
-                        self.nr_laps, mae[0], mae[1], mae[2], self._res_err_count
-                    )
+                residual_terms = ", ".join(
+                    f"r[{idx}]={value:.4e}" for idx, value in enumerate(mae)
                 )
+                print(f"[Residual] Lap {self.nr_laps}: MAE | {residual_terms} (based on {self._res_err_count} samples)")
             else:
                 print(f"[Residual] Lap {self.nr_laps}: no residual data available this lap.")
 
