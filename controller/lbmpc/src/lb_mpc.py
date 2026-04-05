@@ -1,6 +1,7 @@
 import os
 import re
 import time
+from glob import glob
 from pathlib import Path
 from typing import Union
 
@@ -94,17 +95,20 @@ class LBMPC:
             params_file_name,
         ]
         build_hash_path = os.path.join(self.lbmpc_path, "data/hash", "build_c_code_hash.md5")
-        build_c_code = check_file_changes(mpc_files_to_watch, build_hash_path)
-
         path_json_ocp = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_ocp_solver_config.json")
         path_json_sim = os.path.join(self.lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
+        build_c_code = check_file_changes(mpc_files_to_watch, build_hash_path)
+        build_c_code = build_c_code or not self._cython_solver_artifacts_available(
+            path_json_ocp=path_json_ocp,
+            path_json_sim=path_json_sim,
+        )
 
         # Create the Residual model from l4acados
         self.l4a_solver = ResidualLearningMPC(  # ZeroOrderGPMPC(
             ocp=self.ocp,
             B=self.B,
             residual_model=self.residual_gp,
-            use_cython=False,
+            use_cython=True,
             path_json_ocp=path_json_ocp,
             path_json_sim=path_json_sim,
             build_c_code=build_c_code,
@@ -150,6 +154,41 @@ class LBMPC:
         self.previous_pred_x = None
         self.previous_pred_u = None
         self.count = 0
+
+    @staticmethod
+    def _cython_solver_artifacts_available(path_json_ocp: str, path_json_sim: str) -> bool:
+        for json_path, module_stem in (
+            (path_json_ocp, "acados_ocp_solver_pyx"),
+            (path_json_sim, "acados_sim_solver_pyx"),
+        ):
+            code_export_directory = LBMPC._read_code_export_directory(json_path)
+            if not code_export_directory:
+                return False
+
+            artifact_pattern = os.path.join(code_export_directory, f"{module_stem}*.so")
+            if not glob(artifact_pattern):
+                return False
+
+        return True
+
+    @staticmethod
+    def _read_code_export_directory(json_path: str) -> Union[str, None]:
+        if not os.path.exists(json_path):
+            return None
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as json_file:
+                match = re.search(
+                    r'"code_export_directory"\s*:\s*"([^"]+)"',
+                    json_file.read(),
+                )
+        except OSError:
+            return None
+
+        if not match:
+            return None
+
+        return os.path.abspath(match.group(1))
 
     def _mpc_init_params(self) -> None:
         # MPC parameters
@@ -641,7 +680,7 @@ class LBMPC:
 
         # Update computational time calculation with moving average
         self.comput_time = self.comput_time * self.ma_alpha + _elapsed * (1 - self.ma_alpha)
-        if self._gp_warmup_done == True:
+        if self._gp_warmup_done:
             self.t_delay = float(self.lbmpc_config.t_delay) + 0.01
         else:
             self.t_delay = float(self.lbmpc_config.t_delay) # + float(self.comput_time)
@@ -839,7 +878,7 @@ class LBMPC:
         n_steps = min(n_steps, self.buffer_len, self.buf_filled)
         if x[StateIndex.VELOCITY_V_X.value] > 1.5:
             for j in range(n_steps - 1, -1, -1):
-                x = self._predict_next_state_nominal( #_predict_next_state_with_gp(
+                x = self._predict_next_state_nominal( # _predict_next_state_with_gp(
                     x,
                     self.buffer_prev_solutions[:, j]
                 )
