@@ -245,7 +245,8 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     constraint.expr = vertcat(
         n_right_bound,
         n_left_bound,
-        combined_constraints
+        combined_constraints,
+        s_dot
     )
     constraint.expr_e = vertcat(
         n_right_bound,

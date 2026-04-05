@@ -145,9 +145,9 @@ def build_ocp_for_l4acados(
     ocp.constraints.ubx_e = state_max
     ocp.constraints.idxbx_e = idx
 
-    # Nonlinear path + combined-acc constraints (same limits & ordering)
-    Nonlin_min = np.array([0, -model.track_max, 0])
-    Nonlin_max = np.array([model.track_max, 0, 1])
+    # Nonlinear path + combined-acc constraints + forward advancement
+    Nonlin_min = np.array([0, -model.track_max, 0, 0])
+    Nonlin_max = np.array([model.track_max, 0, 1, 10_000])
     idxh = np.arange(nsh)
 
     ocp.constraints.lh_0 = Nonlin_min
