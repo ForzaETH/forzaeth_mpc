@@ -102,6 +102,19 @@ class LBMPC:
             self.learnt_gp_model_path = None
             self.B = None
 
+        self.learning_enabled = bool(
+            getattr(self.lbmpc_config.gp_params, "learning_enabled", False)
+        )
+        learning_unavailable_reason = self._learning_unavailable_reason()
+        if self.learning_enabled and learning_unavailable_reason is not None:
+            print(
+                "[LBMPC] learning_enabled was requested at startup, "
+                f"but online learning is unavailable because {learning_unavailable_reason}. "
+                "Starting with learning disabled."
+            )
+            self.learning_enabled = False
+        self.lbmpc_config.gp_params.learning_enabled = self.learning_enabled
+
         solver_build_config = build_solver_build_config(
             lbmpc_path=self.lbmpc_path,
             params_path=params_path,
@@ -151,6 +164,61 @@ class LBMPC:
         self.previous_pred_x = None
         self.previous_pred_u = None
         self.count = 0
+
+    def _learning_unavailable_reason(self) -> Union[str, None]:
+        if not self.use_gp:
+            return "gp_params.use_gp is false"
+        if self.residual_gp is None:
+            return "the residual GP model is not initialized"
+        if getattr(self, "mode", None) != "learn":
+            return (
+                "gp_params.data_processing_mode is "
+                f"'{getattr(self, 'mode', None)}' instead of 'learn'"
+            )
+        return None
+
+    def _is_online_learning_active(self) -> bool:
+        return self._learning_unavailable_reason() is None and self.learning_enabled
+
+    def _is_gp_runtime_active(self) -> bool:
+        if not (self.use_gp and self.residual_gp is not None):
+            return False
+        if getattr(self, "mode", None) == "use_learnt_model":
+            return True
+        if getattr(self, "mode", None) == "learn":
+            return self.learning_enabled or getattr(self, "_gp_warmup_done", False)
+        return False
+
+    def enable_learning(self, source: str = "runtime request") -> bool:
+        learning_unavailable_reason = self._learning_unavailable_reason()
+        if learning_unavailable_reason is not None:
+            print(
+                f"[LBMPC] Ignoring learning enable request from {source}: "
+                f"{learning_unavailable_reason}."
+            )
+            return False
+
+        if self.learning_enabled:
+            print(f"[LBMPC] Online learning was already enabled ({source}).")
+            return False
+
+        self.learning_enabled = True
+        self.lbmpc_config.gp_params.learning_enabled = True
+        print(f"[LBMPC] Online learning enabled ({source}).")
+        return True
+
+    def set_learning_enabled(self, enabled: bool, source: str = "runtime request") -> bool:
+        enabled = bool(enabled)
+        if enabled:
+            return self.enable_learning(source=source)
+
+        if not self.learning_enabled:
+            return False
+
+        self.learning_enabled = False
+        self.lbmpc_config.gp_params.learning_enabled = False
+        print(f"[LBMPC] Online learning disabled ({source}).")
+        return True
 
     def _mpc_init_params(self) -> None:
         # MPC parameters
@@ -299,16 +367,29 @@ class LBMPC:
         last_pred_residual = None
         self.nominal_pred_x = None
         self.nomres_pred_x = None
+        online_learning_active = self._is_online_learning_active()
         if (
             self.use_gp
             and self.residual_gp is not None
-            and getattr(self, "mode", None) in ("learn", "use_learnt_model")
+            and (
+                getattr(self, "mode", None) == "use_learnt_model"
+                or online_learning_active
+            )
         ):
             t_res_start = time.perf_counter()
             res = self._compute_residual(new_state=x0)
-            self.count += 1
             if (
-                self.mode == "learn"
+                online_learning_active
+                and res is not None
+                and (self.last_status == 0 or self.last_status == 2)
+                and self.nr_laps >= 2
+            ):
+                self.count += 1
+            else:
+                self.count = 0
+
+            if (
+                online_learning_active
                 and res is not None
                 and (self.last_status == 0 or self.last_status == 2)
                 and self.nr_laps >= 2
@@ -859,7 +940,11 @@ class LBMPC:
 
         Should be called once per MPC solve if using an inducing-point GP.
         """
-        if not (self.use_gp and self.use_inducing_gp and self.residual_gp is not None):
+        if not (
+            self.use_inducing_gp
+            and self.residual_gp is not None
+            and self._is_gp_runtime_active()
+        ):
             return
 
         gp_model = self.residual_gp.gp_model

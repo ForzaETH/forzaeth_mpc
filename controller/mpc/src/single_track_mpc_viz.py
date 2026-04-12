@@ -92,7 +92,11 @@ class tireNode:
         Values from .yaml file are set in mpc_online_params_server
         """
         for k, v in params.items():
-            if k != "groups":
+            if k == "groups":
+                continue
+            if self.ctrl_algo == "LBMPC" and k == "learning_enabled":
+                self.stmpc_config.gp_params.learning_enabled = bool(v)
+            else:
                 setattr(self.stmpc_config, k, v)
 
         self.stmpc_config = self.stmpc_config

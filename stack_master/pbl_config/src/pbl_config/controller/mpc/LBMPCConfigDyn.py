@@ -3,7 +3,7 @@ from typing import Tuple
 
 import rospkg
 import yaml
-from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
+from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator, bool_t
 from pbl_config import LBMPCConfig, load_LBMPC_config_ros
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -36,6 +36,14 @@ class LBMPCConfigDyn(BaseModel):
     """Limits on the track safety margin"""
     terminal_multiplier: Tuple[float, float]
     """Weight multiplier for the cost of the last state"""
+    learning_enabled: bool = False
+    """Enable or disable online learning at runtime when gp_params.data_processing_mode is 'learn'."""
+
+
+def _get_dynamic_default_value(config: LBMPCConfig, key: str):
+    if key == "learning_enabled":
+        return config.gp_params.learning_enabled
+    return getattr(config, key)
 
 
 def create_LBMPC_dynamic_parameters(gen: ParameterGenerator):
@@ -71,19 +79,30 @@ def create_LBMPC_dynamic_parameters(gen: ParameterGenerator):
 
     # check dyn parameters are available in the normal config
     for key in config.model_dump().keys():
-        if key not in MPCconfig.model_dump().keys():
+        try:
+            _get_dynamic_default_value(MPCconfig, key)
+        except AttributeError as exc:
             raise ValueError(
                 f"Key <{key}> is not available in the normal config. Please only try to dynamically reconfigure only the available parameters.")
 
     # create the dynamic reconfigure parameters
     for key, value in config.model_dump().items():
-        gen.add(name=key,
-                paramtype='double',
+        if isinstance(value, bool):
+            gen.add(
+                name=key,
+                paramtype=bool_t,
                 level=0,
                 description=f"{config.model_fields[key].description}",
-                default=MPCconfig.model_dump()[key],
-                min=value[0],
-                max=value[1],
-                )
+                default=_get_dynamic_default_value(MPCconfig, key),
+            )
+        else:
+            gen.add(name=key,
+                    paramtype='double',
+                    level=0,
+                    description=f"{config.model_fields[key].description}",
+                    default=_get_dynamic_default_value(MPCconfig, key),
+                    min=value[0],
+                    max=value[1],
+                    )
 
     return gen

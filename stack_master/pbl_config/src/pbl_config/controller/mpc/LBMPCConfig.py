@@ -26,6 +26,8 @@ class GPParamsConfig(BaseModel):
 
     data_processing_mode: str = "learn"
     """GP operating mode: 'learn' updates and saves the model, 'use_learnt_model' loads the last saved one."""
+    learning_enabled: bool = False
+    """Runtime gate for online learning in 'learn' mode. Keeps GP setup intact, but only starts recording once enabled."""
 
     # Only relevant when use_inducing_gp is True
     num_inducing_points: int = 10

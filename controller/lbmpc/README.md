@@ -29,6 +29,9 @@ The relevant block is `gp_params`.
 - `data_processing_mode`: GP usage mode.
   - `learn`: learn online and keep overwriting the latest saved model.
   - `use_learnt_model`: load the last saved model and use it without learning new points.
+- `learning_enabled`: runtime gate for online learning in `learn` mode.
+  - If `false`, the GP setup stays available but no new datapoints are recorded yet.
+  - It can be enabled later through LBMPC dynamic reconfigure.
 - `input_feature_selection`: selects which entries of `[x, u]` are used as GP input.
   - Current order is `[x, u] = [s, n, alpha, vx, vy, yaw_rate, delta, accel, ddelta, jerk]`.
   - `1` means “use this feature”, `0` means “ignore it”.
