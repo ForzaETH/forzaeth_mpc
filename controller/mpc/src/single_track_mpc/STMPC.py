@@ -128,7 +128,8 @@ class STMPC:
             alpha: float,
             single_track_state: np.ndarray,
             track_length: float,
-            compute_time: float):
+            compute_time: float,
+            in_start_bool: bool):
         """
         Returns:
             speed, acceleration, jerk, steering_angle, states(list|None), status(int)
