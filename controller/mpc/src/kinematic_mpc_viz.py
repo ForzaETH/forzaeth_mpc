@@ -12,7 +12,7 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
 from plotting_fnc import *
 from sensor_msgs.msg import Imu
-from std_msgs.msg import Float32,Float64MultiArray
+from std_msgs.msg import Float32, Float32MultiArray
 from tf.transformations import euler_from_quaternion
 from kinematic_mpc.utils.indicies import StateIndex
 from kinematic_mpc.utils.splinify import SplineTrack
@@ -51,12 +51,12 @@ class tireNode:
         rospy.Subscriber("/drive", AckermannDriveStamped, self._input_cb)
         rospy.Subscriber("/vesc/sensors/imu/raw", Imu, self._imu_cb)
         rospy.Subscriber("/slip_angle", Float32, self._slip_angle)
-        rospy.Subscriber("/mpc_controller/states", Float64MultiArray, self._states)
+        rospy.Subscriber("/mpc_controller/states", Float32MultiArray, self._states)
         #TODO: adapt dyn reconf to Client
         # rospy.Subscriber("/mpc_param_tuner/parameter_updates", Config, self.mpc_params_cb)
         self.mpc_dyn_rec_client = Client("/mpc_param_tuner", config_callback=self.mpc_config_cb)
 
-        self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float64MultiArray, queue_size=10)
+        self.tireforce__pub = rospy.Publisher("/mpc_controller/tire_force_viz", Float32MultiArray, queue_size=10)
         self.map_left_bound_pub = rospy.Publisher("/mpc_controller/map_left_bound", MarkerArray, queue_size=10)
         self.map_right_bound_pub = rospy.Publisher("/mpc_controller/map_right_bound", MarkerArray, queue_size=10)
         self.d_left_pub = rospy.Publisher("/mpc_controller/d_left", MarkerArray, queue_size=10)
@@ -159,7 +159,7 @@ class tireNode:
         """slip angle callback callback. Normally not used."""
         self.slip_angle= data
 
-    def _states(self, states: Float64MultiArray) -> None:
+    def _states(self, states: Float32MultiArray) -> None:
         """slip angle callback callback. Normally not used."""
         self.states_k_1 = self.states
         self.states= states.data
@@ -280,13 +280,13 @@ class tireNode:
 
     def publish_states(self, states: list) -> None:
         """Publishes states into /mpc_controller/states"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.states_pub.publish(msg)
 
     def publish_propagated_states(self, states: list) -> None:
         """Publishes propagated state into /mpc_controller/states_propagated"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.states_propagated_pub.publish(msg)
 
@@ -382,7 +382,7 @@ class tireNode:
 
     def publish_tireforce(self, states: list) -> None:
         """Publishes states into /mpc_controller/states"""
-        msg = Float64MultiArray()
+        msg = Float32MultiArray()
         msg.data = states
         self.tireforce__pub.publish(msg)
 
