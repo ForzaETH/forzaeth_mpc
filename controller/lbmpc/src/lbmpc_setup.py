@@ -33,8 +33,8 @@ class SolverBuildConfig:
 
 @dataclass
 class ResidualModelSetup:
-    residual_gp: GPyTorchResidualModel
-    input_feature_selector: PyTorchFeatureSelector
+    residual_gp: Optional[GPyTorchResidualModel]
+    input_feature_selector: Optional[PyTorchFeatureSelector]
     use_inducing_gp: bool
     max_num_data_points: int
     nx_gp: int
@@ -44,7 +44,86 @@ class ResidualModelSetup:
     gp_warmup_done: bool
 
 
+def _ensure_text_artifact(file_path: str, default_contents: str = "") -> bool:
+    parent_dir = os.path.dirname(file_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    if os.path.exists(file_path):
+        return False
+
+    with open(file_path, "w", encoding="utf-8") as artifact_file:
+        artifact_file.write(default_contents)
+    return True
+
+
+def _ensure_placeholder_gp_bundle(model_path: str) -> bool:
+    parent_dir = os.path.dirname(model_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    if os.path.exists(model_path):
+        return False
+
+    placeholder_bundle = {
+        "artifact_status": "placeholder",
+        "train_x": None,
+        "train_y": None,
+        "metadata": {
+            "placeholder": True,
+        },
+    }
+    tmp_path = f"{model_path}.tmp"
+    torch.save(placeholder_bundle, tmp_path)
+    os.replace(tmp_path, model_path)
+    return True
+
+
+def ensure_runtime_artifacts(lbmpc_path: str) -> None:
+    created_artifacts = []
+
+    artifact_specs = (
+        (os.path.join(lbmpc_path, "data/hash", "build_c_code_hash.md5"), ""),
+        (os.path.join(lbmpc_path, "data/ocp", "lbmpc_ocp_solver_config.json"), "{}\n"),
+        (os.path.join(lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json"), "{}\n"),
+    )
+    for artifact_path, default_contents in artifact_specs:
+        if _ensure_text_artifact(artifact_path, default_contents=default_contents):
+            created_artifacts.append(artifact_path)
+
+    learnt_gp_model_path = os.path.join(lbmpc_path, "data", "models", "latest_gp_model.pt")
+    if _ensure_placeholder_gp_bundle(learnt_gp_model_path):
+        created_artifacts.append(learnt_gp_model_path)
+
+    if created_artifacts:
+        print(
+            "[LBMPC] Created missing runtime artifact(s): "
+            + ", ".join(created_artifacts)
+        )
+
+
+def _get_invalid_gp_bundle_reason(bundle) -> Optional[str]:
+    if bundle is None:
+        return "the saved bundle could not be loaded"
+    if not isinstance(bundle, dict):
+        return "the saved bundle has an unexpected format"
+
+    metadata = bundle.get("metadata") or {}
+    if bundle.get("artifact_status") == "placeholder" or metadata.get("placeholder", False):
+        return "it is only a first-run placeholder"
+
+    if bundle.get("train_x") is None or bundle.get("train_y") is None:
+        return "it does not contain training data"
+
+    if "gp_model_state_dict" not in bundle or "likelihood_state_dict" not in bundle:
+        return "it does not contain serialized GP weights"
+
+    return None
+
+
 def build_solver_build_config(lbmpc_path: str, params_path: str) -> SolverBuildConfig:
+    ensure_runtime_artifacts(lbmpc_path)
+
     solver_settings_file_name = os.path.join(lbmpc_path, "src", "acados_solver_settings.py")
     bicycle_model_file_name = os.path.join(lbmpc_path, "src", "bicycle_model.py")
     params_file_name = os.path.join(params_path, "lb_mpc_params.yaml")
@@ -148,6 +227,8 @@ def initialize_residual_model(
     lbmpc_path: str,
     nw_gp: int,
 ) -> ResidualModelSetup:
+    ensure_runtime_artifacts(lbmpc_path)
+
     use_inducing_gp = gp_cfg.use_inducing_gp
     max_num_data_points = gp_cfg.max_num_data_points
 
@@ -178,18 +259,26 @@ def initialize_residual_model(
     learnt_num_points = None
     if mode == "use_learnt_model":
         learnt_gp_bundle = load_gp_model_bundle(learnt_gp_model_path)
-        if learnt_gp_bundle is None:
-            raise FileNotFoundError(
-                f"[LBMPC] No learnt GP model found at {learnt_gp_model_path}. "
-                "Run once with gp_params.data_processing_mode='learn' first."
+        invalid_bundle_reason = _get_invalid_gp_bundle_reason(learnt_gp_bundle)
+        if invalid_bundle_reason is not None:
+            print(
+                f"[LBMPC] Learnt GP model at {learnt_gp_model_path} is unavailable because "
+                f"{invalid_bundle_reason}. Starting with nominal MPC until a real model is saved."
+            )
+            return ResidualModelSetup(
+                residual_gp=None,
+                input_feature_selector=input_feature_selector,
+                use_inducing_gp=use_inducing_gp,
+                max_num_data_points=max_num_data_points,
+                nx_gp=nx_gp,
+                nu_gp=nu_gp,
+                mode=mode,
+                learnt_gp_model_path=learnt_gp_model_path,
+                gp_warmup_done=False,
             )
 
         z_train_data = learnt_gp_bundle.get("train_x")
         y_train_data = learnt_gp_bundle.get("train_y")
-        if z_train_data is None or y_train_data is None:
-            raise ValueError(
-                f"[LBMPC] Learnt GP bundle at {learnt_gp_model_path} does not contain training data."
-            )
         learnt_num_points = int(z_train_data.shape[0])
 
     input_dimension = int(sum(input_selection))

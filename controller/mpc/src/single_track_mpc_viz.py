@@ -69,6 +69,12 @@ class tireNode:
         self.ctrl_algo = rospy.get_param("controller_manager/ctrl_algo", "STMPC")
         if self.ctrl_algo == "LBMPC":
             self.stmpc_config = load_LBMPC_config_ros(self.racecar_version)
+            if self.stmpc_config is None:
+                raise RuntimeError(
+                    "[single_track_mpc_viz] Failed to load "
+                    f"stack_master/config/{self.racecar_version}/lb_mpc_params.yaml. "
+                    "See the validation errors logged above."
+                )
         else:
             self.stmpc_config = load_STMPC_config_ros(self.racecar_version)
         self.car_config = load_car_config_ros(self.racecar_version)

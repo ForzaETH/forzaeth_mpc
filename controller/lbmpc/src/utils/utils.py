@@ -5,10 +5,17 @@ import numpy as np
 import torch
 
 
+def _ensure_parent_dir(file_path: str) -> None:
+    parent_dir = os.path.dirname(file_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
+
 def check_file_changes(
     files: list, hashfile_name: str, rewrite_hash=False, rewrite_hash_if_changed=True
 ):
     curr_hash = get_build_file_hashes(files)
+    _ensure_parent_dir(hashfile_name)
     try:
         with open(hashfile_name, "r", encoding="utf-8") as hashfile:
             last_hash = hashfile.read()
@@ -95,4 +102,8 @@ def save_gp_model_bundle(model_path: str, gp_model, metadata: dict = None) -> No
 def load_gp_model_bundle(model_path: str):
     if not os.path.exists(model_path):
         return None
-    return torch.load(model_path, map_location="cpu")
+    try:
+        return torch.load(model_path, map_location="cpu")
+    except Exception as exc:
+        print(f"[LBMPC] Failed to load GP model bundle from {model_path}: {exc}")
+        return None
