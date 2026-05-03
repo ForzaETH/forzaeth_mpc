@@ -106,14 +106,14 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     h_cg = car_config.h_cg
 
     friction_coeff = tire_config.friction_coeff
-    Bf = tire_config.Bf
-    Cf = tire_config.Cf
-    Df = tire_config.Df
-    Ef = tire_config.Ef
-    Br = tire_config.Br
-    Cr = tire_config.Cr
-    Dr = tire_config.Dr
-    Er = tire_config.Er
+    Bf = MX.sym("Bf")
+    Cf = MX.sym("Cf")
+    Df = MX.sym("Df")
+    Ef = MX.sym("Ef")
+    Br = MX.sym("Br")
+    Cr = MX.sym("Cr")
+    Dr = MX.sym("Dr")
+    Er = MX.sym("Er")
     g = 9.81
 
     # # online parameters
@@ -135,7 +135,8 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     terminal_multiplier = MX.sym('terminal_multiplier')
 
     p = vertcat(V_target, weight_adv, weight_qv, weight_qn, weight_qalpha, weight_qjerk, weight_ddelta,  # weights
-                a_lat_max, a_long_min, a_long_max, safety_margin, overtake_d, MU, terminal_multiplier)  # lateral acceleration constraints
+                a_lat_max, a_long_min, a_long_max, safety_margin, overtake_d, MU, terminal_multiplier,
+                Bf, Cf, Df, Ef, Br, Cr, Dr, Er)  # lateral acceleration constraints
 
     # calculate the index
     s_mod = fmod(s, pathlength)
