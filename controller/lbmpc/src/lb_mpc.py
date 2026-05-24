@@ -81,6 +81,7 @@ class LBMPC:
                 gp_cfg=self.lbmpc_config.gp_params,
                 lbmpc_path=self.lbmpc_path,
                 nw_gp=self._nw_gp,
+                racecar_version=self.racecar_version,
             )
             self.residual_gp = residual_setup.residual_gp
             self._input_feature_selector = residual_setup.input_feature_selector
@@ -126,10 +127,11 @@ class LBMPC:
             f"[LBMPC] Using {model_name} "
             f"(stochastic_mode={self.stochastic_mode})"
         )
+        active_residual_model = self.residual_gp if self._is_gp_runtime_active() else None
         self.l4a_solver = model_cls(
             ocp=self.ocp,
             B=self.B,
-            residual_model=self.residual_gp,
+            residual_model=active_residual_model,
             use_cython=True,
             path_json_ocp=solver_build_config.path_json_ocp,
             path_json_sim=solver_build_config.path_json_sim,
@@ -186,8 +188,23 @@ class LBMPC:
         if getattr(self, "mode", None) == "use_learnt_model":
             return True
         if getattr(self, "mode", None) == "learn":
-            return self.learning_enabled or getattr(self, "_gp_warmup_done", False)
+            return getattr(self, "_gp_warmup_done", False)
         return False
+
+    def _sync_solver_residual_model(self) -> None:
+        if not hasattr(self, "l4a_solver"):
+            return
+
+        if self._is_gp_runtime_active():
+            self.l4a_solver.residual_model = self.residual_gp
+            self.l4a_solver.has_residual_model = True
+            return
+
+        self.l4a_solver.has_residual_model = False
+        if hasattr(self.l4a_solver, "residual_fun"):
+            self.l4a_solver.residual_fun.fill(0.0)
+        if hasattr(self.l4a_solver, "residual_jac"):
+            self.l4a_solver.residual_jac.fill(0.0)
 
     def enable_learning(self, source: str = "runtime request") -> bool:
         learning_unavailable_reason = self._learning_unavailable_reason()
@@ -300,7 +317,8 @@ class LBMPC:
             alpha: float,
             learning_based_state: np.ndarray,
             track_length: float,
-            compute_time: float):
+            compute_time: float,
+            in_start_bool: bool = False):
         """
         Returns:
             speed, acceleration, jerk, steering_angle, states(list|None), status(int)
@@ -452,6 +470,8 @@ class LBMPC:
 
         rest_start = time.perf_counter()
 
+        self._sync_solver_residual_model()
+
         # Update inducing points
         self._update_inducing_points_along_horizon()
 
@@ -475,19 +495,32 @@ class LBMPC:
                 if (self.state == "OVERTAKE") and (self.opponent is not None):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
+            if in_start_bool:
+                alat_max = self.lbmpc_config.alat_max_start
+                a_min = self.lbmpc_config.a_min_start
+                a_max = self.lbmpc_config.a_max_start
+                qv = self.lbmpc_config.qv_start
+                qjerk = self.lbmpc_config.qjerk_start
+            else:
+                alat_max = self.lbmpc_config.alat_max
+                a_min = self.lbmpc_config.a_min
+                a_max = self.lbmpc_config.a_max
+                qv = self.lbmpc_config.qv
+                qjerk = self.lbmpc_config.qjerk
+
             if i < self.lbmpc_config.steps_delay:
                 multiplier = 1e6
                 online_parameters = np.array([
                     target_v_speed,
                     self.lbmpc_config.qadv,
-                    self.lbmpc_config.qv,
+                    qv,
                     self.lbmpc_config.qn,
                     self.lbmpc_config.qalpha,
-                    self.lbmpc_config.qjerk,
+                    qjerk,
                     multiplier * self.lbmpc_config.qddelta,
-                    self.lbmpc_config.alat_max,
-                    self.lbmpc_config.a_min,
-                    self.lbmpc_config.a_max,
+                    alat_max,
+                    a_min,
+                    a_max,
                     self.lbmpc_config.track_safety_margin,
                     self.overtake_d,
                     self.tire_config.friction_coeff,
@@ -497,14 +530,14 @@ class LBMPC:
                 online_parameters = np.array([
                     target_v_speed,
                     self.lbmpc_config.qadv,
-                    self.lbmpc_config.qv,
+                    qv,
                     self.lbmpc_config.qn,
                     self.lbmpc_config.qalpha,
-                    self.lbmpc_config.qjerk,
+                    qjerk,
                     self.lbmpc_config.qddelta,
-                    self.lbmpc_config.alat_max,
-                    self.lbmpc_config.a_min,
-                    self.lbmpc_config.a_max,
+                    alat_max,
+                    a_min,
+                    a_max,
                     self.lbmpc_config.track_safety_margin,
                     self.overtake_d,
                     self.tire_config.friction_coeff,
@@ -519,11 +552,11 @@ class LBMPC:
                 self.l4a_solver.set(i + 1, "lbx",
                                     np.array([self.lbmpc_config.v_min,
                                               self.lbmpc_config.delta_min,
-                                              self.lbmpc_config.a_min]))
+                                              a_min]))
                 self.l4a_solver.set(i + 1, "ubx",
                                     np.array([self.lbmpc_config.v_max,
                                               self.lbmpc_config.delta_max,
-                                              self.lbmpc_config.a_max]))
+                                              a_max]))
 
         # Solve OCP
         try:

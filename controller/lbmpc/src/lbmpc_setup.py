@@ -226,6 +226,7 @@ def initialize_residual_model(
     gp_cfg,
     lbmpc_path: str,
     nw_gp: int,
+    racecar_version: str,
 ) -> ResidualModelSetup:
     ensure_runtime_artifacts(lbmpc_path)
 
@@ -264,6 +265,29 @@ def initialize_residual_model(
             print(
                 f"[LBMPC] Learnt GP model at {learnt_gp_model_path} is unavailable because "
                 f"{invalid_bundle_reason}. Starting with nominal MPC until a real model is saved."
+            )
+            return ResidualModelSetup(
+                residual_gp=None,
+                input_feature_selector=input_feature_selector,
+                use_inducing_gp=use_inducing_gp,
+                max_num_data_points=max_num_data_points,
+                nx_gp=nx_gp,
+                nu_gp=nu_gp,
+                mode=mode,
+                learnt_gp_model_path=learnt_gp_model_path,
+                gp_warmup_done=False,
+            )
+
+        metadata = learnt_gp_bundle.get("metadata") or {}
+        saved_racecar_version = metadata.get("racecar_version")
+        if (
+            saved_racecar_version is not None
+            and str(saved_racecar_version) != str(racecar_version)
+        ):
+            print(
+                f"[LBMPC] Learnt GP model at {learnt_gp_model_path} was saved for "
+                f"{saved_racecar_version}, but current racecar_version is {racecar_version}. "
+                "Starting with nominal MPC instead of loading a mismatched residual model."
             )
             return ResidualModelSetup(
                 residual_gp=None,

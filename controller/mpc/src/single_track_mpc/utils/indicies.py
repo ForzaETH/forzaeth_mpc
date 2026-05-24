@@ -1,6 +1,5 @@
 from enum import IntEnum
 
-
 class StateIndex(IntEnum):
     POS_ON_CENTER_LINE_S = 0
     MIN_DIST_TO_CENTER_LINE_N = 1
@@ -10,9 +9,6 @@ class StateIndex(IntEnum):
     STEERING_ANGLE_DELTA = 5
     YAW_RATE = 6
     ACCEL = 7
-    INPUT_JERK = 8
-    INPUT_DSTEERING = 9
-
 
 class Input(IntEnum):
     JERK = 0
