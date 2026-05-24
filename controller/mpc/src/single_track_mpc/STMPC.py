@@ -128,7 +128,8 @@ class STMPC:
             alpha: float,
             single_track_state: np.ndarray,
             track_length: float,
-            compute_time: float):
+            compute_time: float,
+            in_start_bool: bool):
         """
         Returns:
             speed, acceleration, jerk, steering_angle, states(list|None), status(int)
@@ -215,7 +216,15 @@ class STMPC:
                     self.stmpc_config.track_safety_margin,
                     self.overtake_d,
                     self.tire_config.friction_coeff,
-                    self.stmpc_config.terminal_multiplier
+                    self.stmpc_config.terminal_multiplier,
+                    self.tire_config.Bf,
+                    self.tire_config.Cf,
+                    self.tire_config.Df,
+                    self.tire_config.Ef,
+                    self.tire_config.Br,
+                    self.tire_config.Cr,
+                    self.tire_config.Dr,
+                    self.tire_config.Er
                 ], dtype=np.float64)
             else:
                 online_parameters = np.array([
@@ -232,7 +241,15 @@ class STMPC:
                     self.stmpc_config.track_safety_margin,
                     self.overtake_d,
                     self.tire_config.friction_coeff,
-                    self.stmpc_config.terminal_multiplier
+                    self.stmpc_config.terminal_multiplier,
+                    self.tire_config.Bf,
+                    self.tire_config.Cf,
+                    self.tire_config.Df,
+                    self.tire_config.Ef,
+                    self.tire_config.Br,
+                    self.tire_config.Cr,
+                    self.tire_config.Dr,
+                    self.tire_config.Er
                 ], dtype=np.float64)
 
             self.acados_solver.set(i, "p", online_parameters)

@@ -252,7 +252,15 @@ def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarr
         cfg.track_safety_margin,
         cfg.overtake_d,
         tire_config.friction_coeff,
-        cfg.terminal_multiplier
+        cfg.terminal_multiplier,
+        tire_config.Bf,
+        tire_config.Cf,
+        tire_config.Df,
+        tire_config.Ef,
+        tire_config.Br,
+        tire_config.Cr,
+        tire_config.Dr,
+        tire_config.Er
     ]).astype(float)
 
     return params
