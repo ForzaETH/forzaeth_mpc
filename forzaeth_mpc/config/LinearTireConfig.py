@@ -2,9 +2,10 @@ import logging
 import os
 from datetime import datetime
 
-import rospkg
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from .paths import config_root
 
 
 class LinearTireConfig(BaseModel):
@@ -27,7 +28,7 @@ def load_linear_tire_config_ros(racecar_version: str, floor: str) -> LinearTireC
     """
 
     relative_path = '/config/' + racecar_version + '/linear/' + floor + '/default.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / racecar_version / 'linear' / floor / 'default.yaml')
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
             cfg_dict = yaml.safe_load(file)
@@ -47,7 +48,7 @@ def load_linear_tire_config_ros(racecar_version: str, floor: str) -> LinearTireC
                 return None
     except FileNotFoundError as e:
         # check if pacejka folder exists
-        linear_path = rospkg.RosPack().get_path('stack_master') + '/config/' + racecar_version + '/linear/' + floor
+        linear_path = str(config_root() / racecar_version / 'linear' / floor)
         if os.path.exists(linear_path):
             print(f"Selected floor {floor} does not exist. Please initialize it with some sysid procedure.")
             raise NotExistingFloor()

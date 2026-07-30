@@ -1,10 +1,14 @@
+from __future__ import annotations
 
 import yaml
-import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
-from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
-from pbl_config import load_KMPC_config_ros, KMPCConfig
-from typing import Tuple
+from forzaeth_mpc.config import load_KMPC_config_ros, KMPCConfig
+from typing import Tuple, TYPE_CHECKING
+
+from .paths import config_root
+
+if TYPE_CHECKING:
+    from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
 
 class KMPCConfigDyn(BaseModel):
     """Kinematic MPC dynamic reconfigure configuration class"""
@@ -49,8 +53,7 @@ def create_KMPC_dynamic_parameters(gen: ParameterGenerator):
     MPCconfig: KMPCConfig = load_KMPC_config_ros(racecar_version=default_car) # using the default_car version by default
 
     # load the dynamic reconfigure parameters
-    relative_path = f'/config/{default_car}/kinematic_mpc_dyn_params.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / default_car / 'kinematic_mpc_dyn_params.yaml')
     with open(config_path, 'r') as file:
         cfg_dict = yaml.safe_load(file)
     try:

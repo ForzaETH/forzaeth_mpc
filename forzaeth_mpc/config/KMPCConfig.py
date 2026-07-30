@@ -1,7 +1,8 @@
 import yaml
 import logging
-import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from .paths import config_root
 
 class KMPCConfig(BaseModel):
     """Kinematic MPC configuration class"""
@@ -80,8 +81,7 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
         racecar_version (str): a car name
     """
 
-    relative_path = '/config/' + racecar_version + '/kinematic_mpc_params.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / racecar_version / 'kinematic_mpc_params.yaml')
     with open(config_path, 'r') as file:
         cfg_dict = yaml.safe_load(file)
         try:

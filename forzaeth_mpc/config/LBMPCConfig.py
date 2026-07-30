@@ -1,10 +1,11 @@
 
 from typing import Dict, List, Optional, Union
 
-import rospkg
 import yaml
 from pydantic import (BaseModel, ConfigDict, ValidationError, field_validator,
                       model_validator)
+
+from .paths import config_root
 
 NestedFloats = Union[List[float], List[List[float]]]
 
@@ -192,8 +193,7 @@ def load_LBMPC_config_ros(racecar_version: str) -> Union[LBMPCConfig, None]:
         LBMPCConfig: the MPC configuration object
     """
 
-    relative_path = '/config/' + racecar_version + '/lb_mpc_params.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / racecar_version / 'lb_mpc_params.yaml')
     with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
         try:

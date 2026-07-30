@@ -1,9 +1,10 @@
 
 from typing import Union
 
-import rospkg
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from .paths import config_root
 
 
 class STMPCConfig(BaseModel):
@@ -118,8 +119,7 @@ def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
         STMPCConfig: the MPC configuration object
     """
 
-    relative_path = '/config/' + racecar_version + '/single_track_mpc_params.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / racecar_version / 'single_track_mpc_params.yaml')
     with open(config_path, 'r', encoding='utf-8') as file:
         cfg_dict = yaml.safe_load(file)
         try:

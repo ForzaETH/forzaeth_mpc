@@ -2,8 +2,9 @@ import os
 import logging
 from datetime import datetime
 import yaml
-import rospkg
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from .paths import config_root
 
 
 class PacejkaTireConfig(BaseModel):
@@ -41,7 +42,7 @@ def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTir
     """
 
     relative_path = '/config/' + racecar_version + '/pacejka/' + floor + '/default.yaml'
-    config_path = rospkg.RosPack().get_path('stack_master') + relative_path
+    config_path = str(config_root() / racecar_version / 'pacejka' / floor / 'default.yaml')
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
             cfg_dict = yaml.safe_load(file)
@@ -61,7 +62,7 @@ def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTir
                 return None
     except FileNotFoundError as e:
         # check if pacejka folder exists
-        pacejka_path = rospkg.RosPack().get_path('stack_master') + '/config/' + racecar_version + '/pacejka/'
+        pacejka_path = str(config_root() / racecar_version / 'pacejka')
         if os.path.exists(pacejka_path):
             print(f"Selected floor {floor} does not exist. Please initialize it with some sysid procedure.")
             raise NotExistingFloor()
@@ -81,8 +82,7 @@ def save_pacejka_tire_config(
     Args:
         config (PacejkaTireConfig): a PacejkaTireConfig
     """
-    path = rospkg.RosPack().get_path('stack_master') + '/config/'
-    model_path = path + racecar_version + '/pacejka/' + floor + '/'
+    model_path = str(config_root() / racecar_version / 'pacejka' / floor) + '/'
     timestamp = datetime.now().strftime("%m%d")
     archive_folder = model_path + 'archive/'
     if not os.path.exists(archive_folder):
