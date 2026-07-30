@@ -1,13 +1,14 @@
 from typing import Union
 
 import numpy as np
-from frenet_converter.frenet_converter import FrenetConverter
-from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+from forzaeth_mpc.utils.frenet_converter import FrenetConverter
+from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
-from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.indicies import StateIndex
-from single_track_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.stmpc.acados_settings import acados_settings
+from forzaeth_mpc.stmpc.online_params import build_online_params
+from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
     from casadi import DM
@@ -200,57 +201,15 @@ class STMPC:
                 if (self.state == "OVERTAKE") and (self.opponent is not None):
                     self.overtake_d = self.waypoint_array_in_map[idx, 3]
 
-            if i < self.stmpc_config.steps_delay:
-                multiplier = 1e6
-                online_parameters = np.array([
-                    target_v_speed,
-                    self.stmpc_config.qadv,
-                    self.stmpc_config.qv,
-                    self.stmpc_config.qn,
-                    self.stmpc_config.qalpha,
-                    self.stmpc_config.qjerk,
-                    multiplier * self.stmpc_config.qddelta,
-                    self.stmpc_config.alat_max,
-                    self.stmpc_config.a_min,
-                    self.stmpc_config.a_max,
-                    self.stmpc_config.track_safety_margin,
-                    self.overtake_d,
-                    self.tire_config.friction_coeff,
-                    self.stmpc_config.terminal_multiplier,
-                    self.tire_config.Bf,
-                    self.tire_config.Cf,
-                    self.tire_config.Df,
-                    self.tire_config.Ef,
-                    self.tire_config.Br,
-                    self.tire_config.Cr,
-                    self.tire_config.Dr,
-                    self.tire_config.Er
-                ], dtype=np.float64)
-            else:
-                online_parameters = np.array([
-                    target_v_speed,
-                    self.stmpc_config.qadv,
-                    self.stmpc_config.qv,
-                    self.stmpc_config.qn,
-                    self.stmpc_config.qalpha,
-                    self.stmpc_config.qjerk,
-                    self.stmpc_config.qddelta,
-                    self.stmpc_config.alat_max,
-                    self.stmpc_config.a_min,
-                    self.stmpc_config.a_max,
-                    self.stmpc_config.track_safety_margin,
-                    self.overtake_d,
-                    self.tire_config.friction_coeff,
-                    self.stmpc_config.terminal_multiplier,
-                    self.tire_config.Bf,
-                    self.tire_config.Cf,
-                    self.tire_config.Df,
-                    self.tire_config.Ef,
-                    self.tire_config.Br,
-                    self.tire_config.Cr,
-                    self.tire_config.Dr,
-                    self.tire_config.Er
-                ], dtype=np.float64)
+            # during the delay steps the steering rate is pinned by inflating its weight
+            weights = {"q_ddelta": 1e6 * self.stmpc_config.qddelta} \
+                if i < self.stmpc_config.steps_delay else None
+            online_parameters = build_online_params(
+                self.stmpc_config, self.tire_config,
+                target_v=target_v_speed,
+                overtake_d=self.overtake_d,
+                mu=self.tire_config.friction_coeff,
+                weights=weights)
 
             self.acados_solver.set(i, "p", online_parameters)
 

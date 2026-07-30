@@ -1,7 +1,8 @@
 from typing import Dict, Tuple
 
 import numpy as np
-from single_track_mpc.STMPC import STMPC
+from forzaeth_mpc.stmpc.online_params import build_online_params
+from forzaeth_mpc.stmpc.STMPC import STMPC
 
 
 class ControllerMPC:
@@ -23,34 +24,18 @@ class ControllerMPC:
         track_len = self.track_len if self.track_len > 0.0 else float(track_len_fallback)
 
         for i in range(self.H + 1):
-            # reference s along horizon
-            try:
-                s_ref = float(self.mpc.mpc_sd[i, 0]) % track_len
-            except Exception:
-                s_ref = float(waypoints[min(i, len(waypoints) - 1), 4]) % track_len
+            # reference s along horizon (mpc_sd is always (N+1, 2), see mpc_init_params)
+            s_ref = float(self.mpc.mpc_sd[i, 0]) % track_len
 
             idx = int(np.abs(waypoints[:, 4] - s_ref).argmin())
             target_v = float(waypoints[idx, 2])
 
-            # p vector — matches your current model layout (includes terminal_multiplier)
-            p = np.array([
-                target_v,
-                qdict["q_adv"], qdict["q_v"], qdict["q_n"], qdict["q_alpha"],
-                qdict["q_jerk"], qdict["q_ddelta"],
-                self.mpc.stmpc_config.alat_max,
-                self.mpc.stmpc_config.a_min,
-                self.mpc.stmpc_config.a_max,
-                self.mpc.stmpc_config.track_safety_margin,
-                0.0,
-                float(mpc_mu),
-                qdict["terminal_multiplier"]
-            ], dtype=np.float64)
-            try:
-                self.mpc.acados_solver.set(i, "p", p)
-            except Exception:
-                print(f"Setting acados parameters not succesful!")
-                # If your compiled ocp expects a different p length/order, adjust here.
-                pass
+            p = build_online_params(self.mpc.stmpc_config, self.mpc.tire_config,
+                                    target_v=target_v,
+                                    overtake_d=0.0,
+                                    mu=float(mpc_mu),
+                                    weights=qdict)
+            self.mpc.acados_solver.set(i, "p", p)
 
     def pin_state(self, x0_full: np.ndarray):
         x0 = np.asarray(x0_full[:self.nx], dtype=float)
