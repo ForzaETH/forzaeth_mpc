@@ -36,8 +36,8 @@
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 
-from pbl_config import KMPCConfig, CarConfig
-from kinematic_mpc.bicycle_model import bicycle_model
+from forzaeth_mpc.config import KMPCConfig, CarConfig
+from forzaeth_mpc.kmpc.bicycle_model import bicycle_model
 
 
 def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConfig, car_config: CarConfig):

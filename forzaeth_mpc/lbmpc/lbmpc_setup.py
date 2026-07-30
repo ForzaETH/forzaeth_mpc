@@ -15,9 +15,9 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel,
     BatchIndependentMultitaskGPModel,
 )
-from lbmpc.src.offline_viz_logger import OfflineMPCLogger
-from lbmpc.src.utils.indicies import InputIndex, StateIndex
-from lbmpc.src.utils.utils import (
+from forzaeth_mpc.lbmpc.offline_viz_logger import OfflineMPCLogger
+from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.lbmpc.utils.utils import (
     check_file_changes,
     load_gp_model_bundle,
     save_gp_model_bundle,

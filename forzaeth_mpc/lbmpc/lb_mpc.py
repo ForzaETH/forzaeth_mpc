@@ -4,18 +4,18 @@ from typing import Union
 
 import numpy as np
 import torch
-from frenet_converter.frenet_converter import FrenetConverter
+from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
-from lbmpc.src.acados_solver_settings import build_ocp_for_l4acados
-from lbmpc.src.lbmpc_setup import (build_offline_logger,
+from forzaeth_mpc.lbmpc.acados_solver_settings import build_ocp_for_l4acados
+from forzaeth_mpc.lbmpc.lbmpc_setup import (build_offline_logger,
                                    build_solver_build_config,
                                    initialize_residual_model,
                                    persist_learnt_gp_model)
-from lbmpc.src.utils.indicies import InputIndex, StateIndex
-from pbl_config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
+from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
-from single_track_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
     from casadi import DM

@@ -1,4 +1,3 @@
-# mpc_sim/metrics/metrics.py
 from __future__ import annotations
 
 from typing import Optional

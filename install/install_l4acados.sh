@@ -4,11 +4,11 @@ set -euo pipefail
 echo "=== [install_l4acados] start ==="
 
 # ---- Configuration (safe defaults; override by exporting env before calling) ----
-# Repo root on the running container (your repo is mounted here by default)
-PROJECT_DIR="${PROJECT_DIR:-/home/${USER:-$(whoami)}/catkin_ws/src/race_stack}"
+# Repo root (this script lives in <repo>/install/)
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # Submodule path
-L4A_REL="controller/lbmpc/l4acados"
+L4A_REL="external/l4acados"
 L4A_DIR="${PROJECT_DIR}/${L4A_REL}"
 L4A_EXTERNAL_DIR="${L4A_DIR}/external"
 

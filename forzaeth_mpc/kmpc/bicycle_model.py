@@ -38,7 +38,7 @@ import types
 import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, interpolant, fmod, sin, vertcat
-from pbl_config import KMPCConfig, CarConfig
+from forzaeth_mpc.config import KMPCConfig, CarConfig
 
 
 def bicycle_model(

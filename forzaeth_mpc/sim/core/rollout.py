@@ -1,12 +1,11 @@
-# mpc_sim/core/rollout.py
 from __future__ import annotations
 
 import time
 from typing import Callable, Dict, Optional
 
 import numpy as np
-from mpc_sim.core.controllers import ControllerMPC
-from mpc_sim.core.plant import Plant
+from forzaeth_mpc.sim.core.controllers import ControllerMPC
+from forzaeth_mpc.sim.core.plant import Plant
 
 try:
     from tqdm.auto import tqdm

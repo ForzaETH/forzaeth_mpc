@@ -1,0 +1,4 @@
+[submodule "external/l4acados"]
+	path = external/l4acados
+	url = https://github.com/GilJimenezCanellas/l4acados.git
+	branch = feat/tailored_online_learning_strategy

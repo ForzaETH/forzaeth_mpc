@@ -1,13 +1,13 @@
 from typing import Union
 
 import numpy as np
-from frenet_converter.frenet_converter import FrenetConverter
-from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+from forzaeth_mpc.utils.frenet_converter import FrenetConverter
+from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
-from single_track_mpc.acados_settings import acados_settings
-from single_track_mpc.utils.indicies import StateIndex
-from single_track_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.stmpc.acados_settings import acados_settings
+from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
     from casadi import DM

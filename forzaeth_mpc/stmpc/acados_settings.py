@@ -36,8 +36,8 @@ from typing import Tuple
 
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
-from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
-from single_track_mpc.utils.indicies import StateIndex
+from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
+from forzaeth_mpc.utils.indices import StateIndex
 
 from .bicycle_model import bicycle_model
 

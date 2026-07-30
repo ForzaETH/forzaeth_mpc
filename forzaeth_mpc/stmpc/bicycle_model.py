@@ -36,7 +36,7 @@ import types
 import casadi as cs
 import numpy as np
 from casadi import MX, Function, cos, fmod, interpolant, sin, vertcat
-from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
+from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
 
 # author: Daniel Kloeser
 

@@ -11,9 +11,9 @@ from typing import Tuple
 
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp
-from lbmpc.test.mpc_core.models.bicycle_model import bicycle_model
-from pbl_config import CarConfig, PacejkaTireConfig, STMPCConfig
-from single_track_mpc.utils.indicies import StateIndex
+from research.residual_validation.mpc_core.models.bicycle_model import bicycle_model
+from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
+from forzaeth_mpc.utils.indices import StateIndex
 
 
 def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:

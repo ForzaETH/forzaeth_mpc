@@ -10,7 +10,7 @@ import gpytorch
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from controller.mpc.mpc_sim.plotting.vis_run_simple_rollout import \
+from forzaeth_mpc.sim.plotting.vis_run_simple_rollout import \
     plot_closed_loop_summary
 from f110_msgs.msg import Wpnt
 from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
@@ -19,17 +19,17 @@ from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_
     GPyTorchResidualModel
 from lbmpc.l4acados.src.l4acados.models.pytorch_models.pytorch_feature_selector import \
     PyTorchFeatureSelector
-from lbmpc.test.mpc_core.MPC.l4a_STMPC import STMPC_L4A
-from lbmpc.test.mpc_core.MPC.STMPC import STMPC
-from lbmpc.test.mpc_core.residual.gp_interface import train_gp_model
-from lbmpc.test.validation.viz.plotting import plot_dict_kept_dropped
-from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+from research.residual_validation.mpc_core.MPC.l4a_STMPC import STMPC_L4A
+from research.residual_validation.mpc_core.MPC.STMPC import STMPC
+from research.residual_validation.mpc_core.residual.gp_interface import train_gp_model
+from research.residual_validation.validation.viz.plotting import plot_dict_kept_dropped
+from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,
                         load_trailing_config_ros)
 from readwrite_global_waypoints import read_global_waypoints
 from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
-from single_track_mpc.utils.indicies import StateIndex
+from forzaeth_mpc.utils.indices import StateIndex
 
 
 def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:

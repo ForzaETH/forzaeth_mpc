@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=45"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forzaeth_mpc"
+version = "0.1.0"
+description = "ForzaETH F1TENTH model predictive controllers (KMPC, STMPC, LB-MPC) and a ROS-free simulator"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "scipy",
+    "casadi",
+    "pydantic>=2",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# GP residual learning. acados itself and the pinned gpytorch/linear_operator
+# forks are NOT pip-resolvable -- run install/install_acados.sh and
+# install/install_l4acados.sh for those.
+lbmpc = ["torch"]
+# Offline simulator, tuning and plots.
+sim = ["matplotlib", "optuna", "tqdm"]
+
+[tool.setuptools.packages.find]
+include = ["forzaeth_mpc*"]
+
+[tool.autopep8]
+max_line_length = 120
+aggressive = 2

@@ -1,10 +1,9 @@
-# mpc_sim/core/plant.py
 from __future__ import annotations
 
 from typing import Callable, Literal, Optional
 
 import numpy as np
-from mpc_sim.utils.integration import DynFun, euler_step, rk4_step
+from forzaeth_mpc.sim.utils.integration import DynFun, euler_step, rk4_step
 
 
 class Plant:

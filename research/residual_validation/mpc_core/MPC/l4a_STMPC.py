@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
-from frenet_converter.frenet_converter import FrenetConverter
+from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from lbmpc.l4acados.src.l4acados.controllers import ResidualLearningMPC
 from lbmpc.l4acados.src.l4acados.models.residual_model import ResidualModel
-from lbmpc.test.mpc_core.ocp.l4a_acados_settings import build_ocp_for_l4acados
-from pbl_config import (CarConfig, PacejkaTireConfig, STMPCConfig,
+from research.residual_validation.mpc_core.ocp.l4a_acados_settings import build_ocp_for_l4acados
+from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
-from single_track_mpc.utils.indicies import StateIndex
-from single_track_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
     from casadi import DM
