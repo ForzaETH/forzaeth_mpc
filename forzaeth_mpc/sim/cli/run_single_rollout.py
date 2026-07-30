@@ -17,8 +17,9 @@ from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
-from readwrite_global_waypoints.waypoints import WP
 from tqdm.auto import tqdm
+
+from forzaeth_mpc.sim.waypoints import WP
 
 from ..core.controllers import ControllerMPC
 from ..core.plant import Plant

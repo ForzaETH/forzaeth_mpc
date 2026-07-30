@@ -1,17 +1,12 @@
-# mpc_sim/core/scenario.py
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
-from f110_msgs.msg import Wpnt
-from pbl_config import (load_car_config_ros, load_pacejka_tire_config_ros,
+from forzaeth_mpc.config import (load_car_config_ros, load_pacejka_tire_config_ros,
                         load_STMPC_config_ros, load_trailing_config_ros)
-from readwrite_global_waypoints import read_global_waypoints
-from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
-from readwrite_global_waypoints.waypoints import (extract_waypoints_data,
-                                                  track_length_from_waypoints)
-from single_track_mpc.STMPC import STMPC
+from forzaeth_mpc.sim.tracks import load_track
+from forzaeth_mpc.stmpc.STMPC import STMPC
 
 
 class Scenario:
@@ -34,14 +29,7 @@ class Scenario:
         self.floor = floor
         self.refline_kind = refline
 
-        gb: GlobalWaypoints = read_global_waypoints(track)
-        if refline == "iqp":
-            ref: List[Wpnt] = gb.global_traj_wpnts_iqp.wpnts
-        else:
-            ref = gb.global_traj_wpnts_mintime.wpnts
-
-        self.waypoints = extract_waypoints_data(ref)
-        self.track_len = track_length_from_waypoints(self.waypoints)
+        self.waypoints, self.track_len = load_track(track, refline=refline)
 
         # configs (same as in your scripts)
         self.stmpc_config = load_STMPC_config_ros(racecar_version)

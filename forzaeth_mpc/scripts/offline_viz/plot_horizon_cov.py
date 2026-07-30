@@ -5,15 +5,15 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from f110_msgs.msg import Wpnt
 from matplotlib.patches import Ellipse
-from readwrite_global_waypoints import read_global_waypoints
-from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
+
+from forzaeth_mpc.sim.tracks import load_track
+from forzaeth_mpc.sim.waypoints import WP
 
 
 @dataclass
@@ -276,13 +276,6 @@ def plot_horizon_with_cov(
     return fig, (axs_ts, ax_map)
 
 
-def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
-    return np.array([
-        (wp.x_m, wp.y_m, wp.vx_mps, wp.kappa_radpm, wp.s_m, wp.d_left, wp.d_right)
-        for wp in waypoints
-    ], dtype=float)
-
-
 def build_arrays_for_step(hp: pd.DataFrame, hc: pd.DataFrame, step: int):
     # Filter
     hp_s = hp[(hp["step"] == step)].copy()
@@ -363,13 +356,10 @@ def main():
     X, Pdiag, idx_map = build_arrays_for_step(hp, hc, step=step)
 
     # === Waypoints & configs ===
-    gb_waypoints: GlobalWaypoints = read_global_waypoints("GLC_pit_rbring1")
-
-    trajectory: List[Wpnt] = gb_waypoints.global_traj_wpnts_iqp.wpnts
-    refline_xy = np.array([(p.x_m, p.y_m) for p in trajectory])
-    left_dist = np.array([p.d_left for p in trajectory])
-    right_dist = np.array([p.d_right for p in trajectory])
-    waypoints = extract_waypoints_data(trajectory)
+    waypoints, _ = load_track("GLC_pit_rbring1")
+    refline_xy = waypoints[:, [WP.X, WP.Y]]
+    left_dist = waypoints[:, WP.D_LEFT]
+    right_dist = waypoints[:, WP.D_RIGHT]
 
     cfg = PlotHorizonCovConfig(
         nsig=1.0,
