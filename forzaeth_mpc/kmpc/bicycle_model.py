@@ -170,6 +170,13 @@ def bicycle_model(
     x_next_runge = x_runge + (k1 + 2 * k2 + 2 * k3 + k4) / 6.
 
     f_disc = vertcat(x_next_runge, dis_v_k, dis_delta_k)
+    # Callable form of the OCP's own dynamics. The OCP runs with
+    # integrator_type = "DISCRETE", so f_disc -- not f_expl -- is what this
+    # controller actually predicts with, and the two disagree: f_disc applies the
+    # inputs as per-step increments (v + der_v), f_expl as rates (vdot = der_v).
+    # Anything simulating this controller in closed loop must step f_disc.
+    f_disc_func = Function('f_disc_func',
+                           [s, n, alpha, v, delta, der_v, derDelta, p], [f_disc])
 
     # Define initial conditions
     model.x0 = np.array([-2, 0, 0, 0, 0])
@@ -237,6 +244,7 @@ def bicycle_model(
     model.params = params
     model.kappa = kapparef_s
     model.f_expl_func = f_expl_func
+    model.f_disc_func = f_disc_func
     model.left_bound_s = left_bound_s
     model.right_bound_s = right_bound_s
     return model, constraint, params

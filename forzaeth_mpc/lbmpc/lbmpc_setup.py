@@ -124,8 +124,13 @@ def _get_invalid_gp_bundle_reason(bundle) -> Optional[str]:
 def build_solver_build_config(lbmpc_path: str, params_path: str) -> SolverBuildConfig:
     ensure_runtime_artifacts(lbmpc_path)
 
-    solver_settings_file_name = os.path.join(lbmpc_path, "src", "acados_solver_settings.py")
-    bicycle_model_file_name = os.path.join(lbmpc_path, "src", "bicycle_model.py")
+    # The two sources whose changes must force a C-code rebuild sit next to this module.
+    # They were looked up under "<lbmpc_path>/src/", which only worked while lbmpc_path
+    # happened to be the package directory. lbmpc_path now means only "where the
+    # generated artifacts go".
+    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    solver_settings_file_name = os.path.join(_pkg_dir, "acados_solver_settings.py")
+    bicycle_model_file_name = os.path.join(_pkg_dir, "bicycle_model.py")
     params_file_name = os.path.join(params_path, "lb_mpc_params.yaml")
     mpc_files_to_watch = [
         solver_settings_file_name,

@@ -118,3 +118,26 @@ def success_rate(status_hist: np.ndarray, success_codes: tuple = (0, 2)) -> floa
     status_hist = np.asarray(status_hist)
     ok = np.isin(status_hist, success_codes)
     return float(np.mean(ok))
+
+
+def lap_boundaries(x_hist: np.ndarray, track_len: float, idx_s: int = 0) -> list:
+    """Step indices where each lap is completed, using unwrapped arc length.
+
+    Returns [k_1, k_2, ...] with k_i the first step at or past lap i.
+    """
+    if x_hist.size == 0 or track_len <= 0.0:
+        return []
+    s_unw = unwrap_s(x_hist[:, idx_s], track_len)
+    bounds, lap = [], 1
+    while True:
+        hit = np.nonzero(s_unw >= s_unw[0] + lap * track_len)[0]
+        if hit.size == 0:
+            return bounds
+        bounds.append(int(hit[0]))
+        lap += 1
+
+
+def per_lap_times(x_hist: np.ndarray, dt: float, track_len: float, idx_s: int = 0) -> np.ndarray:
+    """Individual lap times in seconds (not cumulative)."""
+    bounds = lap_boundaries(x_hist, track_len, idx_s)
+    return np.diff([0] + bounds) * float(dt)
