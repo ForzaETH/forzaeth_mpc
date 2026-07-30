@@ -1,17 +1,15 @@
 #! /usr/bin/env python3
 from typing import Tuple
 import numpy as np
-import rospy
 from scipy.integrate import solve_ivp
-from frenet_converter.frenet_converter import FrenetConverter
-from f110_msgs.msg import WpntArray
-from kinematic_mpc.utils.splinify import SplineTrack
-from pbl_config import KMPCConfig, CarConfig, TrailingConfig
-from kinematic_mpc.acados_settings import acados_settings
+from forzaeth_mpc.utils.frenet_converter import FrenetConverter
+from forzaeth_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.config import KMPCConfig, CarConfig, TrailingConfig
+from forzaeth_mpc.kmpc.acados_settings import acados_settings
 
 
 class Kinematic_MPC_Controller:
-    def __init__(self, racecar_version: str, kmpc_config: KMPCConfig, car_config: CarConfig, trailing_config: TrailingConfig) -> None:
+    def __init__(self, waypoints_data: np.ndarray, racecar_version: str, kmpc_config: KMPCConfig, car_config: CarConfig, trailing_config: TrailingConfig) -> None:
         """
         Initialise MPC object.
 
@@ -24,8 +22,8 @@ class Kinematic_MPC_Controller:
         self.trailing_config: TrailingConfig = trailing_config
         self.mpc_init_params()
 
-        # Init the solver
-        self.mpc_initialize_solver()
+        # Init the solver with waypoints data (no ROS dependency)
+        self.mpc_initialize_solver(waypoints_data)
 
     def mpc_init_params(self) -> None:
         # MPC Params
@@ -57,26 +55,27 @@ class Kinematic_MPC_Controller:
         self.v_diff = None
         self.i_gap = 0
 
-    def mpc_initialize_solver(self) -> None:
-        """Initialises the controller. Global waypoints are stored in a SplineTrack. All necessary parameters are stored. """
+    def mpc_initialize_solver(self, waypoints_data: np.ndarray) -> None:
+        """Initialises the controller from a waypoints array (no ROS dependency).
 
-        rospy.loginfo(f"[MPC Controller] Waiting for global waypoints")
-        raceline = rospy.wait_for_message("/global_waypoints", WpntArray)
-        rospy.loginfo(f"[MPC Controller] Global waypoints obtained")
+        Input: waypoints_data: np.ndarray: Shape (N, 7) with columns
+            [x_m, y_m, vx_mps, kappa_radpm, s_m, d_left, d_right].
+        """
 
-        x, y = self._transform_waypoints_to_cartesian(raceline.wpnts)
+        x = waypoints_data[:, 0]
+        y = waypoints_data[:, 1]
         self.fren_conv = FrenetConverter(x, y)
 
         # on f track trajectory is 81.803 m long.
-        d_left, coords_path, d_right = self._transform_waypoints_to_coords(raceline.wpnts)
+        d_left, coords_path, d_right = self._transform_waypoints_to_coords_from_array(waypoints_data)
 
         self.spline = SplineTrack(coords_direct=coords_path)
 
         self.nr_laps = 0
 
-        kapparef = [x.kappa_radpm for x in raceline.wpnts]
-        vx_ref = [x.vx_mps for x in raceline.wpnts]
-        self.s_ref = np.array([x.s_m for x in raceline.wpnts])
+        kapparef = waypoints_data[:, 3]
+        vx_ref = waypoints_data[:, 2]
+        self.s_ref = waypoints_data[:, 4]
         self.constraint, self.model, self.acados_solver, self.model_params = acados_settings(
             self.s_ref, kapparef, vx_ref, d_left, d_right, self.kmpc_config, self.car_config)
 
@@ -276,20 +275,16 @@ class Kinematic_MPC_Controller:
             warm_start[i] = warm_start[i-1] + np.array(der_state) / self.kmpc_config.MPC_freq  # ugly euler integration
         return warm_start
 
-    def _transform_waypoints_to_coords(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
+    def _transform_waypoints_to_coords_from_array(self, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Helper function to store the waypoints array into the right format such that they can be used for initialisation of SplineTrack.
 
-        Input: data: WpntArray: Holds the data received from the globalwaypoints.
+        Input: data: np.ndarray: Shape (N, >=7) with columns [x_m, y_m, vx_mps, kappa_radpm, s_m, d_left, d_right].
 
         Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
         """
-        waypoints = np.zeros((len(data), 2))
-        d_left = np.zeros(len(data))
-        d_right = np.zeros(len(data))
-        for idx, wpnt in enumerate(data):
-            waypoints[idx] = [wpnt.x_m, wpnt.y_m]
-            d_left[idx] = wpnt.d_left
-            d_right[idx] = wpnt.d_right
+        waypoints = data[:, :2]
+        d_left = data[:, 5]
+        d_right = data[:, 6]
         waypoints = waypoints[:-1] # remove last point as it is equal to the first point
         track_direction = np.roll(waypoints, -1, axis=0) - waypoints
         track_direction = track_direction / np.linalg.norm(track_direction, axis=1)[:, None]
@@ -300,20 +295,6 @@ class Kinematic_MPC_Controller:
         res_coords = np.stack([boundaries_left, waypoints, boundaries_right], axis=0)
 
         return d_left, res_coords, d_right
-
-    def _transform_waypoints_to_cartesian(self, data: WpntArray) -> Tuple[np.ndarray, np.ndarray]:
-        """Helper function to store the received waypoints into the right format such that they can be used for initialisation of SplineTrack.
-
-        Input: data: WpntArray: Holds the data received from the globalwaypoints.
-
-        Returns: Tuple: Stores the waypoints as follows: Left boundaries, reference path, right boundaries
-        """
-        x = np.zeros(len(data))
-        y = np.zeros(len(data))
-        for idx, wpnt in enumerate(data):
-            x[idx] = wpnt.x_m
-            y[idx] = wpnt.y_m
-        return np.array(x), np.array(y)
 
     def propagate_time_delay(self, states: np.array, inputs: np.array) -> np.array:
         """
