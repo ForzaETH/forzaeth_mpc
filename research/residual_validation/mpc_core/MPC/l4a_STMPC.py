@@ -4,8 +4,8 @@ from typing import Callable, Dict, Optional, Sequence, Union
 
 import numpy as np
 from forzaeth_mpc.utils.frenet_converter import FrenetConverter
-from lbmpc.l4acados.src.l4acados.controllers import ResidualLearningMPC
-from lbmpc.l4acados.src.l4acados.models.residual_model import ResidualModel
+from l4acados.controllers import ResidualLearningMPC
+from l4acados.models.residual_model import ResidualModel
 from research.residual_validation.mpc_core.ocp.l4a_acados_settings import build_ocp_for_l4acados
 from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)

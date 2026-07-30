@@ -11,3 +11,6 @@ acados_sim*.json
 # learnt GP models / logs
 *.pt
 *.csv
+residual_lbmpc_*_solver_config.json
+lbmpc_*_solver_config.json
+residual_plots/

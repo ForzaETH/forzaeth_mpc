@@ -5,7 +5,11 @@ from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
-from forzaeth_mpc.stmpc.acados_settings import acados_settings
+# NOTE: use this tree's own acados_settings, not forzaeth_mpc.stmpc's. The production
+# model moved the 8 Pacejka coefficients online (race_stack 8382de7d0, 2026-04-13),
+# growing p from 14 to 22 entries, while these experiments and l4a_acados_settings
+# still build/set the 14-entry p vector.
+from research.residual_validation.mpc_core.ocp.acados_settings import acados_settings
 from forzaeth_mpc.utils.indices import StateIndex
 from forzaeth_mpc.utils.splinify import SplineTrack
 

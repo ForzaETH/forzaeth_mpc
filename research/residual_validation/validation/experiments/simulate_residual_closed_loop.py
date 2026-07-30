@@ -14,7 +14,7 @@ import torch
 from forzaeth_mpc.sim.plotting.vis_run_simple_rollout import \
     plot_closed_loop_summary
 from f110_msgs.msg import Wpnt
-from lbmpc.l4acados.src.l4acados.models import ResidualModel
+from l4acados.models import ResidualModel
 from research.residual_validation.mpc_core.MPC.l4a_STMPC import STMPC_L4A
 from research.residual_validation.mpc_core.MPC.STMPC import STMPC
 from research.residual_validation.mpc_core.residual.gp_interface import (build_multitask_gp,

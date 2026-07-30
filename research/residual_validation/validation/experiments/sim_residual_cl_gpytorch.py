@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import time
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import gpytorch
@@ -12,12 +14,11 @@ import numpy as np
 import torch
 from forzaeth_mpc.sim.plotting.vis_run_simple_rollout import \
     plot_closed_loop_summary
-from f110_msgs.msg import Wpnt
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel, BatchIndependentMultitaskGPModel)
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model import \
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model import \
     GPyTorchResidualModel
-from lbmpc.l4acados.src.l4acados.models.pytorch_models.pytorch_feature_selector import \
+from l4acados.models.pytorch_models.pytorch_feature_selector import \
     PyTorchFeatureSelector
 from research.residual_validation.mpc_core.MPC.l4a_STMPC import STMPC_L4A
 from research.residual_validation.mpc_core.MPC.STMPC import STMPC
@@ -27,16 +28,16 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig, load_car_config_ros,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,
                         load_trailing_config_ros)
-from readwrite_global_waypoints import read_global_waypoints
-from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
-from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.sim.tracks import load_track
+from forzaeth_mpc.utils.indices import Input, StateIndex
+
+PLOT_DIR = Path(os.environ.get("RESIDUAL_PLOT_DIR", "residual_plots"))
 
 
-def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:
-    return np.array([
-        (wp.x_m, wp.y_m, wp.vx_mps, wp.kappa_radpm, wp.s_m, wp.d_left, wp.d_right)
-        for wp in waypoints
-    ], dtype=float)
+def savefig(name: str) -> None:
+    PLOT_DIR.mkdir(parents=True, exist_ok=True)
+    plt.savefig(PLOT_DIR / f"{name}.png", dpi=140, bbox_inches="tight")
+    print(f"[plot] {PLOT_DIR / (name + '.png')}")
 
 
 def dyn_from_ctrl(ctrl: STMPC, mu_nom: float, mu_real: float, bias=(0.0, 0.0, 0.05)):
@@ -301,7 +302,8 @@ def main():
     ap.add_argument("--bias_wz", type=float, default=0.0)
     ap.add_argument("--track", default="THETRACK")
     ap.add_argument("--racecar_version", default="NUC5")
-    ap.add_argument("--floor", default="dubi_hoons")
+    ap.add_argument("--floor", default="dubi")
+    ap.add_argument("--cl_iter", type=int, default=650)
     ap.add_argument("--lengthscale", default=2.9)
     ap.add_argument("--outputscale", default=0.000155)
     ap.add_argument("--gp_noise", default=1e-4)
@@ -315,13 +317,10 @@ def main():
     args = ap.parse_args()
 
     # === Waypoints & configs ===
-    gb_waypoints: GlobalWaypoints = read_global_waypoints("THETRACK")
-
-    refline: List[Wpnt] = gb_waypoints.global_traj_wpnts_iqp.wpnts
-    refline_xy = np.array([(p.x_m, p.y_m) for p in refline])
-    left_dist = np.array([p.d_left for p in refline])
-    right_dist = np.array([p.d_right for p in refline])
-    waypoints = extract_waypoints_data(refline)
+    waypoints, _track_length = load_track(args.track)
+    refline_xy = waypoints[:, 0:2]
+    left_dist = waypoints[:, 5]
+    right_dist = waypoints[:, 6]
 
     stmpc_cfg: STMPCConfig = load_STMPC_config_ros(args.racecar_version)
     car_cfg: CarConfig = load_car_config_ros(args.racecar_version)
@@ -333,7 +332,7 @@ def main():
     dt = 1.0 / float(stmpc_cfg.MPC_freq)
     pose_frenet = np.array([15.0, 0.0, 0.0])
     init_vel = 4.0
-    cl_iter = 650
+    cl_iter = args.cl_iter
 
     # === dictionary settings ===
     m_max = 50
@@ -372,8 +371,11 @@ def main():
     idx_vy = StateIndex.VELOCITY_V_Y.value
     idx_wz = StateIndex.YAW_RATE.value
     idx_noise = [idx_vx, idx_vy, idx_wz]
-    idx_input_jerk = StateIndex.INPUT_JERK.value
-    idx_input_dsteer = StateIndex.INPUT_DSTEERING.value
+    # StateIndex.INPUT_JERK=8 / INPUT_DSTEERING=9 were added alongside this script
+    # (race_stack 232a6d313) and dropped again by a merge revert (race_stack 94ea48a79).
+    # They are just the input slots of the [x, u] feature vector.
+    idx_input_jerk = ctrl_nom.model.n_x + Input.JERK.value
+    idx_input_dsteer = ctrl_nom.model.n_x + Input.D_STEERING_ANGLE.value
     idx_gp_inputs = [idx_vx, idx_vy, idx_wz, idx_input_jerk, idx_input_dsteer]
     idx_gp_outputs = idx_noise
     dim = idx_input_dsteer + 1
@@ -486,6 +488,7 @@ def main():
         x_hist=x_hist,
         u_hist=u_hist
     )
+    savefig("gpytorch_cl_nominal")
     plt.show()
 
     plot_dict_kept_dropped(
@@ -496,6 +499,7 @@ def main():
             idx_vy,
             idx_wz),
         title="Dictionary: kept vs dropped")
+    savefig("gpytorch_dictionary_kept_dropped")
     plt.show()
 
     x_hist_nom = x_hist
@@ -626,6 +630,7 @@ def main():
         x_hist=x_hist,
         u_hist=u_hist
     )
+    savefig("gpytorch_cl_lbmpc")
     plt.show()
 
     x_hist_res = x_hist
