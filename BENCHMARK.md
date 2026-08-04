@@ -74,12 +74,15 @@ harsher mismatch (plant μ 0.8 vs model 1.0 **plus** a +1.0 m/s² v_x bias, 1e-5
 50-point dictionary:
 
 ```
-GP training MLL loss      0.727 -> -2.086 over 200 iterations
+GP training MLL loss      0.727 -> -1.991 over 200 iterations
 dictionary                50 kept / 600 dropped (m_max=50, min_dist=0.15)
-nominal STMPC, 3 laps     8.465 / 8.410 / 8.432 s | lateral dev 0.279 ± 0.290 m
-LB-MPC, 3 laps            8.778 / 8.633 / 8.624 s | lateral dev 0.176 ± 0.199 m  (-37 %)
-solve time                nominal 4.8 ms mean | LB-MPC 41.6 mean, 25.4 median, 185.5 p95
+nominal STMPC, 3 laps     8.277 / 8.290 / 8.290 s | lateral dev 0.268 ± 0.276 m
+LB-MPC, 3 laps            8.505 / 8.337 / 8.415 s | lateral dev 0.148 ± 0.160 m  (-45 %)
 ```
+
+This tree reads NUC5's config too, so its numbers moved with the `correct_v_y_dot` fix
+(they were 8.465/8.410/8.432 and 0.279 m nominal before it). The tree itself is frozen at
+the 14-entry parameter layout and the pre-unification state ordering on purpose.
 
 Held-out one-step residual RMSE, 600 pairs never in the dictionary (nominal model predicts
 residual ≡ 0, so its RMSE is RMS of the target). Measured once with a throwaway harness
