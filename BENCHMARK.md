@@ -27,11 +27,16 @@ Pacejka plant. Do not read the first row as "KMPC is the better controller".
 |---|---|---|---|---|---|---|---|
 | **STMPC** | 8.15 | 8.19 | 0.189 | 0.469 | 3.52 | 6.9 | — |
 | **LBMPC**, no learning | 8.20 | 8.21 | 0.168 | 0.426 | 3.48 | 4.5 | 0 |
-| **LBMPC**, learning | 8.05 | 8.06 | 0.140 | 0.400 | 3.49 | 9.4 | 8 |
+| **LBMPC**, learning | **7.95** | **7.96** | **0.101** | **0.331** | 3.51 | 9.9 | 137 |
 
-Online GP learning buys **−1.8 % lap time and −17 % mean lateral deviation** against the
-same controller with learning off. Solver cost roughly doubles (4.5 → 9.4 ms mean,
-p99 24.9 ms) — still inside a 50 ms budget.
+Online GP learning buys **−3.0 % lap time and −40 % mean lateral deviation** against the
+same controller with learning off. Solver cost roughly doubles (4.5 → 9.9 ms mean,
+p99 13.1 ms) — still well inside a 50 ms budget.
+
+Those learning numbers need the dictionary-gate fix in
+`external/l4acados` (`fix/balanced-dictionary-gate`). With the previous admission rule the
+dictionary froze at 8 points and the same run gave 8.05 s / 0.140 m — most of the available
+benefit was being left on the table. See "Dictionary gate" below.
 
 KMPC is absent from this table: its model has no friction parameter, so there is nothing
 to mismatch.
@@ -82,13 +87,38 @@ The other two experiment scripts (`validate_residual_mpc.py`,
 `e8e132245` (2025-11-24) without updating the callers. Dead seven months before this
 extraction.
 
+## Dictionary gate (fixed)
+
+`OnlineLearningStrategy`'s `"balanced"` rule admitted a candidate only if its
+nearest-neighbour distance exceeded *the dictionary's own smallest pairwise distance*. That
+quantity never decreases when a point is admitted and is only recomputed after an eviction —
+and evictions happen only once the dictionary is full. Below capacity the bar was therefore
+frozen at whatever gap the first two admitted samples happened to have.
+
+Replaying the rule over one fixed 20-lap trajectory, subsampled so only the spacing changes:
+
+| sample rate | 1st-pair gap | final dictionary |
+|---|---|---|
+| 50 Hz | 0.263 | 137 |
+| 25 Hz | 0.563 | 50 |
+| 16.7 Hz | 0.832 | 30 |
+| 10 Hz | 1.192 | 17 |
+
+And at one fixed rate, 30 vs 94 points for identical data depending only on the starting
+offset. At 20 Hz the real controller settled at **8** points against a `max_num_data_points`
+of 200, because its first two residual pairs land in the startup transient. Distances were
+also taken over raw features, so admission was dominated by whichever channel had the widest
+numeric range.
+
+Fixed upstream in the fork: admit iff the candidate is at least `min_dist` from every
+dictionary member, as a per-feature RMS distance in units of each feature's standard
+deviation (running Welford estimate, or `feature_scales` if supplied). Eviction from the
+closest pair when full is unchanged. Default `min_dist=0.15` gives 127–137 points on this
+track at 20 Hz. `test/gpytorch_model/test_online_learning_gate.py` in the fork covers
+rate/offset independence, scale invariance, duplicate rejection and the per-admission bound.
+
 ## Open questions
 
-- **The GP dictionary saturates at 8 points at 20 Hz**, against 199 (the `max_num_data_points:
-  200` cap) when the same run is stepped at 50 Hz. `OnlineLearningStrategy`'s novelty
-  criterion is presumably rejecting almost everything once the trajectory repeats, but 8 is
-  low enough to be worth confirming rather than assuming. The learning benefit above is
-  measured *with* only those 8 points, so the ceiling may be higher.
 - **LBMPC computes its residuals against a zero input on the car.**
   `lb_mpc.py` sets `_prev_input_for_residual = np.zeros(2)` with `self.u0.copy()` commented
   out beside it, so `r = x_k − f(x_{k−1}, 0)` attributes the whole effect of the applied

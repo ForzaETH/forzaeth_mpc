@@ -18,7 +18,7 @@ ACADOS_SOURCE_DIR="${ACADOS_SOURCE_DIR:-/home/${USER:-$(whoami)}/acados}"
 # Respect your CI/EDITABLE toggle (same meaning as in post_installation.sh)
 EDITABLE="${EDITABLE:-true}"
 
-L4A_EXPECTED_BRANCH="${L4A_EXPECTED_BRANCH:-feat/tailored_online_learning_strategy}"
+L4A_EXPECTED_BRANCH="${L4A_EXPECTED_BRANCH:-fix/balanced-dictionary-gate}"
 LINEAR_OPERATOR_REF="${LINEAR_OPERATOR_REF:-fc062601ea9cc82d6abce0190bf0071fd8c54c10}"
 GPYTORCH_REF="${GPYTORCH_REF:-7a30ef164ea01e3cd9a27ab6c4872a2aed73d8f3}"
 LINEAR_OPERATOR_URL="git+https://github.com/naefjo/linear_operator@${LINEAR_OPERATOR_REF}"
