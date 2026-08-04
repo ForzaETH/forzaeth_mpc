@@ -290,3 +290,49 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     model.track_max = stmpc_config.track_max_width
     # model.safety_width = stmpc_config.track_safety_margin
     return model, constraint, params
+
+
+if __name__ == "__main__":
+    # Order probe. `delta_dot = derDelta` and `accel_dot = jerk` are the only two rows of
+    # f_expl that are a bare input, so feeding distinguishable inputs and reading the
+    # derivative back through the enum pins the state row order, the input order and the
+    # enum against the model at once. No acados build, runs in under a second.
+    #
+    # This is the check that makes the state permutation safe to do at all: greps catch
+    # stale references, but only this catches the enum and the model drifting apart.
+    import casadi as _cs
+    import numpy as _np
+
+    from forzaeth_mpc.config import (load_car_config_ros,
+                                     load_pacejka_tire_config_ros, load_STMPC_config_ros)
+    from forzaeth_mpc.utils.indices import Input as _II, StateIndex as _SI
+
+    n = 32
+    # the builder does array arithmetic on these, so ndarrays not lists
+    s_coords = _np.linspace(0.0, 10.0, n)
+    flat = _np.zeros(n)
+    ones = _np.ones(n)
+    model, _constraint, _params = bicycle_model(
+        s_coords, flat, ones, ones,
+        load_STMPC_config_ros("NUC5"), load_car_config_ros("NUC5"),
+        load_pacejka_tire_config_ros("NUC5", "dubi"))
+
+    f = _cs.Function("f", [model.x, model.u, model.p], [model.f_expl_expr])
+    x = _np.zeros(model.n_x); x[_SI.VELOCITY_V_X] = 3.0
+    u = _np.zeros(model.n_u)
+    u[_II.JERK] = 7.0
+    u[_II.D_STEERING_ANGLE] = 11.0
+    xdot = _np.asarray(f(x, u, _np.ones(model.p.shape[0]))).reshape(-1)
+
+    assert xdot[_SI.ACCEL] == 7.0, (
+        f"accel_dot must be the jerk input; got {xdot[_SI.ACCEL]} at index "
+        f"{int(_SI.ACCEL)} -- the enum and the model disagree")
+    assert xdot[_SI.STEERING_ANGLE_DELTA] == 11.0, (
+        f"delta_dot must be the steering-rate input; got "
+        f"{xdot[_SI.STEERING_ANGLE_DELTA]} at index "
+        f"{int(_SI.STEERING_ANGLE_DELTA)} -- the enum and the model disagree")
+
+    print(f"OK: n_x={model.n_x} n_u={model.n_u} n_p={model.p.shape[0]} | "
+          f"delta@{int(_SI.STEERING_ANGLE_DELTA)} yaw_rate@{int(_SI.YAW_RATE)} "
+          f"accel@{int(_SI.ACCEL)} | jerk@{int(_II.JERK)} "
+          f"ddelta@{int(_II.D_STEERING_ANGLE)}")

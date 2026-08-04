@@ -240,15 +240,15 @@ class STMPC:
         delayed_index = self.stmpc_config.steps_delay + 1
         self.pred_x = self.acados_solver.get(delayed_index, "x")
 
-        self.steering_angle = self.pred_x[5]
-        self.speed = self.pred_x[3]
+        self.steering_angle = self.pred_x[StateIndex.STEERING_ANGLE_DELTA]
+        self.speed = self.pred_x[StateIndex.VELOCITY_V_X]
         self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
         self.prev_acc = self.acceleration
         self.jerk = self.u0[0]
 
         # Update steering buffer
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
-        self.steering_angle_buf[0] = self.pred_x[5]
+        self.steering_angle_buf[0] = self.pred_x[StateIndex.STEERING_ANGLE_DELTA]
 
         self.mpc_sd = np.array([
             self.acados_solver.get(j, "x")[:2] for j in range(self.stmpc_config.N + 1)
@@ -274,7 +274,7 @@ class STMPC:
 
         Returns: np.array    : Warm start trajectory
         """
-        warm_start = np.zeros((self.stmpc_config.N + 1, 10))  # TODO: hardcoded state space dimension
+        warm_start = np.zeros((self.stmpc_config.N + 1, self.model.n_x + self.model.n_u))
         # TODO setting the velocity to current actual velocity might remove slowing down
         warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
                                  1.0, 0.0, 0.0, 0.0, const_acc, 0, const_steer_vel])
@@ -283,71 +283,21 @@ class STMPC:
             warm_start[i] = warm_start[i - 1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
         return warm_start
 
-    def update_warm_start(self) -> None:
-        """
-        Propagate actual states and reaply previous input (Euler).
-        """
-        for i in range(self.stmpc_config.N + 1):
-            current_state = self.acados_solver.get(i, "x")
-            if i < self.stmpc_config.N:
-                current_input = self.acados_solver.get(i, "u")
-            else:
-                current_input = np.zeros(self.model.n_u)
-
-            state_with_input = np.concatenate((current_state, current_input))
-            xdot = self._dynamics_of_car(0, state_with_input)
-            updated_state = current_state + np.array(xdot)[:self.model.n_x] / self.controller_frequency
-            self.acados_solver.set(i, "x", updated_state)
-
-            if i < self.stmpc_config.N - 1:
-                next_inputs = self.acados_solver.get(i + 1, "u")
-                self.acados_solver.set(i, "u", next_inputs)
-
-    def propagate_time_delay(self, states: np.ndarray, inputs: np.ndarray) -> np.ndarray:
-        """
-        RK45 forward propagation using acados model.
-        """
-        x0 = np.concatenate((states, [inputs[0]], [0]), axis=0)
-        self.t_delay = 0.0
-
-        solution = solve_ivp(
-            self._dynamics_of_car,
-            t_span=[0, self.t_delay],
-            y0=x0,
-            method='RK45',
-            atol=1e-4,
-            rtol=1e-4
-        )
-
-        sol = [x[-1] for x in solution.y]
-
-        # Heading saturation
-        if abs(sol[5]) > self.constraint.delta_max:
-            sol[5] = np.sign(sol[5]) * self.constraint.delta_max
-        # Longitudinal velocity saturation
-        if abs(sol[3]) > self.constraint.v_x_max:
-            sol[3] = np.sign(sol[3]) * self.constraint.v_x_max
-        # Min velocity
-        if abs(sol[3]) < self.constraint.v_x_min:
-            sol[3] = self.constraint.v_x_min
-
-        return np.array(sol)[:-2]
-
     def _dynamics_of_car(self, t, x0) -> list:
         '''
         Used for forward propagation. This function takes the dynamics from the acados model.
         '''
 
-        s = x0[0]
-        n = x0[1]
-        theta = x0[2]
-        v_x = x0[3]
-        v_y = x0[4]
-        delta = x0[5]
-        yaw_rate = x0[6]
-        accel = x0[7]
-        jerk = x0[8]
-        derDelta = x0[9]
+        s = x0[StateIndex.POS_ON_CENTER_LINE_S]
+        n = x0[StateIndex.MIN_DIST_TO_CENTER_LINE_N]
+        theta = x0[StateIndex.ORIENTATION_THETA]
+        v_x = x0[StateIndex.VELOCITY_V_X]
+        v_y = x0[StateIndex.VELOCITY_V_Y]
+        delta = x0[StateIndex.STEERING_ANGLE_DELTA]
+        yaw_rate = x0[StateIndex.YAW_RATE]
+        accel = x0[StateIndex.ACCEL]
+        jerk = x0[StateIndex.INPUT_JERK]
+        derDelta = x0[StateIndex.INPUT_DSTEERING]
         xdot = self.model.f_expl_func(
             s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
 

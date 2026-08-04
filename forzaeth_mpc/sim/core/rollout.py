@@ -6,6 +6,7 @@ from typing import Callable, Dict, Optional
 import numpy as np
 from forzaeth_mpc.sim.core.controllers import ControllerMPC
 from forzaeth_mpc.sim.core.plant import Plant
+from forzaeth_mpc.utils.indices import StateIndex
 
 try:
     from tqdm.auto import tqdm
@@ -18,8 +19,8 @@ class RolloutRunner:
     """
     Closed-loop rollout with optional prediction capture.
 
-    - Writes control into x[8], x[9]
-    - Integrates with Plant (RK4/Euler). Plant is assumed to read u from x[8],x[9].
+    - Writes control into the input slots of the plant state (see StateIndex)
+    - Integrates with Plant (RK4/Euler), which reads u back out of those slots.
     - Decoupled μ via optional set_sim_mu_fn() callable
     - Optionally records full (H+1, nx) predicted state sequence per step.
     """
@@ -80,8 +81,8 @@ class RolloutRunner:
 
             # Inject control into state helpers (jerk, ddelta)
             if x.shape[0] > 9 and u0.shape[0] >= 2:
-                x[8] = float(u0[0])
-                x[9] = float(u0[1])
+                x[StateIndex.INPUT_JERK] = float(u0[0])
+                x[StateIndex.INPUT_DSTEERING] = float(u0[1])
 
             # Integrate one step with the real plant
             x = self.plant.step(x)

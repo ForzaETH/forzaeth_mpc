@@ -4,6 +4,7 @@ import numpy as np
 from forzaeth_mpc.config import KMPCConfig
 from forzaeth_mpc.sim.core.plant import Plant
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
+from forzaeth_mpc.utils.indices import StateIndex
 from forzaeth_mpc.stmpc.STMPC import STMPC
 
 
@@ -316,7 +317,9 @@ class ControllerLBMPC:
         if status not in (0, 2):
             try:
                 x0 = self._x0_pinned
-                self.mpc._apply_warm_start(pose_frenet=x0[:3], actual_speed=x0[3], actual_acc=x0[7])
+                self.mpc._apply_warm_start(pose_frenet=x0[:3],
+                                           actual_speed=x0[StateIndex.VELOCITY_V_X],
+                                           actual_acc=x0[StateIndex.ACCEL])
             except Exception:
                 print(f"Applying warm start after solver not converging not succesful!")
 

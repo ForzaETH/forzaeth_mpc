@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm.auto import tqdm
 
+from ...utils.indices import StateIndex
 from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
@@ -41,9 +42,12 @@ def _make_noise_vars(state_dim: int, sigma: float) -> np.ndarray:
             f"Expected at least 6 states to set vx, vy, yaw_rate noise; got {state_dim}."
         )
     var = float(sigma) ** 2
-    noise_vars[3] = var   # vx
-    noise_vars[4] = var   # vy
-    noise_vars[5] = var   # yaw_rate
+    # These were literal 3/4/5 with a "# yaw_rate" comment on the last one, but index 5
+    # is the steering angle under STMPC's ordering -- it has been injecting steering
+    # noise and calling it yaw rate.
+    noise_vars[StateIndex.VELOCITY_V_X] = var
+    noise_vars[StateIndex.VELOCITY_V_Y] = var
+    noise_vars[StateIndex.YAW_RATE] = var
     return noise_vars
 
 

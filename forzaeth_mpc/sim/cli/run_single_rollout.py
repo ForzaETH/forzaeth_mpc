@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm.auto import tqdm
 
+from forzaeth_mpc.utils.indices import StateIndex
 from forzaeth_mpc.sim.waypoints import WP
 
 from ..core.controllers import ControllerMPC
@@ -187,9 +188,11 @@ def main():
 
         # Variances only on [vx, vy, yaw_rate] => indices [3, 4, 5]
         noise_vars = np.zeros_like(x0_full, dtype=float)
-        noise_vars[3] = sigma_vx ** 2
-        noise_vars[4] = sigma_vy ** 2
-        noise_vars[5] = sigma_r ** 2
+        # index 5 is the steering angle under STMPC's ordering, not the yaw rate --
+        # same mislabelling as noise_robustness_analysis had.
+        noise_vars[StateIndex.VELOCITY_V_X] = sigma_vx ** 2
+        noise_vars[StateIndex.VELOCITY_V_Y] = sigma_vy ** 2
+        noise_vars[StateIndex.YAW_RATE] = sigma_r ** 2
 
         # Apply to plant (uses your Plant.update_noise_vars)
         plant.update_noise_vars(noise_vars)

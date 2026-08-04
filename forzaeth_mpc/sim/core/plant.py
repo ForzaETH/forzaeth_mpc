@@ -11,7 +11,8 @@ class Plant:
     Wrapper around your real plant using the shared integration utilities.
 
     IMPORTANT:
-      - dyn_fun must be like mpc._dynamics_of_car(t, x) and read u from x[8], x[9].
+      - dyn_fun must be like mpc._dynamics_of_car(t, x), reading u out of the
+        input slots of the state vector (StateIndex.INPUT_JERK / INPUT_DSTEERING).
       - Controls are assumed to be already written into the state before calling step().
     """
 
@@ -43,7 +44,7 @@ class Plant:
     def step(self, x: np.ndarray) -> np.ndarray:
         """
         Advance one step using the selected integrator.
-        Assumes control inputs are already placed in x[8], x[9].
+        Assumes the control is already in the state's input slots.
         Optionally adds Gaussian noise to the new state.
         """
         x = np.asarray(x, dtype=float)

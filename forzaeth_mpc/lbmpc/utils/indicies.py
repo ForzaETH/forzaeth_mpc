@@ -10,6 +10,10 @@ class StateIndex(IntEnum):
     YAW_RATE = 5
     STEERING_ANGLE_DELTA = 6
     ACCEL = 7
+    # the input slots of the [x, u] feature vector; dropped by a merge
+    # revert in race_stack 94ea48a79, which is why x0[8]/x0[9] were literals
+    INPUT_JERK = 8
+    INPUT_DSTEERING = 9
 
 
 class InputIndex(IntEnum):
