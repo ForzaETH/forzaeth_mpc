@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import numpy as np
 import torch
-from forzaeth_mpc.utils.indices import StateIndex
+from research.residual_validation.mpc_core.utils.indices import StateIndex
 
 from ...mpc_core.utils.indices import IDX
 

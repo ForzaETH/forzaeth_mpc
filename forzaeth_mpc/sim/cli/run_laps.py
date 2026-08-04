@@ -162,7 +162,7 @@ def summarize(algo, args, scn, ctrl, dt, X, U, C, St, T) -> dict:
         "gp_datapoints": gp_pts,
         "learning": None if algo != "lbmpc" else (not args.no_learning),
         "gp_mode": None if algo != "lbmpc" else args.gp_mode,
-        "_X": X, "_C": C,  # stripped before json, kept for plotting
+        "_X": X, "_C": C, "_U": U,  # stripped before json, kept for plotting/--dump_states
     }
 
 
@@ -241,6 +241,9 @@ def main():
     ap.add_argument("--lbmpc_path", default="/tmp/lbmpc_sim")
     ap.add_argument("--out", default="/tmp/mpc_laps")
     ap.add_argument("--plot", action="store_true")
+    ap.add_argument("--dump_states", action="store_true",
+                    help="save the closed-loop state and input trajectories as .npy, for "
+                         "before/after comparison across a refactor")
     args = ap.parse_args()
 
     os.makedirs(args.out, exist_ok=True)
@@ -252,7 +255,10 @@ def main():
         res = run(algo, scn, args)
         if args.plot and res.get("steps"):
             res["plot"] = plot(res, args.out, scn.waypoints, scn.track_len)
-        res.pop("_X", None), res.pop("_C", None)
+        if args.dump_states:
+            np.save(os.path.join(args.out, f"{algo}_states.npy"), res["_X"])
+            np.save(os.path.join(args.out, f"{algo}_inputs.npy"), res["_U"])
+        res.pop("_X", None), res.pop("_C", None), res.pop("_U", None)
         with open(os.path.join(args.out, f"{algo}.json"), "w") as f:
             json.dump(res, f, indent=2)
         print(json.dumps(res, indent=2))

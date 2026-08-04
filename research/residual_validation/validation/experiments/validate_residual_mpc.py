@@ -31,7 +31,7 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         load_trailing_config_ros)
 from readwrite_global_waypoints import read_global_waypoints
 from readwrite_global_waypoints.rw_global_waypoints_src import GlobalWaypoints
-from forzaeth_mpc.utils.indices import StateIndex
+from research.residual_validation.mpc_core.utils.indices import StateIndex
 
 
 def extract_waypoints_data(waypoints: List[Wpnt]) -> np.ndarray:

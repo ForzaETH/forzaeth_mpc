@@ -38,7 +38,7 @@ import numpy as np
 from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 from research.residual_validation.mpc_core.models.bicycle_model import bicycle_model
 from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
-from forzaeth_mpc.utils.indices import StateIndex
+from research.residual_validation.mpc_core.utils.indices import StateIndex
 
 
 def acados_settings(s0, kapparef, d_left, d_right,

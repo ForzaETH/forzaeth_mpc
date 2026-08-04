@@ -29,7 +29,7 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         load_pacejka_tire_config_ros, load_STMPC_config_ros,
                         load_trailing_config_ros)
 from forzaeth_mpc.sim.tracks import load_track
-from forzaeth_mpc.utils.indices import Input, StateIndex
+from research.residual_validation.mpc_core.utils.indices import InputIndex, StateIndex
 
 PLOT_DIR = Path(os.environ.get("RESIDUAL_PLOT_DIR", "residual_plots"))
 
@@ -374,8 +374,8 @@ def main():
     # StateIndex.INPUT_JERK=8 / INPUT_DSTEERING=9 were added alongside this script
     # (race_stack 232a6d313) and dropped again by a merge revert (race_stack 94ea48a79).
     # They are just the input slots of the [x, u] feature vector.
-    idx_input_jerk = ctrl_nom.model.n_x + Input.JERK.value
-    idx_input_dsteer = ctrl_nom.model.n_x + Input.D_STEERING_ANGLE.value
+    idx_input_jerk = ctrl_nom.model.n_x + InputIndex.JERK.value
+    idx_input_dsteer = ctrl_nom.model.n_x + InputIndex.D_STEERING_ANGLE.value
     idx_gp_inputs = [idx_vx, idx_vy, idx_wz, idx_input_jerk, idx_input_dsteer]
     idx_gp_outputs = idx_noise
     dim = idx_input_dsteer + 1

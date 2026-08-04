@@ -10,7 +10,7 @@ from scipy.integrate import solve_ivp
 # growing p from 14 to 22 entries, while these experiments and l4a_acados_settings
 # still build/set the 14-entry p vector.
 from research.residual_validation.mpc_core.ocp.acados_settings import acados_settings
-from forzaeth_mpc.utils.indices import StateIndex
+from research.residual_validation.mpc_core.utils.indices import StateIndex
 from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
