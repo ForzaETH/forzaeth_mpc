@@ -20,7 +20,6 @@ qadv: !!float 0 #1e-5
 qv: !!float 10 #2e-2 #2e-1 velocity cost (linear, for velocity maximization)
 qn: 40 #40 # 4 for vy minimization
 qalpha: 0.1 #50 # NOTE: actually make the problem quite unstable! # 100 for vy minimization
-qv: !!float 10 #2e-2 #2e-1 velocity cost (linear, for velocity maximization)
 qv_start: !!float 20 #2e-2 #2e-1 velocity cost at the start mode
 
 Zl: !!float 1000 #100 quadratic coefficient state slack variable

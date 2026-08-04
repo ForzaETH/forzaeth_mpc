@@ -8,6 +8,7 @@ import torch
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import \
     BatchIndependentMultitaskGPModel
 import yaml
+from forzaeth_mpc.config.paths import strict_safe_load
 
 
 DEFAULT_INPUT_FEATURE_SELECTION = np.array(
@@ -72,7 +73,7 @@ def parse_args():
 def load_input_feature_selection(config_path: Path) -> np.ndarray:
     try:
         with open(config_path, "r", encoding="utf-8") as file:
-            cfg = yaml.safe_load(file) or {}
+            cfg = strict_safe_load(file) or {}
         input_selection = cfg["gp_params"]["input_feature_selection"]
         mask = np.asarray(input_selection, dtype=bool)
         if mask.size != DEFAULT_INPUT_FEATURE_SELECTION.size:

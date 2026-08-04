@@ -6,7 +6,7 @@ import yaml
 from forzaeth_mpc.config import LBMPCConfig, load_LBMPC_config_ros
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 if TYPE_CHECKING:
     from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
@@ -76,7 +76,7 @@ def create_LBMPC_dynamic_parameters(gen: ParameterGenerator):
     # load the dynamic reconfigure parameters
     config_path = str(config_root() / default_car / 'lb_mpc_dyn_params.yaml')
     with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = yaml.safe_load(file)
+        cfg_dict = strict_safe_load(file)
     try:
         config = LBMPCConfigDyn(**cfg_dict)
     except ValidationError as e:

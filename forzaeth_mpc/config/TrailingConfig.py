@@ -1,7 +1,7 @@
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 
 class TrailingConfig(BaseModel):
@@ -36,7 +36,7 @@ def load_trailing_config_ros(racecar_version: str) -> TrailingConfig:
     relative_path = '/config/' + racecar_version + '/trailing_params.yaml'
     config_path = str(config_root() / racecar_version / 'trailing_params.yaml')
     with open(config_path, 'r') as file:
-        cfg_dict = yaml.safe_load(file)
+        cfg_dict = strict_safe_load(file)
         try:
             config = TrailingConfig(**cfg_dict)
         except ValidationError as e:

@@ -67,7 +67,5 @@ combined_constraints: "ellipse" # ellipse/diamond/anything else for None
 load_transfer: true
 correct_v_y_dot: true
 
-correct_v_y_dot: false
-
 # Terminal multiplier
 terminal_multiplier: 1.5

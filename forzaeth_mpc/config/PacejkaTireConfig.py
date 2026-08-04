@@ -4,7 +4,7 @@ from datetime import datetime
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 
 class PacejkaTireConfig(BaseModel):
@@ -45,7 +45,7 @@ def load_pacejka_tire_config_ros(racecar_version: str, floor: str) -> PacejkaTir
     config_path = str(config_root() / racecar_version / 'pacejka' / floor / 'default.yaml')
     try:
         with open(config_path, 'r', encoding='utf-8') as file:
-            cfg_dict = yaml.safe_load(file)
+            cfg_dict = strict_safe_load(file)
             try:
                 config = PacejkaTireConfig(**cfg_dict)
             except ValidationError as e:

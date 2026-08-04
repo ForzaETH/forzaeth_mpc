@@ -5,7 +5,7 @@ import yaml
 from pydantic import (BaseModel, ConfigDict, ValidationError, field_validator,
                       model_validator)
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 NestedFloats = Union[List[float], List[List[float]]]
 
@@ -195,7 +195,7 @@ def load_LBMPC_config_ros(racecar_version: str) -> Union[LBMPCConfig, None]:
 
     config_path = str(config_root() / racecar_version / 'lb_mpc_params.yaml')
     with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = yaml.safe_load(file)
+        cfg_dict = strict_safe_load(file)
         try:
             config = LBMPCConfig(**cfg_dict)
         except ValidationError as e:

@@ -4,7 +4,7 @@ from typing import Union
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 
 class STMPCConfig(BaseModel):
@@ -121,7 +121,7 @@ def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
 
     config_path = str(config_root() / racecar_version / 'single_track_mpc_params.yaml')
     with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = yaml.safe_load(file)
+        cfg_dict = strict_safe_load(file)
         try:
             config = STMPCConfig(**cfg_dict)
         except ValidationError as e:

@@ -2,7 +2,7 @@ import yaml
 import logging
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .paths import config_root
+from .paths import config_root, strict_safe_load
 
 class KMPCConfig(BaseModel):
     """Kinematic MPC configuration class"""
@@ -83,7 +83,7 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
 
     config_path = str(config_root() / racecar_version / 'kinematic_mpc_params.yaml')
     with open(config_path, 'r') as file:
-        cfg_dict = yaml.safe_load(file)
+        cfg_dict = strict_safe_load(file)
         try:
             config = KMPCConfig(**cfg_dict)
         except ValidationError as e:
