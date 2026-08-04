@@ -6,7 +6,7 @@ from typing import Callable, Dict, Optional
 import numpy as np
 from forzaeth_mpc.sim.core.controllers import ControllerMPC
 from forzaeth_mpc.sim.core.plant import Plant
-from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 
 try:
     from tqdm.auto import tqdm
@@ -81,8 +81,8 @@ class RolloutRunner:
 
             # Inject control into state helpers (jerk, ddelta)
             if x.shape[0] > 9 and u0.shape[0] >= 2:
-                x[StateIndex.INPUT_JERK] = float(u0[0])
-                x[StateIndex.INPUT_DSTEERING] = float(u0[1])
+                x[StateIndex.INPUT_JERK] = float(u0[InputIndex.JERK])
+                x[StateIndex.INPUT_DSTEERING] = float(u0[InputIndex.D_STEERING_ANGLE])
 
             # Integrate one step with the real plant
             x = self.plant.step(x)

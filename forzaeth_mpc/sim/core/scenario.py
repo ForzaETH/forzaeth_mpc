@@ -72,8 +72,13 @@ class Scenario:
         )
 
     def make_lbmpc(self, s0: float, n0: float, psi0: float, dt: float, lbmpc_path: str,
-                   gp_mode: Optional[str] = None):
+                   gp_mode: Optional[str] = None,
+                   stochastic_mode: Optional[str] = None):
         """Learning-based MPC. `lbmpc_path` is a scratch dir for solver and GP artifacts.
+
+        `stochastic_mode` overrides `gp_params.stochastic_mode` ("disabled" / "open_loop" /
+        "lqr" / "riccati"). Every shipped fixture says "disabled", so the ZoRO path is
+        never exercised unless this is passed.
 
         `gp_mode` overrides `gp_params.data_processing_mode`. The shipped fixtures use
         "use_learnt_model", which needs a previously saved GP; with none on disk the
@@ -85,6 +90,8 @@ class Scenario:
         lbmpc_config = load_LBMPC_config_ros(self.racecar_version)
         if gp_mode is not None:
             lbmpc_config.gp_params.data_processing_mode = gp_mode
+        if stochastic_mode is not None:
+            lbmpc_config.gp_params.stochastic_mode = stochastic_mode
         return LBMPC(
             pose_frenet=np.array([s0, n0, psi0], dtype=float),
             waypoints_data=self.waypoints,

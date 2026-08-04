@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import casadi as cs
 import numpy as np
-from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         load_car_config_ros, load_LBMPC_config_ros,
                         load_pacejka_tire_config_ros)

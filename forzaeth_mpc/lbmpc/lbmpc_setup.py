@@ -16,7 +16,7 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentMultitaskGPModel,
 )
 from forzaeth_mpc.lbmpc.offline_viz_logger import OfflineMPCLogger
-from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.lbmpc.utils.utils import (
     check_file_changes,
     load_gp_model_bundle,
@@ -102,6 +102,11 @@ def ensure_runtime_artifacts(lbmpc_path: str) -> None:
         )
 
 
+STATE_LAYOUT = "-".join(e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value))
+"""Fingerprint of the state/input ordering a GP was trained under. Bundles saved under a
+different ordering must be rejected, not silently reused."""
+
+
 def _get_invalid_gp_bundle_reason(bundle) -> Optional[str]:
     if bundle is None:
         return "the saved bundle could not be loaded"
@@ -118,6 +123,11 @@ def _get_invalid_gp_bundle_reason(bundle) -> Optional[str]:
     if "gp_model_state_dict" not in bundle or "likelihood_state_dict" not in bundle:
         return "it does not contain serialized GP weights"
 
+    saved_layout = metadata.get("state_layout")
+    if saved_layout != STATE_LAYOUT:
+        return (f"it was trained under a different state layout "
+                f"({saved_layout!r} != {STATE_LAYOUT!r})")
+
     return None
 
 
@@ -130,7 +140,11 @@ def build_solver_build_config(lbmpc_path: str, params_path: str) -> SolverBuildC
     # generated artifacts go".
     _pkg_dir = os.path.dirname(os.path.abspath(__file__))
     solver_settings_file_name = os.path.join(_pkg_dir, "acados_solver_settings.py")
-    bicycle_model_file_name = os.path.join(_pkg_dir, "bicycle_model.py")
+    # the model lives in stmpc/ now: STMPC and LB-MPC share one single-track model.
+    # If this path goes stale, LB-MPC silently reuses a compiled solver that no longer
+    # matches its model, and every parity check passes for the wrong reason.
+    bicycle_model_file_name = os.path.join(
+        os.path.dirname(_pkg_dir), "stmpc", "bicycle_model.py")
     params_file_name = os.path.join(params_path, "lb_mpc_params.yaml")
     mpc_files_to_watch = [
         solver_settings_file_name,
@@ -384,6 +398,10 @@ def persist_learnt_gp_model(
     racecar_version: str,
 ) -> None:
     metadata = {
+        # input_dimension and residual_dimension are both invariant under a state
+        # permutation, so without this a bundle from the old layout loads cleanly and
+        # then predicts against the wrong features.
+        "state_layout": STATE_LAYOUT,
         "input_dimension": int(sum(input_feature_selection)),
         "residual_dimension": int(residual_dimension),
         "use_inducing_gp": bool(use_inducing_gp),

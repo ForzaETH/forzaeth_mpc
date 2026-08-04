@@ -7,7 +7,7 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
 from scipy.integrate import solve_ivp
 from forzaeth_mpc.stmpc.acados_settings import acados_settings
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
-from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.utils.splinify import SplineTrack
 
 try:
@@ -214,8 +214,8 @@ class STMPC:
             self.acados_solver.set(i, "p", online_parameters)
 
             if i < self.stmpc_config.N:
-                self.acados_solver.set(i, "lbu", np.array([-50, self.stmpc_config.ddelta_min]))
-                self.acados_solver.set(i, "ubu", np.array([50, self.stmpc_config.ddelta_max]))
+                self.acados_solver.set(i, "lbu", np.array([self.stmpc_config.ddelta_min, -50]))
+                self.acados_solver.set(i, "ubu", np.array([self.stmpc_config.ddelta_max, 50]))
                 self.acados_solver.set(i + 1, "lbx",
                                        np.array([self.stmpc_config.v_min,
                                                  self.stmpc_config.delta_min,
@@ -242,9 +242,10 @@ class STMPC:
 
         self.steering_angle = self.pred_x[StateIndex.STEERING_ANGLE_DELTA]
         self.speed = self.pred_x[StateIndex.VELOCITY_V_X]
-        self.acceleration = self.prev_acc + self.u0[0] / self.controller_frequency
+        self.acceleration = (self.prev_acc
+                             + self.u0[InputIndex.JERK] / self.controller_frequency)
         self.prev_acc = self.acceleration
-        self.jerk = self.u0[0]
+        self.jerk = self.u0[InputIndex.JERK]
 
         # Update steering buffer
         self.steering_angle_buf[1:] = self.steering_angle_buf[:-1]
@@ -276,8 +277,12 @@ class STMPC:
         """
         warm_start = np.zeros((self.stmpc_config.N + 1, self.model.n_x + self.model.n_u))
         # TODO setting the velocity to current actual velocity might remove slowing down
-        warm_start[0] = np.array([pose_frenet[0], pose_frenet[1], pose_frenet[2],
-                                 1.0, 0.0, 0.0, 0.0, const_acc, 0, const_steer_vel])
+        warm_start[0, StateIndex.POS_ON_CENTER_LINE_S] = pose_frenet[0]
+        warm_start[0, StateIndex.MIN_DIST_TO_CENTER_LINE_N] = pose_frenet[1]
+        warm_start[0, StateIndex.ORIENTATION_THETA] = pose_frenet[2]
+        warm_start[0, StateIndex.VELOCITY_V_X] = 1.0
+        warm_start[0, StateIndex.ACCEL] = const_acc
+        warm_start[0, StateIndex.INPUT_DSTEERING] = const_steer_vel
         for i in range(1, self.stmpc_config.N + 1):
             xdot = self._dynamics_of_car(0, warm_start[i - 1])
             warm_start[i] = warm_start[i - 1] + np.array(xdot) / self.stmpc_config.MPC_freq  # ugly euler integration
@@ -288,23 +293,14 @@ class STMPC:
         Used for forward propagation. This function takes the dynamics from the acados model.
         '''
 
-        s = x0[StateIndex.POS_ON_CENTER_LINE_S]
-        n = x0[StateIndex.MIN_DIST_TO_CENTER_LINE_N]
-        theta = x0[StateIndex.ORIENTATION_THETA]
-        v_x = x0[StateIndex.VELOCITY_V_X]
-        v_y = x0[StateIndex.VELOCITY_V_Y]
-        delta = x0[StateIndex.STEERING_ANGLE_DELTA]
-        yaw_rate = x0[StateIndex.YAW_RATE]
-        accel = x0[StateIndex.ACCEL]
-        jerk = x0[StateIndex.INPUT_JERK]
-        derDelta = x0[StateIndex.INPUT_DSTEERING]
-        xdot = self.model.f_expl_func(
-            s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, self.model_params.p)
-
-        xdot = [float(xdot[0]), float(xdot[1]), float(xdot[2]), float(xdot[3]),
-                float(xdot[4]), float(xdot[5]), float(xdot[6]), float(xdot[7]), 0.0, 0.0]
-
-        return xdot
+        n_x, n_u = self.model.n_x, self.model.n_u
+        u = np.zeros(n_u)
+        u[InputIndex.JERK] = x0[StateIndex.INPUT_JERK]
+        u[InputIndex.D_STEERING_ANGLE] = x0[StateIndex.INPUT_DSTEERING]
+        xdot = self.model.f_expl_func(np.asarray(x0[:n_x], dtype=float), u,
+                                      self.model_params.p)
+        # the two input slots are held constant over the step
+        return [float(v) for v in np.asarray(xdot).reshape(-1)] + [0.0] * n_u
 
     def trailing_controller(self, global_speed: float) -> float:
         # opponent: [s, d, v_s, v_d, has_los]

@@ -12,7 +12,7 @@ from forzaeth_mpc.lbmpc.lbmpc_setup import (build_offline_logger,
                                    build_solver_build_config,
                                    initialize_residual_model,
                                    persist_learnt_gp_model)
-from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp

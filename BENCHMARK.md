@@ -147,19 +147,44 @@ It was `34.69739908591064` before NUC5's `correct_v_y_dot` was fixed. race_stack
 pre-extraction STMPC reproduces it bit-for-bit (`x_traj` max|diff| = 0.0), which is what
 keeps the extraction honest.
 
+## ZoRO, exercised for the first time
+
+Every shipped fixture sets `stochastic_mode: disabled`, so until now no configuration in the
+repo had ever run `add_zoro_description`. Driving all three modes for 200 closed-loop steps
+under a friction mismatch (plant μ 0.8, MPC 1.0), on THETRACK/NUC5:
+
+| mode | `fdbk_K_mat` | 200 steps | verdict |
+|---|---|---|---|
+| `open_loop` | n/a | leaves the track at step 162, n = 1.66 m | no ancillary feedback, as designed |
+| `lqr` | \|K\| max 13.06 | all 200 solves status 0, n = −0.004 m | works |
+| `riccati` | **\|K\| max 0** | leaves the track at step 162, n = 1.66 m | **broken** |
+
+`riccati` fails *identically* to `open_loop`, down to the same step and the same lateral
+deviation, and its feedback gain comes out all zeros. `add_zoro_description` sets
+`fdbk_K_mat = np.zeros((nu, nx))` and `feedback_optimization_mode =
+"RICCATI_CONSTANT_COST"`, expecting acados to derive the gain from `riccati_Q_const` /
+`riccati_R_const`. It does not, so riccati silently degrades to open loop.
+
+`lbmpc/README.md` calls riccati "usually the most principled option and the default
+stochastic choice". On this acados/l4acados pin it is the worst of the three. **`lqr` is the
+only stochastic mode that currently works.**
+
+Not caused by the state permutation: the whole block is enum-driven, and none of these modes
+had ever been executed. One genuine ordering bug did live there and is fixed — the R-matrix
+regularisation wrote `R[InputIndex.X, InputIndex.X]` but read `R[0, 0]`/`R[1, 1]`, so under
+the old input order it put `qjerk` into the ddelta slot.
+
 ## Open questions
 
-- **LBMPC's OCP and sim solvers share one model name and one code-export directory.**
-  Both are called `Spatialbicycle_model` and both codegen into `c_generated_code/`, but the
-  l4acados-augmented OCP carries `np = 110` while the nominal sim carries `np = 22`, so they
-  write different-arity external functions over each other's files. It bites as
+- **acados' `code_export_directory` defaults to a cwd-relative `c_generated_code`**, so two
+  runs started from different working directories quietly inherit each other's compiled
+  solvers. A stale `c_generated_code/` left at the repo root was enough to make a freshly
+  built LBMPC load a solver from an older model and die with
   `Spatialbicycle_model_acados_sim_update_params: trying to set 22 parameters for external
-  functions. External function has 14 parameters. Exiting.` — reproducible when building a
-  single LBMPC solve from a clean directory, harmless in the 20-lap runs, and independent of
-  the `learn` flag. Widening `p` from 14 to 22 did not cause it; it made a pre-existing
-  collision visible, because the two arities now differ in a way the parameter check notices.
-  Give the sim model its own `model.name` and the problem goes away. Until then, LBMPC's
-  single-solve parity is covered by the closed-loop runs instead.
+  functions. External function has 14 parameters.` The directory is gitignored but not
+  cleaned, and both the OCP and the sim model are named `Spatialbicycle_model`, so nothing
+  in the filename says which build it came from. Delete `c_generated_code/` before trusting
+  any parity result, and consider pinning `code_export_directory` per controller.
 
 - **LBMPC computes its residuals against a zero input on the car.**
   `lb_mpc.py` sets `_prev_input_for_residual = np.zeros(2)` with `self.u0.copy()` commented

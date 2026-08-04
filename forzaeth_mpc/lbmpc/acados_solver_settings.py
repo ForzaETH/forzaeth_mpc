@@ -11,9 +11,9 @@ from typing import Tuple
 
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, ZoroDescription
-from forzaeth_mpc.lbmpc.bicycle_model import bicycle_model
+from forzaeth_mpc.stmpc.bicycle_model import bicycle_model
 from forzaeth_mpc.stmpc.online_params import default_parameter_values
-from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.config import CarConfig, LBMPCConfig, PacejkaTireConfig
 
 
@@ -241,8 +241,10 @@ def add_zoro_description(ocp, lbmpc_config, stochastic_mode):
         tm = float(lbmpc_config.terminal_multiplier) if hasattr(lbmpc_config, "terminal_multiplier") else 1.0
         Qe = tm * Q.copy()
         eps = 1e-6
-        R[InputIndex.D_STEERING_ANGLE, InputIndex.D_STEERING_ANGLE] = max(R[0, 0], eps)
-        R[InputIndex.JERK, InputIndex.JERK] = max(R[1, 1], eps)
+        # written by name but read positionally before, which under the old input order
+        # (jerk first) put qjerk into the ddelta slot
+        for _i in (InputIndex.D_STEERING_ANGLE, InputIndex.JERK):
+            R[_i, _i] = max(R[_i, _i], eps)
 
         zoro_description.riccati_Q_const = Q
         zoro_description.riccati_R_const = R

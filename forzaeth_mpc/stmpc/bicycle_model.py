@@ -71,16 +71,16 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     theta = MX.sym("theta")
     v_x = MX.sym("v_x")
     v_y = MX.sym("v_y")
-    delta = MX.sym("delta")
     yaw_rate = MX.sym("yaw_rate")
+    delta = MX.sym("delta")
     accel = MX.sym("accel")
-    x = vertcat(s, n, theta, v_x, v_y, delta, yaw_rate, accel)
+    x = vertcat(s, n, theta, v_x, v_y, yaw_rate, delta, accel)
     n_x = x.size()[0]
 
     # controls
-    jerk = MX.sym("jerk")
     derDelta = MX.sym("derDelta")
-    u = vertcat(jerk, derDelta)
+    jerk = MX.sym("jerk")
+    u = vertcat(derDelta, jerk)
     n_u = u.size()[0]
 
     # xdot
@@ -89,8 +89,8 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     theta_dot = MX.sym("thetadot")
     v_x_dot = MX.sym("v_x_dot")
     v_y_dot = MX.sym("v_y_dot")
-    delta_dot = MX.sym("deltadot")
     yaw_rate_dot = MX.sym("yaw_ratedot")
+    delta_dot = MX.sym("deltadot")
     accel_dot = MX.sym("accel_dot")
 
     # algebraic variables
@@ -106,6 +106,9 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     h_cg = car_config.h_cg
 
     friction_coeff = tire_config.friction_coeff
+    # Online, matching stmpc/bicycle_model.py: baking these in meant re-generating C
+    # code to retune a tire, and it is what kept LBMPC's p vector at 14 entries while
+    # STMPC moved to 22 (race_stack 8382de7d0).
     Bf = MX.sym("Bf")
     Cf = MX.sym("Cf")
     Df = MX.sym("Df")
@@ -199,11 +202,14 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
         theta_dot,
         v_x_dot,
         v_y_dot,
-        delta_dot,
         yaw_rate_dot,
+        delta_dot,
         accel_dot
     )
-    f_expl_func = Function('f_expl_func', [s, n, theta, v_x, v_y, delta, yaw_rate, accel, jerk, derDelta, p], [f_expl])
+    # Takes the vectors, not loose scalars: a positional scalar signature silently
+    # accepts a caller that has delta and yaw_rate the wrong way round, which is exactly
+    # what happened when the two single-track models were merged.
+    f_expl_func = Function('f_expl_func', [x, u, p], [f_expl])
 
     # Define initial conditions
     model.x0 = np.zeros(n_x)
@@ -251,7 +257,7 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     )
     constraint.expr_e = vertcat(
         n_right_bound,
-        n_left_bound,
+        n_left_bound
     )
 
     # read the parameters range from the yaml file
@@ -305,7 +311,7 @@ if __name__ == "__main__":
 
     from forzaeth_mpc.config import (load_car_config_ros,
                                      load_pacejka_tire_config_ros, load_STMPC_config_ros)
-    from forzaeth_mpc.utils.indices import Input as _II, StateIndex as _SI
+    from forzaeth_mpc.utils.indices import InputIndex as _II, StateIndex as _SI
 
     n = 32
     # the builder does array arithmetic on these, so ndarrays not lists

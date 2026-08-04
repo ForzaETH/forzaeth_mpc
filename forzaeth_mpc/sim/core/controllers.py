@@ -4,7 +4,7 @@ import numpy as np
 from forzaeth_mpc.config import KMPCConfig
 from forzaeth_mpc.sim.core.plant import Plant
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
-from forzaeth_mpc.utils.indices import StateIndex
+from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.stmpc.STMPC import STMPC
 
 
@@ -57,6 +57,11 @@ def build_kmpc_online_params(kmpc_config: KMPCConfig,
 
 class ControllerMPC:
     """Thin façade over STMPC/ACADOS: set params, pin x0, solve, read u/cost."""
+
+    # Where jerk and ddelta sit in this controller's own u vector. step_plant needs it
+    # because the plant reads them from named state slots, so copying u0 positionally
+    # would silently swap them.
+    idx_jerk, idx_ddelta = int(InputIndex.JERK), int(InputIndex.D_STEERING_ANGLE)
 
     def __init__(self, mpc: STMPC, track_len: float, dt: Optional[float] = None,
                  integrator: str = "rk4", noise_vars: Optional[np.ndarray] = None):
@@ -138,7 +143,11 @@ class ControllerMPC:
         x = np.asarray(x, dtype=float).reshape(-1)
         x_full = np.zeros(self.nx + self.nu)
         x_full[:self.nx] = x[:self.nx]
-        x_full[self.nx:] = np.asarray(u0, dtype=float).reshape(-1)[:self.nu]
+        # The plant reads jerk and ddelta out of named slots, while u0 comes back in the
+        # OCP's own input order. Copying the tail wholesale silently swaps them.
+        u0 = np.asarray(u0, dtype=float).reshape(-1)
+        x_full[StateIndex.INPUT_JERK] = u0[self.idx_jerk]
+        x_full[StateIndex.INPUT_DSTEERING] = u0[self.idx_ddelta]
         return self.plant.step(x_full)
 
 
@@ -157,6 +166,8 @@ class ControllerKMPC(ControllerMPC):
     leaves the track. Stepping f_disc keeps plant and OCP model consistent, which
     is also what ``ControllerMPC`` does for STMPC.
     """
+
+    idx_jerk, idx_ddelta = 0, 1   # KMPC's inputs are [a, ddelta]
 
     def __init__(self, mpc, track_len: float, dt: Optional[float] = None,
                  integrator: str = "rk4", noise_vars: Optional[np.ndarray] = None):

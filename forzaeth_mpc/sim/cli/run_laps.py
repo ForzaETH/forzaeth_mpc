@@ -45,7 +45,8 @@ def build(algo: str, scn: Scenario, args):
         return C.ControllerKMPC(scn.make_kmpc(dt=dt), scn.track_len, dt)
     if algo == "lbmpc":
         mpc = scn.make_lbmpc(s0=args.s0, n0=args.n0, psi0=args.psi0, dt=dt,
-                             lbmpc_path=args.lbmpc_path, gp_mode=args.gp_mode)
+                             lbmpc_path=args.lbmpc_path, gp_mode=args.gp_mode,
+                             stochastic_mode=args.stochastic_mode)
         return C.ControllerLBMPC(mpc, scn.track_len, dt, learn=not args.no_learning)
     raise ValueError(algo)
 
@@ -162,6 +163,8 @@ def summarize(algo, args, scn, ctrl, dt, X, U, C, St, T) -> dict:
         "gp_datapoints": gp_pts,
         "learning": None if algo != "lbmpc" else (not args.no_learning),
         "gp_mode": None if algo != "lbmpc" else args.gp_mode,
+        "stochastic_mode": None if algo != "lbmpc" else (
+            args.stochastic_mode or ctrl.mpc.lbmpc_config.gp_params.stochastic_mode),
         "_X": X, "_C": C, "_U": U,  # stripped before json, kept for plotting/--dump_states
     }
 
@@ -238,6 +241,9 @@ def main():
                     help="lbmpc only: nominal residual MPC, no online GP updates")
     ap.add_argument("--gp_mode", default="learn", choices=["learn", "use_learnt_model"],
                     help="lbmpc only: overrides gp_params.data_processing_mode")
+    ap.add_argument("--stochastic_mode", default=None,
+                    choices=["disabled", "open_loop", "lqr", "riccati"],
+                    help="lbmpc only: overrides gp_params.stochastic_mode (ZoRO)")
     ap.add_argument("--lbmpc_path", default="/tmp/lbmpc_sim")
     ap.add_argument("--out", default="/tmp/mpc_laps")
     ap.add_argument("--plot", action="store_true")
