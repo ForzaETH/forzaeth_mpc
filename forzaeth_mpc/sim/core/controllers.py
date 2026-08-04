@@ -1,14 +1,13 @@
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-from forzaeth_mpc.config import KMPCConfig, LBMPCConfig
+from forzaeth_mpc.config import KMPCConfig
 from forzaeth_mpc.sim.core.plant import Plant
-from forzaeth_mpc.stmpc.online_params import build_online_params
+from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.stmpc.STMPC import STMPC
 
 
 KMPC_WEIGHT_KEYS = ("q_adv", "q_v", "q_n", "q_alpha", "q_ac", "q_ddelta")
-LBMPC_WEIGHT_KEYS = ("q_adv", "q_v", "q_n", "q_alpha", "q_jerk", "q_ddelta", "terminal_multiplier")
 
 
 def build_kmpc_online_params(kmpc_config: KMPCConfig,
@@ -52,58 +51,6 @@ def build_kmpc_online_params(kmpc_config: KMPCConfig,
         kmpc_config.alat_max,
         kmpc_config.track_safety_margin,
         overtake_d,
-    ], dtype=np.float64)
-
-
-def build_lbmpc_online_params(lbmpc_config: LBMPCConfig,
-                              target_v: float,
-                              overtake_d: float,
-                              mu: float,
-                              qddelta_multiplier: float = 1.0,
-                              weights: dict = None) -> np.ndarray:
-    """Builds the 14-entry LBMPC acados online parameter vector.
-
-    Layout (see ``lbmpc/bicycle_model.py``):
-        0 V_target  1 weight_adv  2 weight_qv  3 weight_qn  4 weight_qalpha
-        5 weight_qjerk  6 weight_ddelta  7 a_lat_max  8 a_long_min  9 a_long_max
-        10 safety_margin  11 overtake_d  12 MU  13 terminal_multiplier
-
-    Args:
-        lbmpc_config: static LBMPC config (cost weights, accel/margin limits).
-        target_v: target speed for this stage.
-        overtake_d: lateral reference offset for this stage.
-        mu: friction coefficient handed to the MPC model (p index 12).
-        qddelta_multiplier: inflation of qddelta, 1e6 for the first
-            ``steps_delay`` stages (freezes steering during the actuation delay).
-        weights: optional overrides out of ``LBMPC_WEIGHT_KEYS``.
-    """
-    w = {
-        "q_adv": lbmpc_config.qadv,
-        "q_v": lbmpc_config.qv,
-        "q_n": lbmpc_config.qn,
-        "q_alpha": lbmpc_config.qalpha,
-        "q_jerk": lbmpc_config.qjerk,
-        "q_ddelta": lbmpc_config.qddelta,
-        "terminal_multiplier": lbmpc_config.terminal_multiplier,
-    }
-    if weights:
-        w.update({k: weights[k] for k in LBMPC_WEIGHT_KEYS if k in weights})
-
-    return np.array([
-        target_v,
-        w["q_adv"],
-        w["q_v"],
-        w["q_n"],
-        w["q_alpha"],
-        w["q_jerk"],
-        qddelta_multiplier * w["q_ddelta"],
-        lbmpc_config.alat_max,
-        lbmpc_config.a_min,
-        lbmpc_config.a_max,
-        lbmpc_config.track_safety_margin,
-        overtake_d,
-        mu,
-        w["terminal_multiplier"],
     ], dtype=np.float64)
 
 
@@ -316,13 +263,14 @@ class ControllerLBMPC:
             idx = int(np.abs(waypoints[:, 4] - s_ref).argmin())
             target_v = float(waypoints[idx, 2])
 
-            p = build_lbmpc_online_params(cfg,
-                                          target_v=target_v,
-                                          overtake_d=0.0,
-                                          mu=float(mpc_mu),
-                                          qddelta_multiplier=(1e6 if self.delay_freeze
-                                                              and i < cfg.steps_delay else 1.0),
-                                          weights=qdict)
+            weights = dict(qdict)
+            if self.delay_freeze and i < cfg.steps_delay:
+                weights["q_ddelta"] = 1e6 * weights.get("q_ddelta", cfg.qddelta)
+            p = build_online_params(cfg, self.mpc.tire_config,
+                                    target_v=target_v,
+                                    overtake_d=0.0,
+                                    mu=float(mpc_mu),
+                                    weights=weights)
             self.solver.set(i, "p", p)
 
             # per-stage bounds, exactly as LBMPC.main_loop does
@@ -345,7 +293,7 @@ class ControllerLBMPC:
             # which reads μ out of model_params.p. Evaluate the residual's nominal
             # model at the MPC's μ and put the plant's μ back afterwards, otherwise
             # plant == nominal model and every recorded residual is exactly zero.
-            mu_plant = float(np.asarray(self.mpc.model_params.p, dtype=float).reshape(-1)[self.mpc.MU_IDX])
+            mu_plant = float(np.asarray(self.mpc.model_params.p, dtype=float).reshape(-1)[MU_IDX])
             self.mpc.set_sim_mu(self._mu_mpc)
             res = self.mpc._compute_residual(new_state=x0)
             self.mpc.set_sim_mu(mu_plant)
@@ -443,10 +391,11 @@ if __name__ == "__main__":
     assert len(p_k) == 10, len(p_k)
     assert p_k[0] == 3.5 and p_k[5] == kmpc_config.qac and p_k[9] == 0.25
 
-    p_l = build_lbmpc_online_params(lbmpc_config, 3.5, 0.25, mu=0.63, qddelta_multiplier=1e6)
-    assert len(p_l) == 14, len(p_l)
-    assert p_l[6] == 1e6 * lbmpc_config.qddelta
-    assert p_l[12] == 0.63, "index 12 must be the friction coefficient"
-    assert p_l[13] == lbmpc_config.terminal_multiplier
+    # LBMPC now shares STMPC's 22-entry layout; online_params.py's own self-check
+    # covers it in detail, this only pins that the adapter reaches the same builder.
+    p_l = build_online_params(lbmpc_config, tire_config, 3.5, 0.25, mu=0.63)
+    assert len(p_l) == 22, len(p_l)
+    assert p_l[MU_IDX] == 0.63
+    assert p_l[14] == tire_config.Bf
 
-    print("OK: 3 adapters expose the interface; p layouts are 10 (KMPC) / 14 (LBMPC) entries")
+    print("OK: 3 adapters expose the interface; p layouts are 10 (KMPC) / 22 (single-track)")

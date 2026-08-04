@@ -6,7 +6,7 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
 from forzaeth_mpc.stmpc.acados_settings import acados_settings
-from forzaeth_mpc.stmpc.online_params import build_online_params
+from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.utils.indices import StateIndex
 from forzaeth_mpc.utils.splinify import SplineTrack
 
@@ -454,8 +454,6 @@ class STMPC:
         res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)  # (3, N, 2)
         return res_coords
 
-    MU_IDX = 12  # keep in class if you prefer
-
     def set_sim_mu(self, mu: float) -> None:
         """
         Update ONLY the simulator's parameter vector used in _dynamics_of_car().
@@ -463,7 +461,7 @@ class STMPC:
         """
         # get current p as a flat numpy array
         p = np.array(self.model_params.p, dtype=float).reshape(-1).copy()
-        p[self.MU_IDX] = float(mu)
+        p[MU_IDX] = float(mu)
 
         # write it back in the same type the model expects
         if _HAS_DM and isinstance(self.model_params.p, DM):

@@ -12,28 +12,9 @@ from typing import Tuple
 import numpy as np
 from acados_template import AcadosModel, AcadosOcp, ZoroDescription
 from forzaeth_mpc.lbmpc.bicycle_model import bicycle_model
+from forzaeth_mpc.stmpc.online_params import default_parameter_values
 from forzaeth_mpc.lbmpc.utils.indicies import InputIndex, StateIndex
 from forzaeth_mpc.config import CarConfig, LBMPCConfig, PacejkaTireConfig
-
-
-def get_parameters(cfg: LBMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:
-    params = np.array([
-        2,  # initial velocity (placeholder, overwritten online)
-        cfg.qadv,
-        cfg.qv,
-        cfg.qn,
-        cfg.qalpha,
-        cfg.qjerk,
-        cfg.qddelta,
-        cfg.alat_max,
-        cfg.a_min,
-        cfg.a_max,
-        cfg.track_safety_margin,
-        cfg.overtake_d,
-        tire_config.friction_coeff,
-        cfg.terminal_multiplier,
-    ], dtype=float)
-    return params
 
 
 def build_ocp_for_l4acados(
@@ -73,7 +54,7 @@ def build_ocp_for_l4acados(
     ocp.model = model_ac
 
     # Parameters (same order & meaning)
-    p = get_parameters(lbmpc_config, tire_config)
+    p = default_parameter_values(lbmpc_config, tire_config)
     params.p = p
     ocp.parameter_values = p
 

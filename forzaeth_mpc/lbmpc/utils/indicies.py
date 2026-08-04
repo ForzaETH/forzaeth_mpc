@@ -15,36 +15,3 @@ class StateIndex(IntEnum):
 class InputIndex(IntEnum):
     D_STEERING_ANGLE = 0
     JERK = 1
-
-
-class Parameter(IntEnum):
-    m = 0
-    C1 = 1
-    Cm2 = 2
-    Cr0 = 3
-    Cr2 = 4
-    Cr3 = 5
-    Iz = 6
-    lr = 7
-    lf = 8
-    Bf = 9
-    Cf = 10
-    Df = 11
-    Br = 12
-    Cr = 13
-    Dr = 14
-    Ef = 15
-    Er = 16
-    friction_coeff = 17
-    Imax_c = 18
-    Caccel = 19
-    Cdecel = 20
-    qadv = 21
-    qn = 22
-    qalpha = 23
-    qvy = 24
-    freq = 25
-    C_S_front = 26
-    C_S_rear = 27
-    h_cg = 28
-    mu = 29

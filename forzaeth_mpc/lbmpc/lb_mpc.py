@@ -7,6 +7,7 @@ import torch
 from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
 from forzaeth_mpc.lbmpc.acados_solver_settings import build_ocp_for_l4acados
+from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.lbmpc.lbmpc_setup import (build_offline_logger,
                                    build_solver_build_config,
                                    initialize_residual_model,
@@ -508,41 +509,18 @@ class LBMPC:
                 qv = self.lbmpc_config.qv
                 qjerk = self.lbmpc_config.qjerk
 
+            # qv/qjerk and the three limits already carry the start-mode swap above;
+            # the delay steps additionally pin the steering rate by inflating its weight.
+            weights = {"q_v": qv, "q_jerk": qjerk}
             if i < self.lbmpc_config.steps_delay:
-                multiplier = 1e6
-                online_parameters = np.array([
-                    target_v_speed,
-                    self.lbmpc_config.qadv,
-                    qv,
-                    self.lbmpc_config.qn,
-                    self.lbmpc_config.qalpha,
-                    qjerk,
-                    multiplier * self.lbmpc_config.qddelta,
-                    alat_max,
-                    a_min,
-                    a_max,
-                    self.lbmpc_config.track_safety_margin,
-                    self.overtake_d,
-                    self.tire_config.friction_coeff,
-                    self.lbmpc_config.terminal_multiplier
-                ], dtype=np.float64)
-            else:
-                online_parameters = np.array([
-                    target_v_speed,
-                    self.lbmpc_config.qadv,
-                    qv,
-                    self.lbmpc_config.qn,
-                    self.lbmpc_config.qalpha,
-                    qjerk,
-                    self.lbmpc_config.qddelta,
-                    alat_max,
-                    a_min,
-                    a_max,
-                    self.lbmpc_config.track_safety_margin,
-                    self.overtake_d,
-                    self.tire_config.friction_coeff,
-                    self.lbmpc_config.terminal_multiplier
-                ], dtype=np.float64)
+                weights["q_ddelta"] = 1e6 * self.lbmpc_config.qddelta
+            online_parameters = build_online_params(
+                self.lbmpc_config, self.tire_config,
+                target_v=target_v_speed,
+                overtake_d=self.overtake_d,
+                mu=self.tire_config.friction_coeff,
+                weights=weights,
+                alat_max=alat_max, a_min=a_min, a_max=a_max)
 
             self.l4a_solver.set(i, "p", online_parameters)
 
@@ -950,8 +928,6 @@ class LBMPC:
         res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)  # (3, N, 2)
         return res_coords
 
-    MU_IDX = 12  # keep in class if you prefer
-
     def set_sim_mu(self, mu: float) -> None:
         """
         Update ONLY the simulator's parameter vector used in _dynamics_of_car().
@@ -959,7 +935,7 @@ class LBMPC:
         """
         # get current p as a flat numpy array
         p = np.array(self.model_params.p, dtype=float).reshape(-1).copy()
-        p[self.MU_IDX] = float(mu)
+        p[MU_IDX] = float(mu)
 
         # write it back in the same type the model expects
         if _HAS_DM and isinstance(self.model_params.p, DM):

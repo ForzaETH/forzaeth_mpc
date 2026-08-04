@@ -149,6 +149,18 @@ keeps the extraction honest.
 
 ## Open questions
 
+- **LBMPC's OCP and sim solvers share one model name and one code-export directory.**
+  Both are called `Spatialbicycle_model` and both codegen into `c_generated_code/`, but the
+  l4acados-augmented OCP carries `np = 110` while the nominal sim carries `np = 22`, so they
+  write different-arity external functions over each other's files. It bites as
+  `Spatialbicycle_model_acados_sim_update_params: trying to set 22 parameters for external
+  functions. External function has 14 parameters. Exiting.` — reproducible when building a
+  single LBMPC solve from a clean directory, harmless in the 20-lap runs, and independent of
+  the `learn` flag. Widening `p` from 14 to 22 did not cause it; it made a pre-existing
+  collision visible, because the two arities now differ in a way the parameter check notices.
+  Give the sim model its own `model.name` and the problem goes away. Until then, LBMPC's
+  single-solve parity is covered by the closed-loop runs instead.
+
 - **LBMPC computes its residuals against a zero input on the car.**
   `lb_mpc.py` sets `_prev_input_for_residual = np.zeros(2)` with `self.u0.copy()` commented
   out beside it, so `r = x_k − f(x_{k−1}, 0)` attributes the whole effect of the applied

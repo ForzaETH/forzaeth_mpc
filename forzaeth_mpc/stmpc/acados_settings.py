@@ -40,6 +40,7 @@ from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
 from forzaeth_mpc.utils.indices import StateIndex
 
 from .bicycle_model import bicycle_model
+from .online_params import default_parameter_values
 
 
 def acados_settings(s0, kapparef, d_left, d_right,
@@ -67,7 +68,7 @@ def acados_settings(s0, kapparef, d_left, d_right,
     ocp.model = model_ac
 
     # Set parameters dimension
-    p = get_parameters(stmpc_config, tire_config)
+    p = default_parameter_values(stmpc_config, tire_config)
     params.p = p
     ocp.parameter_values = p
 
@@ -234,33 +235,3 @@ def acados_settings(s0, kapparef, d_left, d_right,
     acados_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
 
     return constraint, model, acados_solver, params
-
-
-def get_parameters(cfg: STMPCConfig, tire_config: PacejkaTireConfig) -> np.ndarray:
-    """Get parameters from stmpc_config"""
-    params = np.array([
-        2,  # initial velocity, not important it is immediately changed
-        cfg.qadv,
-        cfg.qv,
-        cfg.qn,
-        cfg.qalpha,
-        cfg.qjerk,
-        cfg.qddelta,
-        cfg.alat_max,
-        cfg.a_min,
-        cfg.a_max,
-        cfg.track_safety_margin,
-        cfg.overtake_d,
-        tire_config.friction_coeff,
-        cfg.terminal_multiplier,
-        tire_config.Bf,
-        tire_config.Cf,
-        tire_config.Df,
-        tire_config.Ef,
-        tire_config.Br,
-        tire_config.Cr,
-        tire_config.Dr,
-        tire_config.Er
-    ]).astype(float)
-
-    return params
