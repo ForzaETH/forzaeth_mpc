@@ -14,6 +14,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _REFLINE_KEY = {
     "iqp": "global_traj_wpnts_iqp",
+    "sp": "global_traj_wpnts_sp",
     "mintime": "global_traj_wpnts_mintime",
 }
 
@@ -41,7 +42,11 @@ def load_track(track: str, refline: str = "iqp") -> Tuple[np.ndarray, float]:
     path = _resolve_path(track)
     with open(path, "r") as f:
         d = json.load(f)
-    wpnts = d[_REFLINE_KEY[refline]]["wpnts"]
+    key = _REFLINE_KEY[refline]
+    if key not in d:
+        have = [k for k, v in _REFLINE_KEY.items() if v in d]
+        raise KeyError(f"{path.name} has no {refline!r} raceline; it has {have}")
+    wpnts = d[key]["wpnts"]
     arr = np.array([[float(wp[k]) for k in _FIELDS] for wp in wpnts], dtype=float)
     return arr, track_length_from_waypoints(arr)
 

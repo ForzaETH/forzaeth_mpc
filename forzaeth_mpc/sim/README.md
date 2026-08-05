@@ -50,14 +50,14 @@ Each CLI script supports a full set of command-line arguments, **but every param
 To execute the scripts, make sure you are positioned **one level above the `mpc_sim` folder** (inside the `mpc` directory) and run:
 
 ```bash
-python -m mpc_sim.cli.run_single_rollout
+python -m forzaeth_mpc.sim.cli.run_single_rollout
 ````
 
 ### 1. `run_single_rollout.py` — Closed-Loop Simulation
 Run a single MPC rollout using real parameters and tracks.
 
 ```bash
-python -m mpc_sim.cli.run_single_rollout \
+python -m forzaeth_mpc.sim.cli.run_single_rollout \
   --track THETRACK --racecar_version NUC5 --floor dubi --refline iqp \
   --dt 0.02 --steps 400 --integrator rk4 \
   --mu_track 1.00 --mu_mpc 1.00 \
@@ -80,7 +80,7 @@ python -m mpc_sim.cli.run_single_rollout \
 Evaluate how the controller performs when the **track friction** and **MPC-assumed friction** differ.
 
 ```bash
-python -m mpc_sim.cli.analyze_cost_vs_mu \
+python -m forzaeth_mpc.sim.cli.analyze_cost_vs_mu \
   --track THETRACK --racecar_version NUC5 --floor dubi \
   --dt 0.02 --steps 400 --mu_track 1.00 \
   --mu_mpc_list 0.85 0.90 0.95 1.00 1.05 1.10 1.15
@@ -101,7 +101,7 @@ python -m mpc_sim.cli.analyze_cost_vs_mu \
 Use **Optuna** to automatically tune cost weights for optimal performance.
 
 ```bash
-python -m mpc_sim.cli.tune_mpc_weights \
+python -m forzaeth_mpc.sim.cli.tune_mpc_weights \
   --track THETRACK --racecar_version NUC5 --floor dubi \
   --dt 0.02 --steps 400 --trials 40 \
   --mu_track 1.00 --mu_mpc 1.00 \
