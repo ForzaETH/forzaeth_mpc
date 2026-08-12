@@ -37,7 +37,10 @@ def build_ocp_for_l4acados(
 
     # Export nominal model, constraints & params *exactly* as before
     model, constraint, params = bicycle_model(
-        s0, kapparef, d_left, d_right, lbmpc_config, car_config, tire_config
+        s0, kapparef, d_left, d_right, lbmpc_config, car_config, tire_config,
+        # its own codegen name, so LB-MPC's OCP and nominal sim solver do not collide with
+        # STMPC's in a shared c_generated_code/
+        model_name="LBMPCbicycle_model",
     )
 
     # Wrap into AcadosModel (unchanged from your original file)

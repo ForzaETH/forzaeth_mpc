@@ -42,12 +42,20 @@ from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
 
 
 def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
-                  stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig):
+                  stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig,
+                  model_name: str = "Spatialbicycle_model"):
+    """The single-track model, shared by STMPC and LB-MPC.
+
+    `model_name` is the acados codegen name. It must differ per consumer: acados exports to
+    a cwd-relative `c_generated_code/<name>*`, so two controllers sharing a name in one
+    working directory silently load each other's compiled solver -- which surfaced as
+    `run_laps --algo stmpc kmpc lbmpc` dying with "mismatching dimension for field lbx with
+    dimension 8 (you have 5)".
+    """
     # define structs
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
 
-    model_name = "Spatialbicycle_model"
 
     length = len(s_coords)
     pathlength = s_coords[-1]

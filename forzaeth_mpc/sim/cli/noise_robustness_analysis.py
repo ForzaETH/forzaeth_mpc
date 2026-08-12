@@ -103,7 +103,7 @@ def main():
     ap.add_argument("--racecar_version", type=str, default="NUC5")
     ap.add_argument("--floor", type=str, default="dubi")
     ap.add_argument("--dt", type=float, default=0.02)
-    ap.add_argument("--steps", type=int, default=500)
+    ap.add_argument("--steps", type=int, default=900)
     ap.add_argument("--integrator", type=str, default="rk4")
     ap.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
 

@@ -1,45 +1,44 @@
-# 🏎️ `mpc_sim` — Modular Offline Simulation for the ForzaETH race stack MPC
+# 🏎️ `forzaeth_mpc.sim` — offline simulation for the ForzaETH MPCs
 
-`mpc_sim` is a **lightweight and modular simulation toolbox** developed within the **ForzaETH F1TENTH race stack**.
-It is designed to **test the exact same MPC controller used in the real autonomous racecar**, while being completely **independent of ROS**.
-
-It directly interfaces with the same modules used on-board:
-- `STMPC.py` (Single Track MPC)
-- `acados_settings.py`
-- `bicycle_model.py`
-
-and uses the **same configuration files, parameters, and saved tracks** from the ForzaETH race stack.
+A small closed-loop simulator that drives **the same controller objects the car runs**, with no
+ROS. It builds them through their real constructors — `ControllerMPC` (STMPC),
+`ControllerKMPC` and `ControllerLBMPC` over `stmpc/`, `kmpc/` and `lbmpc/` — and reads the same
+config schemas and exported tracks.
 
 ---
 
 ## 🧠 Overview
 
-- **ROS-free** — Runs the exact MPC fully offline for fast simulation.
-- **Plant model** — Uses the same dynamics as the MPC, with extra features like variable friction μ and noise injection.
-- **Same MPC as in race stack** — Uses the identical MPC code from the race stack for direct validation.
-- **Modularity** — Easily extendable for additional tests.
+- **ROS-free** — no rospy, no roscore, no message types. Enforced, not aspirational.
+- **All three controllers** — KMPC, STMPC and LB-MPC through one adapter interface.
+- **Same code as the car** — the controller classes themselves, not a reimplementation.
+- **Plant** — the controller's own dynamics, plus a friction knob (`--mu_track` vs `--mu_mpc`)
+  and optional state noise, so model mismatch can be introduced deliberately.
 
 ---
 
 ## 📂 Folder Overview
 
 ```
-mpc_sim/
-├─ cli/             # Command-line tests and experiments
-│  ├─ run_single_rollout.py      # Run a single closed-loop simulation
-│  ├─ analyze_cost_vs_mu.py      # Study performance vs friction assumption
-│  └─ tune_mpc_weights.py        # Autotune cost weights with Optuna
+forzaeth_mpc/sim/
+├─ cli/             # runnable entry points
+│  ├─ run_laps.py                # N laps, fixed metrics, all three algorithms
+│  ├─ run_single_rollout.py      # one closed-loop rollout + plots
+│  ├─ analyze_cost_vs_mu.py      # performance vs assumed friction
+│  ├─ tune_mpc_weights.py        # cost-weight autotuning with Optuna
+│  └─ noise_robustness_analysis.py
 │
-├─ core/            # Core simulation engine
-│  ├─ scenario.py   # Load configs, track and build STMPC
-│  ├─ controllers.py# Interface with STMPC class (parameter update, solve)
-│  ├─ plant.py      # Integrate dynamics using bicycle_model
-│  └─ rollout.py    # Execute closed-loop simulation
+├─ core/            # simulation engine
+│  ├─ scenario.py   # load configs + track, build any of the three controllers
+│  ├─ controllers.py# ControllerMPC / ControllerKMPC / ControllerLBMPC adapters
+│  ├─ plant.py      # integrate the controller's own dynamics
+│  └─ rollout.py    # closed-loop loop
 │
-├─ io/waypoints.py  # Load and standardize waypoints to (N,7) arrays
-├─ metrics/         # Compute lap time, errors, and other KPIs
-├─ plotting/        # Visualize predictions, trajectories, and tuning results
-└─ utils/           # Integrators and helpers
+├─ tracks.py        # read a global_waypoints.json straight to an (N,7) array
+├─ waypoints.py     # the canonical (N,7) column layout
+├─ metrics/         # lap times, tracking error, solver success
+├─ plotting/        # figures
+└─ utils/           # integrators
 ````
 ---
 
@@ -47,11 +46,25 @@ mpc_sim/
 
 Each CLI script supports a full set of command-line arguments, **but every parameter has a default** — so you can start testing immediately without specifying anything.
 
-To execute the scripts, make sure you are positioned **one level above the `mpc_sim` folder** (inside the `mpc` directory) and run:
+Run them from the repo root (or anywhere, once the package is pip-installed):
 
 ```bash
 python -m forzaeth_mpc.sim.cli.run_single_rollout
-````
+```
+
+Plotting needs a display; without one, set `MPLBACKEND=Agg` and the figures are skipped.
+
+### 0. `run_laps.py` — the benchmark
+
+N laps for any of the three controllers, with a fixed metric set written to json. This is
+what `BENCHMARK.md` reports.
+
+```bash
+python -m forzaeth_mpc.sim.cli.run_laps --algo stmpc kmpc lbmpc --laps 20 --plot
+```
+
+The control period defaults to `1 / MPC_freq` from each algorithm's own config rather than a
+harness choice — KMPC's plant is a discrete model that advances exactly one period per call.
 
 ### 1. `run_single_rollout.py` — Closed-Loop Simulation
 Run a single MPC rollout using real parameters and tracks.
@@ -59,7 +72,7 @@ Run a single MPC rollout using real parameters and tracks.
 ```bash
 python -m forzaeth_mpc.sim.cli.run_single_rollout \
   --track THETRACK --racecar_version NUC5 --floor dubi --refline iqp \
-  --dt 0.02 --steps 400 --integrator rk4 \
+  --dt 0.02 --steps 600 --integrator rk4 \
   --mu_track 1.00 --mu_mpc 1.00 \
   --s0 20 --n0 0.0 --psi0 0.0 --vx0 3.0 \
   --vis_spaghetti_predictions_vs_actual \
@@ -82,7 +95,7 @@ Evaluate how the controller performs when the **track friction** and **MPC-assum
 ```bash
 python -m forzaeth_mpc.sim.cli.analyze_cost_vs_mu \
   --track THETRACK --racecar_version NUC5 --floor dubi \
-  --dt 0.02 --steps 400 --mu_track 1.00 \
+  --dt 0.02 --steps 700 --mu_track 1.00 \
   --mu_mpc_list 0.85 0.90 0.95 1.00 1.05 1.10 1.15
 ```
 
@@ -103,7 +116,7 @@ Use **Optuna** to automatically tune cost weights for optimal performance.
 ```bash
 python -m forzaeth_mpc.sim.cli.tune_mpc_weights \
   --track THETRACK --racecar_version NUC5 --floor dubi \
-  --dt 0.02 --steps 400 --trials 40 \
+  --dt 0.02 --steps 900 --trials 40 \
   --mu_track 1.00 --mu_mpc 1.00 \
   --w_lt 1.0 --w_cost 0.0 --w_abs_n 0.1 --w_abs_v 0.0 \
   --vis_parallel
@@ -125,8 +138,8 @@ Adding a new test is easy:
 2. Import core modules:
 
    ```python
-   from mpc_sim.core import Scenario, Plant, RolloutRunner
-   from mpc_sim.core.controllers import ControllerMPC
+   from forzaeth_mpc.sim.core import Plant, RolloutRunner, Scenario
+   from forzaeth_mpc.sim.core.controllers import ControllerMPC
    ```
 3. Build your experiment for the MPC.
 4. Use existing metrics and plotting utilities for evaluation.
@@ -146,7 +159,7 @@ This design keeps the **MPC logic untouched** and allows **rapid experimentation
 
 ## 🏁 Summary
 
-`mpc_sim` is an integral part of the **ForzaETH race stack**, providing a **simple, modular, and ROS-free** way to test, analyze, and tune the **same MPC** used in the race stack.
+`forzaeth_mpc.sim` is how these controllers get tested, analysed and tuned before they reach a car.
 
 It bridges **simulation and real-world racing**, ensuring every control update can be validated **offline, reproducibly, and transparently** before hitting the track.
 

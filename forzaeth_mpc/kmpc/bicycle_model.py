@@ -53,7 +53,9 @@ def bicycle_model(
     constraint = types.SimpleNamespace()
     model = types.SimpleNamespace()
 
-    model_name = "Spatialbicycle_model"
+    # distinct from the single-track model: acados exports both to a cwd-relative
+    # c_generated_code/, so a shared name means the second build loads the first
+    model_name = "Kinematicbicycle_model"
 
     length = len(s_coords)
     pathlength = s_coords[-1]

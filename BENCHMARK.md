@@ -179,15 +179,21 @@ the old input order it put `qjerk` into the ddelta slot.
 
 ## Open questions
 
-- **acados' `code_export_directory` defaults to a cwd-relative `c_generated_code`**, so two
-  runs started from different working directories quietly inherit each other's compiled
-  solvers. A stale `c_generated_code/` left at the repo root was enough to make a freshly
-  built LBMPC load a solver from an older model and die with
-  `Spatialbicycle_model_acados_sim_update_params: trying to set 22 parameters for external
-  functions. External function has 14 parameters.` The directory is gitignored but not
-  cleaned, and both the OCP and the sim model are named `Spatialbicycle_model`, so nothing
-  in the filename says which build it came from. Delete `c_generated_code/` before trusting
-  any parity result, and consider pinning `code_export_directory` per controller.
+- **acados exports to a cwd-relative `c_generated_code/`.** Fixed for the three controllers,
+  which now codegen under distinct names (`Spatialbicycle_model` for STMPC,
+  `LBMPCbicycle_model`, `Kinematicbicycle_model`). They previously shared one name, so
+  whichever built second in a given working directory loaded the first one's solver — that is
+  what made `run_laps --algo stmpc kmpc lbmpc` die with `mismatching dimension for field
+  "lbx" with dimension 8 (you have 5)`, and what made a single LB-MPC solve report
+  `trying to set 22 parameters ... has 14`. Still open: the export directory itself is
+  cwd-relative, so two runs of the *same* controller from different directories can pick up
+  each other's artifacts. Delete `c_generated_code/` when in doubt.
+
+Single LB-MPC solve, same fixtures, `stochastic_mode: disabled`, learning off:
+
+```
+cost 77.3159880919    status 0    n_x 8    n_p 22    N 40
+```
 
 - **LBMPC computes its residuals against a zero input on the car.**
   `lb_mpc.py` sets `_prev_input_for_residual = np.zeros(2)` with `self.u0.copy()` commented

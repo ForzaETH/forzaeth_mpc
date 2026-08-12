@@ -19,7 +19,9 @@ roslaunch stack_master time_trials.launch ctrl_algo:=LBMPC
 ```
 
 The main config is:
-[lb_mpc_params.yaml](/home/gil/F1TENTH/race_stack/stack_master/config/NUC6/lb_mpc_params.yaml)
+`<config root>/<CAR>/lb_mpc_params.yaml` — the fixtures in
+[`config/`](../../config) off-car, or `$(rospack find stack_master)/config` on it
+(`pbl_config` sets `FORZAETH_MPC_CONFIG` for you)
 
 The relevant block is `gp_params`.
 
@@ -45,7 +47,7 @@ The relevant block is `gp_params`.
 - `stochastic_mode`: selects the uncertainty propagation mode.
   - `disabled`: deterministic residual MPC.
   - `open_loop`: ZoRO without ancillary feedback.
-  - `lqr`: ZoRO with a fixed linear feedback gain.
+  - `lqr`: ZoRO with a fixed linear feedback gain. The only one verified to work.
   - `riccati`: ZoRO with time-varying Riccati feedback.
 - `enable_offline_logging`: enables the CSV logger.
 - `log_offline_horizon`: logs horizon uncertainty/tightening data. This only makes sense for stochastic modes.
@@ -81,7 +83,10 @@ The difference to deterministic residual MPC is:
 The three stochastic options differ only in how the ancillary feedback is chosen:
 - `open_loop`: no feedback in the uncertainty propagation.
 - `lqr`: one fixed feedback gain is used everywhere.
-- `riccati`: a time-varying gain is computed from Riccati equations using the MPC weights. This is usually the most principled option and the default stochastic choice.
+- `riccati`: a time-varying gain is meant to be computed from Riccati equations using the
+  MPC weights. **Broken on the current acados/l4acados pin** — the gain comes out all
+  zeros and the controller behaves exactly like `open_loop`, failing at the same step
+  with the same deviation. See BENCHMARK.md.
 
 ## Typical Workflow
 
@@ -89,4 +94,6 @@ The three stochastic options differ only in how the ancillary feedback is chosen
 2. Pick a small set of residual outputs with `unc_jac_G_mat_idx`.
 3. Pick a small set of informative inputs with `input_feature_selection`.
 4. Once the learnt model behaves well, switch to `data_processing_mode: "use_learnt_model"`.
-5. If you want robustness to GP uncertainty, switch `stochastic_mode` to `riccati`.
+5. If you want robustness to GP uncertainty, switch `stochastic_mode` to `lqr`. It is the
+   only stochastic mode that currently works: `open_loop` leaves the track under a
+   friction mismatch and `riccati` silently degrades to `open_loop`.

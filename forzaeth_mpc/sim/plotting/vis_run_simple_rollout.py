@@ -36,6 +36,11 @@ def plot_closed_loop_summary(
     assert x_hist.ndim == 2 and x_hist.shape[1] >= 8
     assert u_hist.ndim == 2 and u_hist.shape[1] >= 2
 
+    def _compute_unit_tangents(centerline_xy: np.ndarray) -> np.ndarray:
+        diffs = np.vstack((centerline_xy[1:] - centerline_xy[:-1],
+                           centerline_xy[0] - centerline_xy[-1]))
+        return diffs / (np.linalg.norm(diffs, axis=1, keepdims=True) + 1e-12)
+
     def _compute_unit_left_normals(tangents: np.ndarray) -> np.ndarray:
         return np.stack([-tangents[:, 1], tangents[:, 0]], axis=1)
 

@@ -34,7 +34,9 @@ def main():
     ap.add_argument("--racecar_version", type=str, default="NUC5")
     ap.add_argument("--floor", type=str, default="dubi")
     ap.add_argument("--dt", type=float, default=0.02)
-    ap.add_argument("--steps", type=int, default=400)
+    # ~377 steps is one lap at dt=0.02; 400 finishes with 6% margin, which the
+    # lower-mu cases eat into
+    ap.add_argument("--steps", type=int, default=700)
     ap.add_argument("--integrator", type=str, default="rk4")
     ap.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
 

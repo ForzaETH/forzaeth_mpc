@@ -174,6 +174,10 @@ class MPCOptunaObjective:
 
         # 5) Penalties for failed runs
         if math.isnan(lt):
+            # A flat penalty makes every non-finishing trial tie, so a study where most
+            # trials fail looks like it converged when it has learned nothing. Say so.
+            print(f"[tune] trial {trial.number}: no lap completed in {self.steps} steps "
+                  f"(dt={self.dt}) -- penalised. Raise --steps if most trials do this.")
             lt = 1e6
         if math.isnan(mc):
             mc = 1e6
@@ -211,7 +215,10 @@ def main():
     p.add_argument("--floor", type=str, default="dubi")
     p.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
     p.add_argument("--dt", type=float, default=0.02)
-    p.add_argument("--steps", type=int, default=500)
+    # a lap on THETRACK is ~377 steps at dt=0.02. Anything near that means the
+    # worse weights Optuna samples never finish one, lap_time() returns NaN and
+    # every trial collapses onto the same penalty.
+    p.add_argument("--steps", type=int, default=900)
     p.add_argument("--integrator", type=str, default="rk4", choices=["rk4", "euler"])
 
     # Initial pose
@@ -244,7 +251,8 @@ def main():
         action="store_false",
         help="Disable visualization of the optimization history."
     )
-    # p.add_argument("--vis_parallel", action="store_true")
+    p.add_argument("--vis_parallel", action="store_true",
+                   help="parallel-coordinates plot of the sampled weights vs metrics")
     args = p.parse_args()
 
     # Build scenario with your initial pose baked in
@@ -322,7 +330,7 @@ def main():
             pass
 
     # --- Parallel coordinates plot over all completed trials ---
-    if True:  # args.vis_parallel:
+    if args.vis_parallel:
         # 1) Choose parameter axes in a stable, human-readable order
         param_names = PARAM_ORDER
         param_limits = {k: (spec["low"], spec["high"] * 1.5) for k, spec in PARAM_SPECS.items()}
