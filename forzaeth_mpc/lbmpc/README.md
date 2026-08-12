@@ -1,99 +1,111 @@
-# LBMPC
+# LB-MPC
 
-Learning-Based MPC adds a GP residual model on top of the nominal single-track MPC.
+LB-MPC is the single-track MPC with a learnt correction. A Gaussian process learns the error
+of the nominal model, and the controller adds that error to its prediction.
 
 The nominal model predicts:
+
 `x_{k+1} = f_nominal(x_k, u_k)`
 
-The learnt controller predicts:
-`x_{k+1} = f_nominal(x_k, u_k) + B mu_GP(z_k)`
+LB-MPC predicts:
 
-with `z_k = [x_k, u_k]` after feature selection, `mu_GP` the GP mean, and `B` selecting which state channels receive the residual.
+`x_{k+1} = f_nominal(x_k, u_k) + B * mu_GP(z_k)`
 
-## Use
+`z_k` is `[x_k, u_k]` after feature selection. `mu_GP` is the mean of the Gaussian process.
+`B` selects the states that receive the correction.
 
-Run the controller with the argument `ctrl_algo:=LBMPC`:
+The Gaussian process is not part of the CasADi model. l4acados adds the correction outside
+the model. The model file therefore contains no residual term.
+
+## How to run it
+
+Start the controller with `ctrl_algo:=LBMPC`:
 
 ```bash
 roslaunch stack_master time_trials.launch ctrl_algo:=LBMPC
 ```
 
-The main config is:
-`<config root>/<CAR>/lb_mpc_params.yaml` — the fixtures in
-[`config/`](../../config) off-car, or `$(rospack find stack_master)/config` on it
-(`pbl_config` sets `FORZAETH_MPC_CONFIG` for you)
+The controller reads `<config root>/<CAR>/lb_mpc_params.yaml`. Off a car, the config root is
+the fixture directory [`config/`](../../config). On a car, it is
+`$(rospack find stack_master)/config`, because `pbl_config` sets `FORZAETH_MPC_CONFIG`.
 
-The relevant block is `gp_params`.
+The `gp_params` block holds the parameters below.
 
-## Important Parameters
+## Parameters
 
-- `use_gp`: enables residual learning. If `false`, the controller is nominal MPC only.
-- `data_processing_mode`: GP usage mode.
-  - `learn`: learn online and keep overwriting the latest saved model.
-  - `use_learnt_model`: load the last saved model and use it without learning new points.
-- `learning_enabled`: runtime gate for online learning in `learn` mode.
-  - If `false`, the GP setup stays available but no new datapoints are recorded yet.
-  - It can be enabled later through LBMPC dynamic reconfigure.
-- `input_feature_selection`: selects which entries of `[x, u]` are used as GP input.
-  - Current order is `[x, u] = [s, n, alpha, vx, vy, yaw_rate, delta, accel, ddelta, jerk]`.
-  - `1` means “use this feature”, `0` means “ignore it”.
-  - Usually `vx, vy, yaw_rate, delta, accel` are the most useful dynamic features.
-- `unc_jac_G_mat_idx`: selects which state residual channels are learnt.
-  - Current state order is `[s, n, alpha, vx, vy, yaw_rate, delta, accel]`.
-  - Example: `[0, 0, 0, 0, 1, 1, 0, 0]` means the GP learns residuals only on `vy` and `yaw_rate`.
-- `max_num_data_points`: maximum GP dataset size kept online.
-- `use_inducing_gp`: use an inducing-point GP instead of the full GP.
-- `num_inducing_points`: only used when `use_inducing_gp: true`.
-- `stochastic_mode`: selects the uncertainty propagation mode.
-  - `disabled`: deterministic residual MPC.
-  - `open_loop`: ZoRO without ancillary feedback.
-  - `lqr`: ZoRO with a fixed linear feedback gain. The only one verified to work.
-  - `riccati`: ZoRO with time-varying Riccati feedback.
-- `enable_offline_logging`: enables the CSV logger.
-- `log_offline_horizon`: logs horizon uncertainty/tightening data. This only makes sense for stochastic modes.
+- `use_gp`: switches the correction on. Set it to `false` to get the nominal MPC.
+- `data_processing_mode`: how the controller treats the Gaussian process.
+  - `learn`: learn while driving, and overwrite the saved model.
+  - `use_learnt_model`: load the saved model, and learn nothing more.
+- `learning_enabled`: permits learning at run time, in `learn` mode.
+  - Set it to `false` to prepare the Gaussian process but record no data.
+  - Dynamic reconfigure can set it to `true` later.
+- `input_feature_selection`: selects the entries of `[x, u]` that the Gaussian process reads.
+  - The order is `[s, n, theta, v_x, v_y, yaw_rate, delta, accel, ddelta, jerk]`.
+  - `1` selects an entry. `0` ignores it.
+  - `v_x`, `v_y`, `yaw_rate`, `delta` and `accel` carry the most information.
+- `unc_jac_G_mat_idx`: selects the states that receive the correction.
+  - The order is `[s, n, theta, v_x, v_y, yaw_rate, delta, accel]`.
+  - `[0, 0, 0, 0, 1, 1, 0, 0]` corrects `v_y` and `yaw_rate` only.
+  - This list is positional. It changes meaning if the state order changes.
+- `max_num_data_points`: the largest number of points that the Gaussian process keeps.
+- `use_inducing_gp`: uses an inducing-point Gaussian process instead of the full one.
+- `num_inducing_points`: applies only if `use_inducing_gp` is `true`.
+- `stochastic_mode`: how the controller propagates uncertainty. See "ZoRO" below.
+- `enable_offline_logging`: writes the CSV log.
+- `log_offline_horizon`: adds the uncertainty and tightening data of the horizon to that log.
+  Use it only with a stochastic mode.
 
-## Residual Learning
+## Residual learning
 
-The residual is computed from the one-step prediction error:
+The controller measures the error of one prediction step:
 
 `r_k = B^+ (x_k - f_nominal(x_{k-1}, u_{k-1}))`
 
-The GP learns `r_k` as a function of selected features from `[x, u]`.
+The Gaussian process then learns `r_k` from the selected features of `[x, u]`.
 
-In practice:
-- we use `unc_jac_G_mat_idx` to decide what to learn,
-- and `input_feature_selection` to decide from which signals to learn it.
+`unc_jac_G_mat_idx` decides what the Gaussian process learns. `input_feature_selection`
+decides which signals it learns from.
 
+The hyperparameters have these effects:
 
-Some intuition for GP hyperparameters:
-- `likelihood.task_noises`: measurement/noise level on each learnt residual channel. Larger values mean “trust the data less”.
-- `kernel.lengthscale`: how quickly the residual changes with each input feature. Small means very local/sensitive, large means smoother.
-- `kernel.outputscale`: overall residual amplitude. Larger means the GP expects bigger deviations from the nominal model.
+- `likelihood.task_noises`: the noise on each corrected state. A large value tells the
+  Gaussian process to trust the data less.
+- `kernel.lengthscale`: how fast the error changes with each feature. A small value gives a
+  local and sensitive fit. A large value gives a smooth fit.
+- `kernel.outputscale`: the size of the error. A large value lets the Gaussian process
+  predict a large difference from the nominal model.
 
-> Note: the hyperparameter shapes must be consistent with the active GP dimensions defined by `input_feature_selection` and `unc_jac_G_mat_idx`.
+The shape of each hyperparameter must agree with `input_feature_selection` and
+`unc_jac_G_mat_idx`. The controller fails to load a model that disagrees.
+
+A saved model records the state order that it learnt under. The loader rejects a model from a
+different state order, because the number of features and corrected states does not change
+when the order changes.
 
 ## ZoRO
 
-ZoRO is the stochastic version. It propagates uncertainty along the horizon and tightens constraints accordingly.
+ZoRO is the stochastic mode. It propagates the uncertainty along the horizon, and it tightens
+the constraints by that amount.
 
-The difference to deterministic residual MPC is:
-- deterministic: uses only the GP mean,
-- stochastic: uses GP mean + uncertainty propagation for constraint tightening.
+The deterministic mode uses the mean of the Gaussian process. ZoRO uses the mean and the
+uncertainty.
 
-The three stochastic options differ only in how the ancillary feedback is chosen:
-- `open_loop`: no feedback in the uncertainty propagation.
-- `lqr`: one fixed feedback gain is used everywhere.
-- `riccati`: a time-varying gain is meant to be computed from Riccati equations using the
-  MPC weights. **Broken on the current acados/l4acados pin** — the gain comes out all
-  zeros and the controller behaves exactly like `open_loop`, failing at the same step
-  with the same deviation. See BENCHMARK.md.
+The four settings differ only in the feedback that the propagation assumes:
 
-## Typical Workflow
+- `disabled`: no propagation. The controller uses the mean only.
+- `open_loop`: propagation without feedback. Under a friction error, the car leaves the track.
+- `lqr`: propagation with one fixed feedback gain. **This is the only stochastic mode that
+  works.**
+- `riccati`: propagation with a feedback gain from the Riccati equations and the MPC weights.
+  **This mode does not work.** The gain is zero, and the controller behaves like `open_loop`.
+  It fails at the same step, and by the same distance. `BENCHMARK.md` gives the measurements.
 
-1. Start with `use_gp: true`, `data_processing_mode: "learn"`, `stochastic_mode: "disabled"`.
-2. Pick a small set of residual outputs with `unc_jac_G_mat_idx`.
-3. Pick a small set of informative inputs with `input_feature_selection`.
-4. Once the learnt model behaves well, switch to `data_processing_mode: "use_learnt_model"`.
-5. If you want robustness to GP uncertainty, switch `stochastic_mode` to `lqr`. It is the
-   only stochastic mode that currently works: `open_loop` leaves the track under a
-   friction mismatch and `riccati` silently degrades to `open_loop`.
+## Workflow
+
+1. Set `use_gp: true`, `data_processing_mode: "learn"` and `stochastic_mode: "disabled"`.
+2. Select few states in `unc_jac_G_mat_idx`.
+3. Select few features in `input_feature_selection`.
+4. Drive until the learnt model is good, then set
+   `data_processing_mode: "use_learnt_model"`.
+5. To add robustness against the uncertainty, set `stochastic_mode: "lqr"`.

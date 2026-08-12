@@ -1,44 +1,53 @@
 # forzaeth_mpc
 
-Model predictive controllers for the ForzaETH F1TENTH platform, plus a ROS-free
-simulator to test them.
+Model predictive controllers for the ForzaETH F1TENTH car. The package also contains a
+simulator that runs the controllers without ROS.
 
-Extracted from the [race_stack](https://git.ee.ethz.ch/pbl/research/f1tenth/race_stack)
-(`controller/mpc` + `controller/lbmpc`) with history intact. The ROS nodes that drive these
-controllers stay in race_stack; this repo holds the control algorithms, their configuration
-schemas, and the offline simulator.
+The code comes from the
+[race_stack](https://git.ee.ethz.ch/pbl/research/f1tenth/race_stack), with its git history.
+The ROS nodes stay in race_stack. This package holds the control algorithms, the
+configuration schemas and the simulator.
 
 ## Controllers
 
-| Module | What it is |
+| Module | Description |
 |---|---|
-| `forzaeth_mpc/kmpc/` | Kinematic bicycle MPC |
-| `forzaeth_mpc/stmpc/` | Single-track MPC with Pacejka tire model |
-| `forzaeth_mpc/lbmpc/` | Learning-based MPC: GP residual on the single-track model, optional ZoRO stochastic constraint tightening |
+| `forzaeth_mpc/kmpc/` | Kinematic bicycle MPC. Five states. No tire model. |
+| `forzaeth_mpc/stmpc/` | Single-track MPC with a Pacejka tire model. Eight states. |
+| `forzaeth_mpc/lbmpc/` | The single-track MPC plus a learnt residual, and optional ZoRO constraint tightening. |
 
-LB-MPC learns `x_{k+1} = f_nominal(x_k, u_k) + B·μ_GP(z_k)` online. See
-[`forzaeth_mpc/lbmpc/README.md`](forzaeth_mpc/lbmpc/README.md) for the parameters that matter
-and the `learn` → `use_learnt_model` → `stochastic_mode` workflow.
+STMPC and LB-MPC share one model, `forzaeth_mpc/stmpc/bicycle_model.py`. The state order is
+`[s, n, theta, v_x, v_y, yaw_rate, delta, accel]`. The input order is `[ddelta, jerk]`. Use
+`forzaeth_mpc.utils.indices` to read either one. Do not use integer literals.
+
+LB-MPC learns `x_{k+1} = f_nominal(x_k, u_k) + B*mu_GP(z_k)` while it drives. The residual is
+not part of the CasADi model. l4acados applies it outside the model. Read
+[`forzaeth_mpc/lbmpc/README.md`](forzaeth_mpc/lbmpc/README.md) for the parameters and the
+workflow.
 
 ## Simulator
 
-`forzaeth_mpc/sim/` runs the **same controller objects** the car runs, closed-loop, with no ROS.
-The plant uses the same dynamics as the MPC plus variable friction μ and injectable noise, so a
-μ mismatch or a noisy state estimate can be studied deliberately.
+`forzaeth_mpc/sim/` drives the same controller objects that the car drives. It closes the
+loop against the controller's own dynamics. It does not use ROS.
+
+The plant accepts a different friction value than the MPC assumes. It can also add noise to
+the state. Use both to introduce model error on purpose.
 
 ```bash
-python -m forzaeth_mpc.sim.cli.run_single_rollout      # closed-loop rollout + plots
-python -m forzaeth_mpc.sim.cli.analyze_cost_vs_mu      # friction-mismatch sweep
-python -m forzaeth_mpc.sim.cli.tune_mpc_weights        # Optuna cost-weight autotuning
-python -m forzaeth_mpc.sim.cli.noise_robustness_analysis
+python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc kmpc lbmpc --laps 20 --plot
+python3 -m forzaeth_mpc.sim.cli.run_single_rollout      # one rollout, with plots
+python3 -m forzaeth_mpc.sim.cli.analyze_cost_vs_mu      # friction sweep
+python3 -m forzaeth_mpc.sim.cli.tune_mpc_weights        # weight search with Optuna
+python3 -m forzaeth_mpc.sim.cli.noise_robustness_analysis
 ```
 
-Every argument has a default, so all four run with no flags. Details and plots:
-[`forzaeth_mpc/sim/README.md`](forzaeth_mpc/sim/README.md).
+Each argument has a default. All five commands run without flags.
+[`forzaeth_mpc/sim/README.md`](forzaeth_mpc/sim/README.md) describes them.
+[`BENCHMARK.md`](BENCHMARK.md) gives the measured results.
 
-## Install
+## Installation
 
-acados and the GP stack are not pip-resolvable — they need the shell installers.
+Pip cannot resolve acados or the GP libraries. Use the two shell scripts.
 
 ```bash
 git clone --recurse-submodules <this repo>
@@ -48,60 +57,69 @@ cd forzaeth_mpc
 export ACADOS_SOURCE_DIR=~/acados
 export LD_LIBRARY_PATH=$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH
 
-pip install -e ".[sim]"                     # controllers + simulator
-./install/install_l4acados.sh               # only if you want LB-MPC
-pip install -e ".[sim,lbmpc]"
+python3 -m pip install -e ".[sim]"                     # controllers + simulator
+./install/install_l4acados.sh               # only for LB-MPC
+python3 -m pip install -e ".[sim,lbmpc]"
 ```
 
-`install_l4acados.sh` pins the `naefjo/gpytorch` and `naefjo/linear_operator` forks that
-l4acados' exo backend needs, and force-reinstalls over any PyPI copies. Plain `pip install
-gpytorch` will not work for LB-MPC.
+`install_l4acados.sh` installs two pinned forks, `naefjo/gpytorch` and
+`naefjo/linear_operator`. The exo backend of l4acados needs them. The script replaces any
+copy from PyPI. LB-MPC does not work with the released `gpytorch`.
 
 ## Configuration
 
-Config is pydantic-validated, not read as loose dicts — a missing or extra key is a hard error,
-not a silent default. Schemas live in `forzaeth_mpc/config/`, values in `config/<CAR>/*.yaml`.
+Pydantic validates every configuration file. A missing key or an extra key stops the load.
+No value falls back to a default without a message.
+
+The schemas are in `forzaeth_mpc/config/`. The values are in `config/<CAR>/*.yaml`.
 
 ```python
 from forzaeth_mpc.config import load_STMPC_config_ros, load_car_config_ros
 cfg = load_STMPC_config_ros("NUC5")
 ```
 
-`config/` in this repo is a **test fixture set** — enough to run the simulator, not the source of
-truth for any real car. On the car, point the loaders at race_stack instead:
+The loaders reject a file that declares the same key twice. Plain `yaml.safe_load` keeps the
+last value and reports nothing. That behaviour hid a wrong tire constraint on two cars.
+
+The `config/` directory holds test fixtures. It is large enough to run the simulator. It is
+not the source of truth for a car. On a car, point the loaders at race_stack:
 
 ```bash
 export FORZAETH_MPC_CONFIG=$(rospack find stack_master)/config
 ```
 
-Tuning values are deliberately not duplicated here. `NUC5` + floor `dubi` is the combination the
-simulator defaults to and the one guaranteed complete.
+The fixtures do not repeat the tuning values of the cars. Car `NUC5` with floor `dubi` is
+the combination that the simulator uses by default, and the only complete one.
 
-Tracks: `tracks/*.json` are `global_waypoints.json` files exported by race_stack's global planner.
-Override the directory with `FORZAETH_MPC_TRACKS`.
+`tracks/*.json` are `global_waypoints.json` files from the global planner of race_stack. Set
+`FORZAETH_MPC_TRACKS` to read them from a different directory.
 
 ## Use from race_stack
 
-Clone next to the other external repos and pip install; race_stack's ROS nodes import from here.
+Clone the package beside the other external repositories, then install it. The ROS nodes of
+race_stack import from it, and `pbl_config` re-exports the configuration schemas.
 
 ```bash
 cd ~/catkin_ws/src/external && git clone --recurse-submodules <this repo> forzaeth_mpc
-pip install -e "forzaeth_mpc[sim,lbmpc]"
+python3 -m pip install -e "forzaeth_mpc[sim,lbmpc]"
 ```
 
-## Known rough edges
+## Limitations
 
-- `research/residual_validation/` is the LB-MPC validation code lifted from
-  `controller/lbmpc/test`. It carries its own copies of the single-track MPC, the bicycle model
-  and an acados settings module, and its own closed-loop residual simulator — it substantially
-  duplicates `forzaeth_mpc/sim/`. It is kept unwired and unmodified until an LB-MPC adapter for
-  `sim/core/controllers.py` is verified against a working l4acados install; then most of it
-  should be deleted.
-- `bicycle_model.py` exists three times (`stmpc/`, `lbmpc/`, `research/`) with three different
-  contents, and the single-track MPC twice. The `lbmpc` variant carries the residual/`B`-matrix
-  hooks, so these are not blind-mergeable.
-- `install/install_l4acados.sh` writes an `l4acados_external.pth` pointing at
-  `external/l4acados/external`, a directory the current l4acados pin does not have. Harmless —
-  Python ignores non-existent `.pth` targets — but it means the file is doing nothing.
-- Packaging assumes a git clone: `config/` and `tracks/` sit outside the importable package, so a
-  built wheel would not carry them. Fine for `pip install -e`, not for a registry install.
+- **ZoRO `riccati` does not work.** Its feedback gain is zero, and the controller behaves
+  like `open_loop`. Use `lqr`. `BENCHMARK.md` gives the measurements.
+- **LB-MPC computes each residual against a zero input.** `lb_mpc.py` sets
+  `_prev_input_for_residual` to `np.zeros(2)`. Every residual therefore charges the whole
+  effect of the applied input to model error. Decide this before the next run on a car.
+- **acados writes generated code to a path relative to the working directory.** Two runs
+  from different directories can load each other's compiled solver. The three controllers
+  now use different model names, which removes the collision between them. Delete
+  `c_generated_code/` if a result looks wrong.
+- **`research/residual_validation/` is frozen.** It keeps its own copy of the single-track
+  model, at the earlier state order and the 14-entry parameter vector. The published GP
+  numbers come from that copy. Do not change it to use the shared model.
+- **`install/install_l4acados.sh` writes a `.pth` file that points to
+  `external/l4acados/external`.** The current l4acados commit has no such directory. Python
+  ignores the path, so the file has no effect.
+- **A built wheel does not contain `config/` or `tracks/`.** Both directories are outside the
+  importable package. Install the package from a clone.
