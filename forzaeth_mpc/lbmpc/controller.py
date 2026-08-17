@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
-from forzaeth_mpc.lbmpc.acados_solver_settings import build_ocp_for_l4acados
+from forzaeth_mpc.lbmpc.acados_settings import build_ocp_for_l4acados
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.lbmpc.lbmpc_setup import (build_offline_logger,
                                    build_solver_build_config,

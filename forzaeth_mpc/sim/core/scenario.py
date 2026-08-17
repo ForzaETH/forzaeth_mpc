@@ -8,7 +8,7 @@ from forzaeth_mpc.config import (load_car_config_ros, load_KMPC_config_ros,
                                  load_pacejka_tire_config_ros,
                                  load_STMPC_config_ros, load_trailing_config_ros)
 from forzaeth_mpc.sim.tracks import load_track
-from forzaeth_mpc.stmpc.STMPC import STMPC
+from forzaeth_mpc.stmpc.controller import STMPC
 
 
 class Scenario:

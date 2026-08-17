@@ -5,7 +5,7 @@ from forzaeth_mpc.config import KMPCConfig
 from forzaeth_mpc.sim.core.plant import Plant
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.utils.indices import InputIndex, StateIndex
-from forzaeth_mpc.stmpc.STMPC import STMPC
+from forzaeth_mpc.stmpc.controller import STMPC
 
 
 KMPC_WEIGHT_KEYS = ("q_adv", "q_v", "q_n", "q_alpha", "q_ac", "q_ddelta")

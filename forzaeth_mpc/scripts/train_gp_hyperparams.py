@@ -163,7 +163,7 @@ def load_data_from_step_logs(step_log_paths, input_mask: np.ndarray):
                 dtype=np.float32,
             )
 
-            # This mirrors the current runtime implementation in lb_mpc.py,
+            # This mirrors the current runtime implementation in lbmpc/controller.py,
             # where _prev_input_for_residual is stored as zeros.
             u_prev = np.zeros(INPUT_DIMENSION, dtype=np.float32)
             z_full = np.concatenate((x_prev, u_prev))

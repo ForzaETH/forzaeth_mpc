@@ -139,7 +139,7 @@ def build_solver_build_config(lbmpc_path: str, params_path: str) -> SolverBuildC
     # happened to be the package directory. lbmpc_path now means only "where the
     # generated artifacts go".
     _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    solver_settings_file_name = os.path.join(_pkg_dir, "acados_solver_settings.py")
+    solver_settings_file_name = os.path.join(_pkg_dir, "acados_settings.py")
     # the model lives in stmpc/ now: STMPC and LB-MPC share one single-track model.
     # If this path goes stale, LB-MPC silently reuses a compiled solver that no longer
     # matches its model, and every parity check passes for the wrong reason.

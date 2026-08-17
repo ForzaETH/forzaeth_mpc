@@ -1,1 +1,1 @@
-from forzaeth_mpc.stmpc.STMPC import STMPC
+from forzaeth_mpc.stmpc.controller import STMPC

@@ -1,1 +1,1 @@
-from forzaeth_mpc.kmpc.kinematic_mpc import Kinematic_MPC_Controller
+from forzaeth_mpc.kmpc.controller import Kinematic_MPC_Controller

@@ -1,1 +1,1 @@
-from forzaeth_mpc.lbmpc.lb_mpc import LBMPC
+from forzaeth_mpc.lbmpc.controller import LBMPC
