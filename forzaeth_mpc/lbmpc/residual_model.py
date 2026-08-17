@@ -1,7 +1,6 @@
+"""Construction, loading and saving of the LB-MPC residual model."""
 import os
-import re
 from dataclasses import dataclass
-from glob import glob
 from typing import Optional
 
 import gpytorch
@@ -15,20 +14,12 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentInducingPointGPModel,
     BatchIndependentMultitaskGPModel,
 )
-from forzaeth_mpc.lbmpc.offline_viz_logger import OfflineMPCLogger
-from forzaeth_mpc.utils.indices import InputIndex, StateIndex
-from forzaeth_mpc.lbmpc.utils.utils import (
-    check_file_changes,
-    load_gp_model_bundle,
-    save_gp_model_bundle,
-)
 
-
-@dataclass
-class SolverBuildConfig:
-    build_c_code: bool
-    path_json_ocp: str
-    path_json_sim: str
+from forzaeth_mpc.lbmpc.solver_artifacts import (STATE_LAYOUT,
+                                                ensure_runtime_artifacts,
+                                                get_invalid_gp_bundle_reason,
+                                                load_gp_model_bundle,
+                                                save_gp_model_bundle)
 
 
 @dataclass
@@ -42,202 +33,6 @@ class ResidualModelSetup:
     mode: str
     learnt_gp_model_path: str
     gp_warmup_done: bool
-
-
-def _ensure_text_artifact(file_path: str, default_contents: str = "") -> bool:
-    parent_dir = os.path.dirname(file_path)
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-
-    if os.path.exists(file_path):
-        return False
-
-    with open(file_path, "w", encoding="utf-8") as artifact_file:
-        artifact_file.write(default_contents)
-    return True
-
-
-def _ensure_placeholder_gp_bundle(model_path: str) -> bool:
-    parent_dir = os.path.dirname(model_path)
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-
-    if os.path.exists(model_path):
-        return False
-
-    placeholder_bundle = {
-        "artifact_status": "placeholder",
-        "train_x": None,
-        "train_y": None,
-        "metadata": {
-            "placeholder": True,
-        },
-    }
-    tmp_path = f"{model_path}.tmp"
-    torch.save(placeholder_bundle, tmp_path)
-    os.replace(tmp_path, model_path)
-    return True
-
-
-def ensure_runtime_artifacts(lbmpc_path: str) -> None:
-    created_artifacts = []
-
-    artifact_specs = (
-        (os.path.join(lbmpc_path, "data/hash", "build_c_code_hash.md5"), ""),
-        (os.path.join(lbmpc_path, "data/ocp", "lbmpc_ocp_solver_config.json"), "{}\n"),
-        (os.path.join(lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json"), "{}\n"),
-    )
-    for artifact_path, default_contents in artifact_specs:
-        if _ensure_text_artifact(artifact_path, default_contents=default_contents):
-            created_artifacts.append(artifact_path)
-
-    learnt_gp_model_path = os.path.join(lbmpc_path, "data", "models", "latest_gp_model.pt")
-    if _ensure_placeholder_gp_bundle(learnt_gp_model_path):
-        created_artifacts.append(learnt_gp_model_path)
-
-    if created_artifacts:
-        print(
-            "[LBMPC] Created missing runtime artifact(s): "
-            + ", ".join(created_artifacts)
-        )
-
-
-STATE_LAYOUT = "-".join(e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value))
-"""Fingerprint of the state/input ordering a GP was trained under. Bundles saved under a
-different ordering must be rejected, not silently reused."""
-
-
-def _get_invalid_gp_bundle_reason(bundle) -> Optional[str]:
-    if bundle is None:
-        return "the saved bundle could not be loaded"
-    if not isinstance(bundle, dict):
-        return "the saved bundle has an unexpected format"
-
-    metadata = bundle.get("metadata") or {}
-    if bundle.get("artifact_status") == "placeholder" or metadata.get("placeholder", False):
-        return "it is only a first-run placeholder"
-
-    if bundle.get("train_x") is None or bundle.get("train_y") is None:
-        return "it does not contain training data"
-
-    if "gp_model_state_dict" not in bundle or "likelihood_state_dict" not in bundle:
-        return "it does not contain serialized GP weights"
-
-    saved_layout = metadata.get("state_layout")
-    if saved_layout != STATE_LAYOUT:
-        return (f"it was trained under a different state layout "
-                f"({saved_layout!r} != {STATE_LAYOUT!r})")
-
-    return None
-
-
-def build_solver_build_config(lbmpc_path: str, params_path: str) -> SolverBuildConfig:
-    ensure_runtime_artifacts(lbmpc_path)
-
-    # The two sources whose changes must force a C-code rebuild sit next to this module.
-    # They were looked up under "<lbmpc_path>/src/", which only worked while lbmpc_path
-    # happened to be the package directory. lbmpc_path now means only "where the
-    # generated artifacts go".
-    _pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    solver_settings_file_name = os.path.join(_pkg_dir, "acados_settings.py")
-    # the model lives in stmpc/ now: STMPC and LB-MPC share one single-track model.
-    # If this path goes stale, LB-MPC silently reuses a compiled solver that no longer
-    # matches its model, and every parity check passes for the wrong reason.
-    bicycle_model_file_name = os.path.join(
-        os.path.dirname(_pkg_dir), "stmpc", "bicycle_model.py")
-    params_file_name = os.path.join(params_path, "lb_mpc_params.yaml")
-    mpc_files_to_watch = [
-        solver_settings_file_name,
-        bicycle_model_file_name,
-        params_file_name,
-    ]
-
-    build_hash_path = os.path.join(lbmpc_path, "data/hash", "build_c_code_hash.md5")
-    path_json_ocp = os.path.join(lbmpc_path, "data/ocp", "lbmpc_ocp_solver_config.json")
-    path_json_sim = os.path.join(lbmpc_path, "data/ocp", "lbmpc_sim_solver_config.json")
-
-    build_c_code = check_file_changes(mpc_files_to_watch, build_hash_path)
-    build_c_code = build_c_code or not cython_solver_artifacts_available(
-        path_json_ocp=path_json_ocp,
-        path_json_sim=path_json_sim,
-    )
-
-    return SolverBuildConfig(
-        build_c_code=build_c_code,
-        path_json_ocp=path_json_ocp,
-        path_json_sim=path_json_sim,
-    )
-
-
-def cython_solver_artifacts_available(path_json_ocp: str, path_json_sim: str) -> bool:
-    for json_path, module_stem in (
-        (path_json_ocp, "acados_ocp_solver_pyx"),
-        (path_json_sim, "acados_sim_solver_pyx"),
-    ):
-        code_export_directory = read_code_export_directory(json_path)
-        if not code_export_directory:
-            return False
-
-        artifact_pattern = os.path.join(code_export_directory, f"{module_stem}*.so")
-        if not glob(artifact_pattern):
-            return False
-
-    return True
-
-
-def read_code_export_directory(json_path: str) -> Optional[str]:
-    if not os.path.exists(json_path):
-        return None
-
-    try:
-        with open(json_path, "r", encoding="utf-8") as json_file:
-            match = re.search(
-                r'"code_export_directory"\s*:\s*"([^"]+)"',
-                json_file.read(),
-            )
-    except OSError:
-        return None
-
-    if not match:
-        return None
-
-    return os.path.abspath(match.group(1))
-
-
-def build_offline_logger(
-    lbmpc_path: str,
-    ocp,
-    horizon: int,
-    horizon_requested: bool,
-    use_zoro: bool,
-    enabled: bool,
-):
-    if horizon_requested and not use_zoro:
-        print("[offline_viz] Horizon logging requested, but use_zoro is False. Disabling horizon logging.")
-
-    if not enabled:
-        return None
-
-    try:
-        nx = int(ocp.dims.nx)
-        nu = int(ocp.dims.nu)
-        state_names = [e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value)]
-        input_names = [e.name.lower() for e in sorted(InputIndex, key=lambda x: x.value)]
-
-        return OfflineMPCLogger(
-            root_dir=lbmpc_path,
-            nx=nx,
-            nu=nu,
-            N=int(horizon),
-            state_names=state_names,
-            input_names=input_names,
-            enable=True,
-            flush_every=25,
-            horizon_stride=4,
-        )
-    except Exception as exc:
-        print(f"[offline_viz] logger disabled: {exc}")
-        return None
 
 
 def initialize_residual_model(
@@ -279,7 +74,7 @@ def initialize_residual_model(
     learnt_num_points = None
     if mode == "use_learnt_model":
         learnt_gp_bundle = load_gp_model_bundle(learnt_gp_model_path)
-        invalid_bundle_reason = _get_invalid_gp_bundle_reason(learnt_gp_bundle)
+        invalid_bundle_reason = get_invalid_gp_bundle_reason(learnt_gp_bundle)
         if invalid_bundle_reason is not None:
             print(
                 f"[LBMPC] Learnt GP model at {learnt_gp_model_path} is unavailable because "

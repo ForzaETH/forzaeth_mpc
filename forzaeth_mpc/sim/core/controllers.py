@@ -3,56 +3,14 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 from forzaeth_mpc.config import KMPCConfig
 from forzaeth_mpc.sim.core.plant import Plant
+from forzaeth_mpc.kmpc.online_params import build_online_params as build_kmpc_online_params
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.stmpc.controller import STMPC
 
 
-KMPC_WEIGHT_KEYS = ("q_adv", "q_v", "q_n", "q_alpha", "q_ac", "q_ddelta")
 
 
-def build_kmpc_online_params(kmpc_config: KMPCConfig,
-                             target_v: float,
-                             overtake_d: float,
-                             weights: dict = None) -> np.ndarray:
-    """Builds the 10-entry KMPC acados online parameter vector.
-
-    Layout (see ``kmpc/bicycle_model.py``):
-        0 V_target  1 weight_adv  2 weight_qv  3 weight_qn  4 weight_qalpha
-        5 weight_qac  6 weight_ddelta  7 a_lat_max  8 safety_margin  9 overtake_d
-
-    There is deliberately no μ slot: KMPC is a kinematic model with no tire
-    forces, so the friction coefficient is not applicable.
-
-    Args:
-        kmpc_config: static KMPC config (cost weights, alat/margin limits).
-        target_v: target speed for this stage.
-        overtake_d: lateral reference offset for this stage.
-        weights: optional overrides out of ``KMPC_WEIGHT_KEYS``.
-    """
-    w = {
-        "q_adv": kmpc_config.qadv,
-        "q_v": kmpc_config.qv,
-        "q_n": kmpc_config.qn,
-        "q_alpha": kmpc_config.qalpha,
-        "q_ac": kmpc_config.qac,
-        "q_ddelta": kmpc_config.qddelta,
-    }
-    if weights:
-        w.update({k: weights[k] for k in KMPC_WEIGHT_KEYS if k in weights})
-
-    return np.array([
-        target_v,
-        w["q_adv"],
-        w["q_v"],
-        w["q_n"],
-        w["q_alpha"],
-        w["q_ac"],
-        w["q_ddelta"],
-        kmpc_config.alat_max,
-        kmpc_config.track_safety_margin,
-        overtake_d,
-    ], dtype=np.float64)
 
 
 class ControllerMPC:

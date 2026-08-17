@@ -25,6 +25,19 @@ not part of the CasADi model. l4acados applies it outside the model. Read
 [`forzaeth_mpc/lbmpc/README.md`](forzaeth_mpc/lbmpc/README.md) for the parameters and the
 workflow.
 
+Each controller package has the same shape:
+
+```
+controller.py       the controller class
+acados_settings.py  the OCP
+online_params.py    the online parameter vector
+bicycle_model.py    the model  (lbmpc imports stmpc's)
+```
+
+LB-MPC carries three more modules, because it owns things the other two do not:
+`solver_artifacts.py` for the generated solver on disk and the format of a saved model,
+`residual_model.py` for the Gaussian process, and `offline_viz_logger.py` for the CSV log.
+
 ## Simulator
 
 `forzaeth_mpc/sim/` drives the same controller objects that the car drives. It closes the

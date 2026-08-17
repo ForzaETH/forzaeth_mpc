@@ -8,10 +8,10 @@ from forzaeth_mpc.utils.frenet_converter import FrenetConverter
 from l4acados.controllers import ResidualLearningMPC, ZeroOrderGPMPC
 from forzaeth_mpc.lbmpc.acados_settings import build_ocp_for_l4acados
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
-from forzaeth_mpc.lbmpc.lbmpc_setup import (build_offline_logger,
-                                   build_solver_build_config,
-                                   initialize_residual_model,
-                                   persist_learnt_gp_model)
+from forzaeth_mpc.lbmpc.residual_model import (initialize_residual_model,
+                                               persist_learnt_gp_model)
+from forzaeth_mpc.lbmpc.solver_artifacts import build_solver_build_config
+from forzaeth_mpc.lbmpc.offline_viz_logger import OfflineMPCLogger
 from forzaeth_mpc.utils.indices import InputIndex, StateIndex
 from forzaeth_mpc.config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
@@ -25,6 +25,41 @@ except Exception:
     _HAS_DM = False
     DM = None
 
+
+def build_offline_logger(
+    lbmpc_path: str,
+    ocp,
+    horizon: int,
+    horizon_requested: bool,
+    use_zoro: bool,
+    enabled: bool,
+):
+    if horizon_requested and not use_zoro:
+        print("[offline_viz] Horizon logging requested, but use_zoro is False. Disabling horizon logging.")
+
+    if not enabled:
+        return None
+
+    try:
+        nx = int(ocp.dims.nx)
+        nu = int(ocp.dims.nu)
+        state_names = [e.name.lower() for e in sorted(StateIndex, key=lambda x: x.value)]
+        input_names = [e.name.lower() for e in sorted(InputIndex, key=lambda x: x.value)]
+
+        return OfflineMPCLogger(
+            root_dir=lbmpc_path,
+            nx=nx,
+            nu=nu,
+            N=int(horizon),
+            state_names=state_names,
+            input_names=input_names,
+            enable=True,
+            flush_every=25,
+            horizon_stride=4,
+        )
+    except Exception as exc:
+        print(f"[offline_viz] logger disabled: {exc}")
+        return None
 
 class LBMPC:
     def __init__(self,

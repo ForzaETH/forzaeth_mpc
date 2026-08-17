@@ -38,6 +38,7 @@ from acados_template import AcadosModel, AcadosOcp, AcadosOcpSolver
 
 from forzaeth_mpc.config import KMPCConfig, CarConfig
 from forzaeth_mpc.kmpc.bicycle_model import bicycle_model
+from forzaeth_mpc.kmpc.online_params import default_parameter_values
 
 
 def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConfig, car_config: CarConfig):
@@ -66,7 +67,7 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     ocp.model = model_ac
 
     # Set parameters dimension
-    p = get_parameters(kmpc_config)
+    p = default_parameter_values(kmpc_config)
     params.p = p
     ocp.parameter_values = p
 
@@ -218,19 +219,3 @@ def acados_settings(s0, kapparef, vx_ref, d_left, d_right, kmpc_config: KMPCConf
     return constraint, model, acados_solver, params
 
 
-def get_parameters(cfg: KMPCConfig) -> np.ndarray:
-    """Get parameters from param_config.yaml"""
-    params = np.array([
-        2, # initial velocity, not important it is immediately changed
-        cfg.qadv,
-        cfg.qv,
-        cfg.qn,
-        cfg.qalpha,
-        cfg.qac,
-        cfg.qddelta,
-        cfg.alat_max,
-        cfg.track_safety_margin,
-        cfg.overtake_d,
-    ]).astype(float)
-
-    return params

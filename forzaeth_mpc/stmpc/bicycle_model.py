@@ -41,6 +41,94 @@ from forzaeth_mpc.config import CarConfig, PacejkaTireConfig, STMPCConfig
 # author: Daniel Kloeser
 
 
+def single_track_dynamics(s, n, theta, v_x, v_y, yaw_rate, delta, accel,
+                          derDelta, jerk, *, kappa, tire, mu, car_config: CarConfig,
+                          load_transfer: bool):
+    """Time-domain derivatives of the single-track model with a Pacejka tire.
+
+    Split out of ``bicycle_model`` so that the spatial, time-optimal reformulation in
+    ``forzaeth_mpc/tompc/`` runs the same tire and chassis equations instead of a third
+    copy of them. Two copies of the state enum and two copies of this model are what the
+    package README lists as the source of its worst silent bugs.
+
+    Every argument is a CasADi symbol or expression, except the two that select the
+    equations:
+
+    Args:
+        kappa: reference curvature at ``s``. The caller owns the spline and the
+            wrap-around, since the spatial model indexes it differently.
+        tire: the eight Pacejka coefficients in the order ``(Bf, Cf, Df, Ef, Br, Cr,
+            Dr, Er)``. Online symbols, not baked-in floats.
+        mu: friction coefficient, also an online symbol.
+        load_transfer: put the longitudinal load transfer into the axle loads.
+
+    Returns:
+        A namespace with the individual derivatives and ``f_expl``, the 8-row vector in
+        the canonical state order ``[s, n, theta, v_x, v_y, yaw_rate, delta, accel]``.
+    """
+    lr, lf, m, Iz, h_cg = car_config.lr, car_config.lf, car_config.m, car_config.Iz, car_config.h_cg
+    Bf, Cf, Df, Ef, Br, Cr, Dr, Er = tire
+    g = 9.81
+
+    # side slip angle
+    v_0 = 0.5
+    alpha_f = (cs.atan2((-v_y - (lf * yaw_rate)), v_x + v_0) + delta)
+    alpha_r = (cs.atan2((-v_y + (lr * yaw_rate)), v_x + v_0))
+
+    # load transfer
+    if load_transfer:
+        F_zf = m * ((-accel * h_cg) + (g * lr)) / (lf + lr)
+        F_zr = m * ((accel * h_cg) + (g * lf)) / (lf + lr)
+    else:
+        F_zf = m * g * lr / (lf + lr)
+        F_zr = m * g * lf / (lf + lr)
+
+    # lateral tire forces
+    F_yf = mu * Df * F_zf * sin(Cf * cs.atan(Bf * alpha_f - Ef * (Bf * alpha_f - cs.atan(Bf * alpha_f))))
+    F_yr = mu * Dr * F_zr * sin(Cr * cs.atan(Br * alpha_r - Er * (Br * alpha_r - cs.atan(Br * alpha_r))))
+
+    # motor force
+    F_motor = accel * m
+    motor_split_front = 0.5
+    motor_split_rear = 1 - motor_split_front
+    F_xf = motor_split_front * F_motor
+    F_xr = motor_split_rear * F_motor
+
+    # dynamics
+    s_dot = ((v_x * cos(theta)) - (v_y * sin(theta))) / (1 - kappa * n)
+    n_dot = v_x * sin(theta) + v_y * cos(theta)
+    theta_dot = yaw_rate - (kappa * s_dot)
+    v_x_dot = (1 / m) * (
+        F_xr
+        + F_xf * cos(delta)
+        - F_yf * sin(delta)
+        + m * v_y * yaw_rate
+    )
+    v_y_dot = (1 / m) * (
+        F_yr
+        + F_xf * sin(delta)
+        + F_yf * cos(delta)
+        - m * v_x * yaw_rate
+    )
+    yaw_rate_dot = (1 / Iz) * ((-F_yr * lr) + (F_yf * lf) * cos(delta))
+
+    # delta inputs for smoother control
+    delta_dot = derDelta
+    accel_dot = jerk
+
+    return types.SimpleNamespace(
+        s_dot=s_dot, n_dot=n_dot, theta_dot=theta_dot,
+        v_x_dot=v_x_dot, v_y_dot=v_y_dot, yaw_rate_dot=yaw_rate_dot,
+        delta_dot=delta_dot, accel_dot=accel_dot,
+        alpha_f=alpha_f, alpha_r=alpha_r,
+        # the kinematic lateral-acceleration approximation, kept because the
+        # ``correct_v_y_dot`` flag still selects it on some cars
+        a_lat_kinematic=v_x * v_x * cs.tan(delta) / (lr + lf),
+        f_expl=vertcat(s_dot, n_dot, theta_dot, v_x_dot, v_y_dot,
+                       yaw_rate_dot, delta_dot, accel_dot),
+    )
+
+
 def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
                   stmpc_config: STMPCConfig, car_config: CarConfig, tire_config: PacejkaTireConfig,
                   model_name: str = "Spatialbicycle_model"):
@@ -152,68 +240,18 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     # calculate the index
     s_mod = fmod(s, pathlength)
 
-    # single track model definition with pacejka tire model
-    # tire model
-    # side slip angle
-    v_0 = 0.5
-    # func_v = v_x * (1 / (1 + cs.exp(-v_x / v_0))) - v_x * \
-    #     (1 / (1 + cs.exp(v_x / v_0))) + v_0 * (1 / (cs.cosh(v_x / v_0)))
-    alpha_f = (cs.atan2((-v_y - (lf * yaw_rate)), v_x + v_0) + delta)
-    alpha_r = (cs.atan2((-v_y + (lr * yaw_rate)), v_x + v_0))
-
-    # load transfer
-    if stmpc_config.load_transfer:
-        F_zf = m * ((-accel * h_cg) + (g * lr)) / (lf + lr)
-        F_zr = m * ((accel * h_cg) + (g * lf)) / (lf + lr)
-    else:
-        F_zf = m * g * lr / (lf + lr)
-        F_zr = m * g * lf / (lf + lr)
-
-    # lateral tire forces
-    F_yf = MU * Df * F_zf * sin(Cf * cs.atan(Bf * alpha_f - Ef * (Bf * alpha_f - cs.atan(Bf * alpha_f))))
-    F_yr = MU * Dr * F_zr * sin(Cr * cs.atan(Br * alpha_r - Er * (Br * alpha_r - cs.atan(Br * alpha_r))))
-
-    # motor force
-    F_motor = accel * m
-    motor_split_front = 0.5
-    motor_split_rear = 1 - motor_split_front
-    F_xf = motor_split_front * F_motor
-    F_xr = motor_split_rear * F_motor
-
-    # dynamics
-    s_dot = ((v_x * cos(theta)) - (v_y * sin(theta))) / (1 - kapparef_s(s_mod) * n)
-    n_dot = v_x * sin(theta) + v_y * cos(theta)
-    theta_dot = yaw_rate - (kapparef_s(s_mod) * (((v_x * cos(theta)) -
-                            (v_y * sin(theta))) / (1 - kapparef_s(s_mod) * n)))
-    v_x_dot = (1 / m) * (
-        F_xr
-        + F_xf * cos(delta)
-        - F_yf * sin(delta)
-        + m * v_y * yaw_rate
-    )
-    v_y_dot = (1 / m) * (
-        F_yr
-        + F_xf * sin(delta)
-        + F_yf * cos(delta)
-        - m * v_x * yaw_rate
-    )
-    yaw_rate_dot = (1 / Iz) * ((-F_yr * lr) + (F_yf * lf) * cos(delta))
-
-    # delta inputs for smoother control
-    delta_dot = derDelta
-    accel_dot = jerk
+    # single track model definition with pacejka tire model, shared with the spatial
+    # reformulation in forzaeth_mpc/tompc/
+    dyn = single_track_dynamics(
+        s, n, theta, v_x, v_y, yaw_rate, delta, accel, derDelta, jerk,
+        kappa=kapparef_s(s_mod), tire=(Bf, Cf, Df, Ef, Br, Cr, Dr, Er), mu=MU,
+        car_config=car_config, load_transfer=stmpc_config.load_transfer)
+    s_dot = dyn.s_dot
+    v_x_dot = dyn.v_x_dot
+    v_y_dot = dyn.v_y_dot
 
     # continuous dynamics
-    f_expl = vertcat(
-        s_dot,
-        n_dot,
-        theta_dot,
-        v_x_dot,
-        v_y_dot,
-        yaw_rate_dot,
-        delta_dot,
-        accel_dot
-    )
+    f_expl = dyn.f_expl
     # Takes the vectors, not loose scalars: a positional scalar signature silently
     # accepts a caller that has delta and yaw_rate the wrong way round, which is exactly
     # what happened when the two single-track models were merged.
@@ -245,7 +283,7 @@ def bicycle_model(s_coords: list, kapparef: list, d_left: list, d_right: list,
     if stmpc_config.correct_v_y_dot:
         a_lat = v_y_dot
     else:
-        a_lat = v_x * v_x * cs.tan(delta) / (lr + lf)
+        a_lat = dyn.a_lat_kinematic
     constraint.pathlength = pathlength
     # TODO: introduce asymmetric constraints (now you can just over constrain breaking) with a_long_min
     if stmpc_config.combined_constraints == "ellipse":
