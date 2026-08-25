@@ -57,3 +57,14 @@ if __name__ == "__main__":
     assert np.all(np.diff(waypoints[:, WP.S]) >= 0.0), "s column must be non-decreasing"
     assert track_len > 0
     print(f"OK: THETRACK -> {waypoints.shape[0]} wpnts, track_len={track_len:.3f} m")
+
+    # the (s, n) -> (x, y) projection must not tear at the start line: it used to
+    # interpolate an unwrapped heading periodically, which turned the normal a full circle
+    # inside the last few centimetres of the lap
+    from forzaeth_mpc.sim.cli.run_laps import frenet_to_xy
+    s_q = np.linspace(-1.0, 1.0, 201)
+    for n_q in (-0.5, 0.0, 0.5):
+        x, y = frenet_to_xy(waypoints, s_q, np.full_like(s_q, n_q), track_len)
+        jump = np.hypot(np.diff(x), np.diff(y)).max()
+        assert jump < 0.05, f"projection tears at s=0 for n={n_q}: {jump:.3f} m"
+    print("OK: projection continuous across the start line")

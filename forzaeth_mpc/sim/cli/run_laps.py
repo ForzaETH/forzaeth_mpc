@@ -16,6 +16,7 @@ import os
 import time
 
 import numpy as np
+from tqdm import tqdm
 
 from forzaeth_mpc.sim.core.scenario import Scenario
 from forzaeth_mpc.sim.metrics.metrics import per_lap_times, unwrap_s
@@ -58,15 +59,29 @@ def build(algo: str, scn: Scenario, args):
 
 
 def frenet_to_xy(waypoints: np.ndarray, s: np.ndarray, n: np.ndarray, track_len: float):
-    """Project (s, n) onto the reference line, offset along its normal."""
-    ws, wx, wy = waypoints[:, 4], waypoints[:, 0], waypoints[:, 1]
+    """Project (s, n) onto the reference line, offset along its normal.
+
+    Two traps live at s = 0, and both used to bend the track around the origin:
+
+    - The waypoint list closes, so s runs 0 .. track_len with the same point at both ends.
+      `np.interp(period=)` needs one period of data and no repeat, so the duplicate has
+      to go.
+    - An unwrapped heading is not periodic. It gains 2*pi per lap, so interpolating it
+      periodically sweeps it backwards over the last segment, and the normal turns a full
+      circle inside the last few centimetres. Interpolate the tangent vector instead.
+    """
+    ws, wx, wy = waypoints[:, WP.S], waypoints[:, WP.X], waypoints[:, WP.Y]
+    if np.isclose(ws[-1], track_len):
+        ws, wx, wy = ws[:-1], wx[:-1], wy[:-1]
+    # central differences that wrap, so the tangent at the start line is not one-sided
+    tx = np.roll(wx, -1) - np.roll(wx, 1)
+    ty = np.roll(wy, -1) - np.roll(wy, 1)
+    norm = np.hypot(tx, ty)
     smod = np.mod(s, track_len)
-    x_ref = np.interp(smod, ws, wx, period=track_len)
-    y_ref = np.interp(smod, ws, wy, period=track_len)
-    # reference heading from finite differences of the waypoint polyline
-    psi = np.unwrap(np.arctan2(np.gradient(wy), np.gradient(wx)))
-    psi_at = np.interp(smod, ws, psi, period=track_len)
-    return x_ref - n * np.sin(psi_at), y_ref + n * np.cos(psi_at)
+    interp = lambda f: np.interp(smod, ws, f, period=track_len)
+    # the normal of a unit tangent (tx, ty) is (-ty, tx), which is +n to the left
+    return (interp(wx) - n * interp(ty / norm),
+            interp(wy) + n * interp(tx / norm))
 
 
 def track_bounds_xy(waypoints: np.ndarray, track_len: float):
@@ -107,7 +122,7 @@ def run(algo: str, scn: Scenario, args) -> dict:
 
     xs, us, costs, stats, solve_ms = [], [], [], [], []
     laps_done, target_s = 0, None
-    for k in range(args.max_steps):
+    for k in tqdm(range(args.max_steps)):
         ctrl.pin_state(x)
         ctrl.set_online_params(scn.waypoints, qdict, float(args.mu_mpc),
                                track_len_fallback=scn.track_len)

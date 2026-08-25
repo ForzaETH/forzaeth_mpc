@@ -93,34 +93,24 @@ class SimVideo:
         self.ax_xy.set_xlim(min(lx.min(), rx.min()) - pad, max(lx.max(), rx.max()) + pad)
         self.ax_xy.set_ylim(min(ly.min(), ry.min()) - pad, max(ly.max(), ry.max()) + pad)
 
-    def _break_at_lap_wrap(self, s: np.ndarray, x: np.ndarray, y: np.ndarray):
-        """Insert a gap where s crosses the start line.
-
-        The path comes from (s, n), so a lap boundary is a jump of nearly a whole track
-        length. Without a break the line closes that jump with a chord across the track.
-        """
-        jump = np.abs(np.diff(np.mod(s, self.track_len))) > 0.5 * self.track_len
-        if not jump.any():
-            return x, y
-        cut = np.flatnonzero(jump) + 1
-        return np.insert(x, cut, np.nan), np.insert(y, cut, np.nan)
-
     def add(self, X: np.ndarray, sd: np.ndarray, dt: float, laps: int = 0) -> None:
         """`X` is the state history, `sd` the predicted (s, n) over the horizon."""
         if X.size == 0:
             return
         from forzaeth_mpc.sim.cli.run_laps import frenet_to_xy
 
+        # no wrap handling: frenet_to_xy maps s and s + track_len to the same point, so a
+        # lap boundary is two adjacent samples and the line closes on itself
         keep = max(1, int(self.history_s / dt))
         tail = X[-keep:]
         px, py = frenet_to_xy(self.waypoints, tail[:, S], tail[:, N], self.track_len)
         self.car.set_data(px[-1:], py[-1:])
-        self.path_line.set_data(*self._break_at_lap_wrap(tail[:, S], px, py))
+        self.path_line.set_data(px, py)
 
         if sd is not None and len(sd):
             sd = np.asarray(sd, dtype=float)
             hx, hy = frenet_to_xy(self.waypoints, sd[:, 0], sd[:, 1], self.track_len)
-            self.horizon.set_data(*self._break_at_lap_wrap(sd[:, 0], hx, hy))
+            self.horizon.set_data(hx, hy)
 
         t = np.arange(X.shape[0]) * dt
         self.speed.set_data(t[-keep:], tail[:, VX])
