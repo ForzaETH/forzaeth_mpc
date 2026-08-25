@@ -58,6 +58,32 @@ A lap of THETRACK takes approximately 377 steps at `--dt 0.02`. Keep `--steps` w
 that number. A run that completes no lap reports no lap time, and the metrics that need one
 become useless.
 
+## Tracks
+
+Every command takes `--track`. The name resolves against `tracks/` in the repository, and
+`FORZAETH_MPC_TRACKS` moves that search elsewhere. Two layouts work:
+
+```
+<dir>/<name>.json                      # the repository uses this one
+<dir>/<name>/global_waypoints.json     # stack_master/maps uses this one
+```
+
+So the maps of race_stack need no copy and no rename:
+
+```bash
+export FORZAETH_MPC_TRACKS=$(rospack find stack_master)/maps
+python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
+```
+
+`--track` also takes a path to any `global_waypoints.json`.
+
+`--refline` picks the raceline inside the file. Every map of race_stack holds `iqp` and `sp`.
+A file that lacks the one you ask for reports which ones it holds.
+
+A track carries the speed profile and the width of the track, and nothing else. The car
+configuration stays the same. Weights tuned on a 26 m track are not tuned for an 83 m one, so
+run `tune_mpc_weights --track <name>` after a change of track.
+
 ### run_laps.py
 
 This command drives one or more controllers for a given number of laps. It writes a fixed set
