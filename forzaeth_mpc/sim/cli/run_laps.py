@@ -27,10 +27,12 @@ def control_period(algo: str, scn: Scenario, args) -> float:
     """1 / MPC_freq of the algorithm's own config, unless --dt overrides it."""
     if args.dt:
         return float(args.dt)
-    from forzaeth_mpc.config import load_KMPC_config_ros, load_LBMPC_config_ros
+    from forzaeth_mpc.config import (load_KMPC_config_ros, load_LBMPC_config_ros,
+                                     load_TOMPC_config_ros)
     cfg = {"stmpc": lambda: scn.stmpc_config,
            "kmpc": lambda: load_KMPC_config_ros(scn.racecar_version),
-           "lbmpc": lambda: load_LBMPC_config_ros(scn.racecar_version)}[algo]()
+           "lbmpc": lambda: load_LBMPC_config_ros(scn.racecar_version),
+           "tompc": lambda: load_TOMPC_config_ros(scn.racecar_version)}[algo]()
     return 1.0 / float(cfg.MPC_freq)
 
 
@@ -43,6 +45,9 @@ def build(algo: str, scn: Scenario, args):
         return C.ControllerMPC(mpc, scn.track_len, dt)
     if algo == "kmpc":
         return C.ControllerKMPC(scn.make_kmpc(dt=dt), scn.track_len, dt)
+    if algo == "tompc":
+        mpc = scn.make_tompc(s0=args.s0, n0=args.n0, psi0=args.psi0, dt=dt)
+        return C.ControllerTOMPC(mpc, scn.track_len, dt)
     if algo == "lbmpc":
         mpc = scn.make_lbmpc(s0=args.s0, n0=args.n0, psi0=args.psi0, dt=dt,
                              lbmpc_path=args.lbmpc_path, gp_mode=args.gp_mode,
@@ -78,6 +83,14 @@ def run(algo: str, scn: Scenario, args) -> dict:
 
     qdict = weights_from_config(ctrl.mpc)
 
+    live = None
+    if args.live:
+        from forzaeth_mpc.sim.plotting.live import LiveView
+        live = LiveView(scn.waypoints, scn.track_len,
+                        f"{algo.upper()} — {args.track} / {args.racecar_version} — live")
+        if not live.ok:
+            live = None
+
     xs, us, costs, stats, solve_ms = [], [], [], [], []
     laps_done, target_s = 0, None
     for k in range(args.max_steps):
@@ -85,7 +98,7 @@ def run(algo: str, scn: Scenario, args) -> dict:
         ctrl.set_online_params(scn.waypoints, qdict, float(args.mu_mpc),
                                track_len_fallback=scn.track_len)
         t0 = time.perf_counter()
-        u0, _, cost, status = ctrl.solve()
+        u0, sd, cost, status = ctrl.solve()
         solve_ms.append((time.perf_counter() - t0) * 1e3)
 
         x = ctrl.step_plant(x, u0)
@@ -103,8 +116,15 @@ def run(algo: str, scn: Scenario, args) -> dict:
             target_s = X[0, S]
         laps_done = int(np.floor((unwrap_s(X[:, S], scn.track_len)[-1] - target_s)
                                  / scn.track_len))
+        if live is not None and k % args.live_every == 0:
+            live.update(X, sd, dt, laps=laps_done)
+
         if laps_done >= args.laps:
             break
+
+    if live is not None:
+        # the interactive figure must go before plot() switches the backend to Agg
+        live.close()
 
     X = np.asarray(xs)
     return summarize(algo, args, scn, ctrl, dt, X, np.asarray(us),
@@ -118,11 +138,13 @@ def weights_from_config(mpc) -> dict:
     keys, so only the ones the algorithm actually has are passed.
     """
     cfg = (getattr(mpc, "stmpc_config", None) or getattr(mpc, "kmpc_config", None)
-           or getattr(mpc, "lbmpc_config", None))
+           or getattr(mpc, "lbmpc_config", None) or getattr(mpc, "tompc_config", None))
     q = {}
     for key, attr in (("q_adv", "qadv"), ("q_v", "qv"), ("q_n", "qn"),
                       ("q_alpha", "qalpha"), ("q_jerk", "qjerk"), ("q_ac", "qac"),
                       ("q_ddelta", "qddelta"),
+                      ("q_time", "qtime"), ("q_vy", "qvy"),
+                      ("q_v_terminal", "qv_terminal"),
                       ("terminal_multiplier", "terminal_multiplier")):
         if hasattr(cfg, attr):
             q[key] = float(getattr(cfg, attr))
@@ -142,6 +164,8 @@ def summarize(algo, args, scn, ctrl, dt, X, U, C, St, T) -> dict:
         # the kinematic model has no tire model, so friction does not enter it
         "mu_track": None if algo == "kmpc" else args.mu_track,
         "mu_mpc": None if algo == "kmpc" else args.mu_mpc,
+        # the traversal time of the last horizon: TOMPC's actual objective
+        "horizon_time_s": getattr(ctrl.mpc, "horizon_time", None),
         "steps": int(X.shape[0]),
         "sim_time_s": float(X.shape[0] * dt),
         "laps_completed": int(len(laps)),
@@ -222,7 +246,7 @@ def plot(res: dict, out_dir: str, waypoints: np.ndarray, track_len: float):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--algo", nargs="+", default=["stmpc"],
-                    choices=["stmpc", "kmpc", "lbmpc"])
+                    choices=["stmpc", "kmpc", "lbmpc", "tompc"])
     ap.add_argument("--track", default="THETRACK")
     ap.add_argument("--racecar_version", default="NUC5")
     ap.add_argument("--floor", default="dubi")
@@ -247,6 +271,11 @@ def main():
     ap.add_argument("--lbmpc_path", default="/tmp/lbmpc_sim")
     ap.add_argument("--out", default="/tmp/mpc_laps")
     ap.add_argument("--plot", action="store_true")
+    ap.add_argument("--live", action="store_true",
+                    help="show the driven path, the predicted horizon and the speed while "
+                         "the simulation runs. Needs an interactive matplotlib backend.")
+    ap.add_argument("--live_every", type=int, default=5,
+                    help="redraw the live view every N control steps (default 5)")
     ap.add_argument("--dump_states", action="store_true",
                     help="save the closed-loop state and input trajectories as .npy, for "
                          "before/after comparison across a refactor")

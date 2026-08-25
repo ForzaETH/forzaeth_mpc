@@ -901,3 +901,77 @@ def find_params(coords: np.ndarray):
     cum_param.append(length)
 
     return cum_param, length
+
+
+def track_coords_from_waypoints(waypoints_data: np.ndarray) -> np.ndarray:
+    """Build the ``coords_direct`` argument of :class:`SplineTrack` from a waypoint array.
+
+    One copy for every controller that needs it. STMPC, LB-MPC and TOMPC each used to
+    carry their own, and the STMPC and LB-MPC ones were textually identical -- the kind
+    of duplication that lets one of them get a fix and the others not.
+
+    Parameters
+    ----------
+    waypoints_data : np.ndarray
+        Shape (N, >= 7) with columns [x, y, vx, kappa, s, d_left, d_right]
+
+    Returns
+    -------
+    np.ndarray
+        Shape (3, N, 2): [boundaries_left, centerline, boundaries_right]
+    """
+    if waypoints_data.ndim != 2 or waypoints_data.shape[1] < 7:
+        raise ValueError(
+            "waypoints_data must be (N, >=7): [x, y, vx, kappa, s, d_left, d_right]"
+        )
+
+    # Extract columns we need
+    xy = waypoints_data[:, :2].astype(float)            # (N, 2)
+    d_left = waypoints_data[:, 5].astype(float).copy()  # (N,)
+    d_right = waypoints_data[:, 6].astype(float).copy()  # (N,)
+
+    # If the track is closed (last == first), drop the duplicated last point
+    if np.allclose(xy[0], xy[-1], atol=1e-9):
+        xy = xy[:-1]
+        d_left = d_left[:-1]
+        d_right = d_right[:-1]
+
+    N = xy.shape[0]
+    if N == 0:
+        raise ValueError("Empty waypoint array after processing.")
+    if N == 1:
+        # Degenerate: just replicate centerline to both sides
+        boundaries_left = xy.copy()
+        boundaries_right = xy.copy()
+        return np.stack([boundaries_left, xy, boundaries_right], axis=0)
+
+    # Forward segment directions to next point
+    next_xy = np.roll(xy, -1, axis=0)
+    seg = next_xy - xy  # (N, 2)
+
+    # If open track, the last segment should not wrap to the first
+    open_track = not np.allclose(xy[0], xy[-1], atol=1e-9)
+    if open_track:
+        seg[-1] = xy[-1] - xy[-2]
+
+    # Normalize robustly; fill invalid with previous valid or [1, 0]
+    norms = np.linalg.norm(seg, axis=1)
+    eps = 1e-12
+    dir_xy = np.zeros_like(seg)
+    valid = norms > eps
+    dir_xy[valid] = (seg[valid].T / norms[valid]).T
+
+    for i in range(N):
+        if not valid[i]:
+            dir_xy[i] = dir_xy[i - 1] if i > 0 else np.array([1.0, 0.0])
+
+    # Left normal (+90° rotation): [-dy, dx]
+    nL = np.column_stack((-dir_xy[:, 1], dir_xy[:, 0]))  # (N, 2)
+
+    # Boundaries
+    boundaries_left = xy + nL * d_left[:, None]
+    boundaries_right = xy - nL * d_right[:, None]
+
+    # Stack as required by SplineTrack(coords_direct=...)
+    res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)  # (3, N, 2)
+    return res_coords

@@ -60,6 +60,23 @@ class Scenario:
         )
         return mpc
 
+    def make_tompc(self, s0: float, n0: float, psi0: float, dt: float):
+        """Time-optimal MPC. Same configs as STMPC plus its own schema; the horizon is
+        a distance, so ``dt`` only sets the rate the controller is called at."""
+        from forzaeth_mpc.config import load_TOMPC_config_ros
+        from forzaeth_mpc.tompc import TOMPC
+        return TOMPC(
+            pose_frenet=np.array([s0, n0, psi0], dtype=float),
+            waypoints_data=self.waypoints,
+            racecar_version=self.racecar_version,
+            tompc_config=load_TOMPC_config_ros(self.racecar_version),
+            car_config=self.car_config,
+            tire_config=self.tire_config,
+            trailing_config=self.trailing_config,
+            controller_frequency=(1.0 / dt),
+            using_gokart=False,
+        )
+
     def make_kmpc(self, dt: float):
         """Kinematic MPC. Takes no tire config (kinematic model) and no frequency."""
         from forzaeth_mpc.kmpc import Kinematic_MPC_Controller

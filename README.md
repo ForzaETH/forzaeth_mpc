@@ -15,10 +15,18 @@ configuration schemas and the simulator.
 | `forzaeth_mpc/kmpc/` | Kinematic bicycle MPC. Five states. No tire model. |
 | `forzaeth_mpc/stmpc/` | Single-track MPC with a Pacejka tire model. Eight states. |
 | `forzaeth_mpc/lbmpc/` | The single-track MPC plus a learnt residual, and optional ZoRO constraint tightening. |
+| `forzaeth_mpc/tompc/` | Time-optimal MPC. The single-track model reformulated over distance. Nine states. |
 
-STMPC and LB-MPC share one model, `forzaeth_mpc/stmpc/bicycle_model.py`. The state order is
-`[s, n, theta, v_x, v_y, yaw_rate, delta, accel]`. The input order is `[ddelta, jerk]`. Use
-`forzaeth_mpc.utils.indices` to read either one. Do not use integer literals.
+STMPC, LB-MPC and TOMPC share one model, `forzaeth_mpc/stmpc/bicycle_model.py`. The state
+order is `[s, n, theta, v_x, v_y, yaw_rate, delta, accel]`. The input order is
+`[ddelta, jerk]`. Use `forzaeth_mpc.utils.indices` to read either one. Do not use integer
+literals.
+
+TOMPC integrates over the path coordinate instead of over time, and minimises the time the
+horizon takes rather than the error against a speed profile. It appends elapsed time to the
+state, so its `x[:8]` is still a single-track state. Read
+[`forzaeth_mpc/tompc/README.md`](forzaeth_mpc/tompc/README.md) before tuning it: its
+acceleration limits are load-bearing where the other controllers' are not.
 
 LB-MPC learns `x_{k+1} = f_nominal(x_k, u_k) + B*mu_GP(z_k)` while it drives. The residual is
 not part of the CasADi model. l4acados applies it outside the model. Read
@@ -47,7 +55,7 @@ The plant accepts a different friction value than the MPC assumes. It can also a
 the state. Use both to introduce model error on purpose.
 
 ```bash
-python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc kmpc lbmpc --laps 20 --plot
+python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc kmpc lbmpc tompc --laps 20 --plot
 python3 -m forzaeth_mpc.sim.cli.run_single_rollout      # one rollout, with plots
 python3 -m forzaeth_mpc.sim.cli.analyze_cost_vs_mu      # friction sweep
 python3 -m forzaeth_mpc.sim.cli.tune_mpc_weights        # weight search with Optuna

@@ -362,10 +362,13 @@ if __name__ == "__main__":
     n = 32
     # the builder does array arithmetic on these, so ndarrays not lists
     s_coords = _np.linspace(0.0, 10.0, n)
-    flat = _np.zeros(n)
+    # A curved reference, not a flat one: casadi's bspline fit returns nan for an
+    # all-zero value vector, so a zero curvature makes kapparef_s(s) nan and every
+    # derivative that touches it nan too.
+    kappa = 0.2 * _np.sin(2 * _np.pi * s_coords / s_coords[-1])
     ones = _np.ones(n)
     model, _constraint, _params = bicycle_model(
-        s_coords, flat, ones, ones,
+        s_coords, kappa, ones, ones,
         load_STMPC_config_ros("NUC5"), load_car_config_ros("NUC5"),
         load_pacejka_tire_config_ros("NUC5", "dubi"))
 

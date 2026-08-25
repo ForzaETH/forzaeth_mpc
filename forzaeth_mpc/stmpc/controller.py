@@ -8,7 +8,8 @@ from scipy.integrate import solve_ivp
 from forzaeth_mpc.stmpc.acados_settings import acados_settings
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
 from forzaeth_mpc.utils.indices import InputIndex, StateIndex
-from forzaeth_mpc.utils.splinify import SplineTrack
+from forzaeth_mpc.utils.splinify import (SplineTrack,
+                                         track_coords_from_waypoints)
 
 try:
     from casadi import DM
@@ -327,78 +328,12 @@ class STMPC:
         return trailing_cmd
 
     def transform_waypoints_to_coords_from_array(self, waypoints_data: np.ndarray) -> np.ndarray:
+        """Build track coordinates (left boundary, centerline, right boundary).
+
+        Kept as a method because callers use it as one; the implementation is shared
+        with the other controllers in ``utils/splinify.py``.
         """
-        Build track coordinates (left boundary, centerline, right boundary) from an
-        ndarray of waypoints.
-
-        Parameters
-        ----------
-        waypoints_data : np.ndarray
-            Shape (N, >= 7) with columns:
-            [x, y, vx, kappa, s, d_left, d_right]
-
-        Returns
-        -------
-        res_coords : np.ndarray
-            Shape (3, N, 2), stacked as:
-            [boundaries_left, centerline, boundaries_right]
-            where each slice is (N, 2) with XY points.
-        """
-        if waypoints_data.ndim != 2 or waypoints_data.shape[1] < 7:
-            raise ValueError(
-                "waypoints_data must be (N, >=7): [x, y, vx, kappa, s, d_left, d_right]"
-            )
-
-        # Extract columns we need
-        xy = waypoints_data[:, :2].astype(float)            # (N, 2)
-        d_left = waypoints_data[:, 5].astype(float).copy()  # (N,)
-        d_right = waypoints_data[:, 6].astype(float).copy()  # (N,)
-
-        # If the track is closed (last == first), drop the duplicated last point
-        if np.allclose(xy[0], xy[-1], atol=1e-9):
-            xy = xy[:-1]
-            d_left = d_left[:-1]
-            d_right = d_right[:-1]
-
-        N = xy.shape[0]
-        if N == 0:
-            raise ValueError("Empty waypoint array after processing.")
-        if N == 1:
-            # Degenerate: just replicate centerline to both sides
-            boundaries_left = xy.copy()
-            boundaries_right = xy.copy()
-            return np.stack([boundaries_left, xy, boundaries_right], axis=0)
-
-        # Forward segment directions to next point
-        next_xy = np.roll(xy, -1, axis=0)
-        seg = next_xy - xy  # (N, 2)
-
-        # If open track, the last segment should not wrap to the first
-        open_track = not np.allclose(xy[0], xy[-1], atol=1e-9)
-        if open_track:
-            seg[-1] = xy[-1] - xy[-2]
-
-        # Normalize robustly; fill invalid with previous valid or [1, 0]
-        norms = np.linalg.norm(seg, axis=1)
-        eps = 1e-12
-        dir_xy = np.zeros_like(seg)
-        valid = norms > eps
-        dir_xy[valid] = (seg[valid].T / norms[valid]).T
-
-        for i in range(N):
-            if not valid[i]:
-                dir_xy[i] = dir_xy[i - 1] if i > 0 else np.array([1.0, 0.0])
-
-        # Left normal (+90° rotation): [-dy, dx]
-        nL = np.column_stack((-dir_xy[:, 1], dir_xy[:, 0]))  # (N, 2)
-
-        # Boundaries
-        boundaries_left = xy + nL * d_left[:, None]
-        boundaries_right = xy - nL * d_right[:, None]
-
-        # Stack as required by SplineTrack(coords_direct=...)
-        res_coords = np.stack([boundaries_left, xy, boundaries_right], axis=0)  # (3, N, 2)
-        return res_coords
+        return track_coords_from_waypoints(waypoints_data)
 
     def set_sim_mu(self, mu: float) -> None:
         """

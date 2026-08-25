@@ -36,11 +36,20 @@ class TOMPCConfig(BaseModel):
     s_dot_min: float
     """Lower bound on ds/dt [m/s]. The spatial dynamics divide by ds/dt, so this bound
     is what keeps the model non-singular; it must be strictly positive"""
+    s_dot_max: float
+    """Upper bound on ds/dt [m/s]. ds/dt has (1 - kappa*n) in its denominator, so a
+    large enough lateral deviation drives the predicted traversal time to zero -- an
+    optimum the solver will otherwise buy by paying the soft boundary penalty. This
+    bound is hard, and it is what makes the objective bounded. Set it above the largest
+    ds/dt the car can physically reach, roughly 2 * v_max"""
 
     # Cost function settings #
     qtime: float
-    """Weight on the traversal time. With qtime = 1 the time term of the cost is the
-    horizon traversal time in seconds, so every other weight trades against seconds"""
+    """Weight on the traversal time: the time term of the cost is exactly
+    ``qtime * (horizon traversal time in seconds)``. Every other weight is therefore
+    read as a trade against ``qtime`` per second. Only the ratios change the optimum,
+    so the default is large enough to keep every cost term of order 1, which the QP
+    prefers, rather than 1"""
     qv: float
     """Velocity tracking cost weight. Only active while TRAILING, where the target speed
     comes from the gap controller instead of from the time-optimal objective"""

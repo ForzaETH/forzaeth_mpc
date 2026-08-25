@@ -29,3 +29,26 @@ class StateIndex(IntEnum):
 class InputIndex(IntEnum):
     D_STEERING_ANGLE = 0
     JERK = 1
+
+
+class SpatialStateIndex(IntEnum):
+    """State layout of the time-optimal, spatial model in ``forzaeth_mpc/tompc/``.
+
+    The first eight entries are ``StateIndex`` unchanged, on purpose: elapsed time is
+    appended rather than inserted, so ``x[:8]`` of a spatial state is a single-track
+    state and every consumer that slices the first eight -- the plant, the metrics, the
+    ROS viz node that reads ``8 * stage`` -- needs no remapping.
+
+    ``s`` is still a state even though it is also the independent variable. It
+    integrates as ``ds/ds = 1``, which costs one state and lets the curvature spline
+    stay inside the model instead of becoming a per-stage online parameter.
+    """
+    POS_ON_CENTER_LINE_S = 0
+    MIN_DIST_TO_CENTER_LINE_N = 1
+    ORIENTATION_THETA = 2
+    VELOCITY_V_X = 3
+    VELOCITY_V_Y = 4
+    YAW_RATE = 5
+    STEERING_ANGLE_DELTA = 6
+    ACCEL = 7
+    TIME = 8

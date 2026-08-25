@@ -179,6 +179,98 @@ class ControllerKMPC(ControllerMPC):
         super().pin_state(x0_full)
 
 
+class ControllerTOMPC(ControllerMPC):
+    """Same façade for the time-optimal MPC.
+
+    Two things are not like ``ControllerMPC``:
+
+    - the OCP state has nine entries (elapsed time appended), while the plant state is
+      the usual eight plus the two input slots. ``pin_state`` bridges them; because time
+      is *appended* and not inserted, that is a copy of the first eight and a zero.
+    - there is no reference speed to look up, so ``set_online_params`` never reads the
+      waypoint array and passes the racing weights, which zero ``q_v``. That is the
+      whole point of the controller, not an omission.
+    """
+
+    def __init__(self, mpc, track_len: float, dt: Optional[float] = None,
+                 integrator: str = "rk4", noise_vars: Optional[np.ndarray] = None):
+        self.mpc = mpc
+        self.H = mpc.tompc_config.N
+        self.nx = int(mpc.model.n_x)      # 9: [s, n, theta, vx, vy, r, delta, a, t]
+        self.nx_plant = 8                 # the time-domain single-track state
+        self.nu = int(mpc.model.n_u)      # 2: [ddelta, jerk]
+        self.solver = mpc.acados_solver
+        self.track_len = track_len
+        self.dt = float(dt) if dt is not None else 1.0 / mpc.tompc_config.MPC_freq
+        self.plant = Plant(mpc._dynamics_of_car, self.dt, integrator, noise_vars)
+
+    def set_online_params(self,
+                          waypoints: np.ndarray,
+                          qdict: Dict[str, float],
+                          mpc_mu: float,
+                          track_len_fallback: float):
+        """``waypoints`` is unused: a time-optimal controller has no speed reference."""
+        from forzaeth_mpc.tompc.online_params import \
+            build_online_params as build_tompc_params
+        from forzaeth_mpc.tompc.online_params import racing_weights
+
+        cfg = self.mpc.tompc_config
+        weights = racing_weights(cfg)
+        weights.update({k: v for k, v in (qdict or {}).items() if k in weights})
+        weights["q_v"] = 0.0  # whatever the harness passed, racing does not track a speed
+
+        p = build_tompc_params(cfg, self.mpc.tire_config, target_v=0.0, overtake_d=0.0,
+                               mu=float(mpc_mu), weights=weights)
+        for i in range(self.H + 1):
+            self.solver.set(i, "p", p)
+            if i < self.H:
+                self.solver.set(i, "lbu", np.array([cfg.ddelta_min, cfg.jerk_min]))
+                self.solver.set(i, "ubu", np.array([cfg.ddelta_max, cfg.jerk_max]))
+                self.solver.set(i + 1, "lbx", np.array([cfg.v_min, cfg.delta_min, cfg.a_min]))
+                self.solver.set(i + 1, "ubx", np.array([cfg.v_max, cfg.delta_max, cfg.a_max]))
+
+    def pin_state(self, x0_full: np.ndarray):
+        """Plant state (8 + 2 input slots) -> OCP state (8 + elapsed time)."""
+        from forzaeth_mpc.utils.indices import SpatialStateIndex
+
+        x = np.asarray(x0_full, dtype=float).reshape(-1)
+        x0 = np.zeros(self.nx)
+        x0[:self.nx_plant] = x[:self.nx_plant]
+        # v_x is pinned as an equality, so it has to be inside its own bounds, and
+        # strictly above zero: the spatial model divides by ds/dt.
+        x0[StateIndex.VELOCITY_V_X] = np.clip(
+            x0[StateIndex.VELOCITY_V_X],
+            self.mpc.tompc_config.v_min, self.mpc.tompc_config.v_max)
+        x0[SpatialStateIndex.TIME] = 0.0
+        self._x0_pinned = x0.copy()
+        self.solver.set(0, "lbx", x0)
+        self.solver.set(0, "ubx", x0)
+
+    def _warm_start(self):
+        x0 = self._x0_pinned
+        self.mpc.apply_warm_start(pose_frenet=x0[:3], v_x=x0[StateIndex.VELOCITY_V_X])
+
+    def solve(self):
+        out = super().solve()
+        # the clock at the last node is the horizon traversal time, i.e. the quantity
+        # this controller is actually minimising. main_loop records it on the car; the
+        # harness bypasses main_loop, so record it here too.
+        from forzaeth_mpc.utils.indices import SpatialStateIndex
+        self.mpc.horizon_time = float(
+            self.solver.get(self.H, "x")[SpatialStateIndex.TIME])
+        return out
+
+    def step_plant(self, x: np.ndarray, u0: np.ndarray) -> np.ndarray:
+        """One step of the *time-domain* model: the loop closes in time, not distance."""
+        x = np.asarray(x, dtype=float).reshape(-1)
+        x_full = np.zeros(self.nx_plant + self.nu)
+        x_full[:self.nx_plant] = x[:self.nx_plant]
+        u0 = np.asarray(u0, dtype=float).reshape(-1)
+        x_full[StateIndex.INPUT_JERK] = u0[self.idx_jerk]
+        x_full[StateIndex.INPUT_DSTEERING] = u0[self.idx_ddelta]
+        return self.plant.step(x_full)
+
+
 class ControllerLBMPC:
     """Same façade for the learning-based MPC.
 
@@ -332,7 +424,7 @@ if __name__ == "__main__":
     from forzaeth_mpc.config import (load_KMPC_config_ros,
                                      load_LBMPC_config_ros,
                                      load_pacejka_tire_config_ros,
-                                     load_STMPC_config_ros)
+                                     load_STMPC_config_ros, load_TOMPC_config_ros)
 
     def _stub(nx, nu, **kwargs):
         return SimpleNamespace(
@@ -345,6 +437,7 @@ if __name__ == "__main__":
     stmpc_config = load_STMPC_config_ros("NUC5")
     kmpc_config = load_KMPC_config_ros("NUC5")
     lbmpc_config = load_LBMPC_config_ros("NUC5")
+    tompc_config = load_TOMPC_config_ros("NUC5")
     tire_config = load_pacejka_tire_config_ros("NUC5", "dubi")
 
     adapters = [
@@ -352,6 +445,8 @@ if __name__ == "__main__":
         ControllerKMPC(_stub(5, 2, kmpc_config=kmpc_config), 26.06, 0.02),
         ControllerLBMPC(_stub(8, 2, lbmpc_config=lbmpc_config, tire_config=tire_config,
                               residual_gp=None), 26.06, 0.02),
+        ControllerTOMPC(_stub(9, 2, tompc_config=tompc_config, tire_config=tire_config),
+                        26.06, 0.02),
     ]
     for ctrl in adapters:
         for attr in ("mpc", "H", "nx", "nu", "solver", "set_online_params",
@@ -370,4 +465,17 @@ if __name__ == "__main__":
     assert p_l[MU_IDX] == 0.63
     assert p_l[14] == tire_config.Bf
 
-    print("OK: 3 adapters expose the interface; p layouts are 10 (KMPC) / 22 (single-track)")
+    # TOMPC's OCP state is one longer than its plant state, and the extra entry is
+    # appended rather than inserted. That is the invariant every consumer that slices
+    # the first eight -- the plant, the metrics, the ROS viz node -- relies on.
+    from forzaeth_mpc.utils.indices import SpatialStateIndex
+
+    tompc = adapters[-1]
+    assert (tompc.nx, tompc.nx_plant) == (9, 8), (tompc.nx, tompc.nx_plant)
+    assert int(SpatialStateIndex.TIME) == 8, "time must be appended, not inserted"
+    for i in range(8):
+        assert int(SpatialStateIndex(i)) == int(StateIndex(i)), (
+            f"spatial state {i} must match the single-track layout")
+
+    print("OK: 4 adapters expose the interface; p layouts are 10 (KMPC) / "
+          "22 (single-track) / 24 (TOMPC)")
