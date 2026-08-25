@@ -29,6 +29,7 @@ from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
 # Core stack
+from ..tracks import REFLINES
 from ..core.scenario import Scenario
 # Metrics
 from ..metrics.metrics import (lap_time, mean_abs_speed_error,
@@ -213,7 +214,7 @@ def main():
     p.add_argument("--track", type=str, default="THETRACK")
     p.add_argument("--racecar_version", type=str, default="NUC5")
     p.add_argument("--floor", type=str, default="dubi")
-    p.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
+    p.add_argument("--refline", type=str, default="iqp", choices=sorted(REFLINES))
     p.add_argument("--dt", type=float, default=0.02)
     # a lap on THETRACK is ~377 steps at dt=0.02. Anything near that means the
     # worse weights Optuna samples never finish one, lap_time() returns NaN and

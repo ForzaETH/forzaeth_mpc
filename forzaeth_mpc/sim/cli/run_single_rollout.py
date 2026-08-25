@@ -25,6 +25,7 @@ from forzaeth_mpc.sim.waypoints import WP
 from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
+from ..tracks import REFLINES
 from ..core.scenario import Scenario
 from ..metrics.metrics import (mean_abs_speed_error, mean_abs_track_error,
                                rms_track_error, unwrap_s)
@@ -105,7 +106,7 @@ def main():
     ap.add_argument("--track", type=str, default="THETRACK")
     ap.add_argument("--racecar_version", type=str, default="NUC5")
     ap.add_argument("--floor", type=str, default="dubi")
-    ap.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
+    ap.add_argument("--refline", type=str, default="iqp", choices=sorted(REFLINES))
 
     ap.add_argument("--dt", type=float, default=0.02)
     ap.add_argument("--steps", type=int, default=600, help="Number of control steps to simulate (default: 1).")

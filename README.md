@@ -112,8 +112,18 @@ export FORZAETH_MPC_CONFIG=$(rospack find stack_master)/config
 The fixtures do not repeat the tuning values of the cars. Car `NUC5` with floor `dubi` is
 the combination that the simulator uses by default, and the only complete one.
 
-`tracks/*.json` are `global_waypoints.json` files from the global planner of race_stack. Set
-`FORZAETH_MPC_TRACKS` to read them from a different directory.
+`tracks/*.json` are `global_waypoints.json` files from the global planner of race_stack.
+`--track` takes the name of a file in that directory, or a path to any such file. To read the
+maps of race_stack where they already are:
+
+```bash
+export FORZAETH_MPC_TRACKS=$(rospack find stack_master)/maps
+python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
+```
+
+`FORZAETH_MPC_TRACKS` accepts both layouts: `<name>.json` and `<name>/global_waypoints.json`.
+Use `--refline` to pick the raceline in the file. Every map of race_stack holds `iqp` and
+`sp`.
 
 ## Use from race_stack
 

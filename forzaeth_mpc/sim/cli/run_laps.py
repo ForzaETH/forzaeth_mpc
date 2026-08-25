@@ -18,6 +18,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 
+from forzaeth_mpc.sim.tracks import REFLINES
 from forzaeth_mpc.sim.core.scenario import Scenario
 from forzaeth_mpc.sim.metrics.metrics import per_lap_times, unwrap_s
 from forzaeth_mpc.sim.waypoints import WP
@@ -281,7 +282,7 @@ def main():
     ap.add_argument("--track", default="THETRACK")
     ap.add_argument("--racecar_version", default="NUC5")
     ap.add_argument("--floor", default="dubi")
-    ap.add_argument("--refline", default="iqp", choices=["iqp", "mintime"])
+    ap.add_argument("--refline", default="iqp", choices=sorted(REFLINES))
     ap.add_argument("--laps", type=int, default=20)
     ap.add_argument("--dt", type=float, default=None,
                     help="control period; default is 1/MPC_freq from the algorithm's own config")

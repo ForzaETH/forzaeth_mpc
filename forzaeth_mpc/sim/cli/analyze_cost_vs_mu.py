@@ -21,6 +21,7 @@ from tqdm.auto import tqdm
 from ..core.controllers import ControllerMPC
 from ..core.plant import Plant
 from ..core.rollout import RolloutRunner
+from ..tracks import REFLINES
 from ..core.scenario import Scenario
 from ..metrics.metrics import (completion_ratio, lap_time,
                                mean_abs_speed_error, mean_abs_track_error,
@@ -38,7 +39,7 @@ def main():
     # lower-mu cases eat into
     ap.add_argument("--steps", type=int, default=700)
     ap.add_argument("--integrator", type=str, default="rk4")
-    ap.add_argument("--refline", type=str, default="iqp", choices=["iqp", "mintime"])
+    ap.add_argument("--refline", type=str, default="iqp", choices=sorted(REFLINES))
 
     # Split μ explicitly:
     ap.add_argument("--mu_track", type=float, default=1.00, help="Plant/track μ via set_sim_mu")
