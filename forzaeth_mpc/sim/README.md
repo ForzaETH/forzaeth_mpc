@@ -74,20 +74,21 @@ period for each call. Use `--dt` to override the period.
 `--dump_states` writes the state and the input of every step to a `.npy` file. Use it to
 compare two versions of the code.
 
-`--live` opens a window and updates it while the simulation runs. It draws the last few
-seconds of the driven path, the horizon that the controller predicts at each step, and the
-speed. The predicted horizon is the part that a saved figure cannot show.
+`--video` records the run to `<out>/<algo>_run.mp4`. Each frame draws the track boundaries,
+the last few seconds of the driven path, the horizon that the controller predicts at that
+step, and the speed. The predicted horizon is the part that a saved figure cannot show.
 
 ```bash
-python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --laps 20 --live
+python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --laps 2 --video --out /tmp/mpc_laps
 ```
 
-`--live_every N` sets how often the window redraws, in control steps. The default is 5. A
-redraw costs about 40 ms, so the default adds roughly 15 % to the run time at 20 Hz. Raise
-the number to pay less.
+The file needs no display, because the figure is never shown. The recorder uses ffmpeg if it
+finds it, and the binary of `imageio-ffmpeg` if ffmpeg is not on the path. Without either it
+writes an animated gif, which is about 20 times larger.
 
-The window needs an interactive matplotlib backend. With `MPLBACKEND=Agg`, or with no
-display, the option reports that it is disabled and the run continues.
+`--video_every N` records one frame every N control steps. `--video_fps` sets the rate of the
+file. The defaults, 1 and 20, give real time at 20 Hz control. Two laps make a 15 s file of
+about 3 MB, so record two laps and not twenty.
 
 ### run_single_rollout.py
 

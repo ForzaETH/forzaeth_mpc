@@ -19,6 +19,7 @@ import numpy as np
 
 from forzaeth_mpc.sim.core.scenario import Scenario
 from forzaeth_mpc.sim.metrics.metrics import per_lap_times, unwrap_s
+from forzaeth_mpc.sim.waypoints import WP
 
 S, N, VX = 0, 1, 3  # state indices, identical across the three models
 
@@ -68,6 +69,19 @@ def frenet_to_xy(waypoints: np.ndarray, s: np.ndarray, n: np.ndarray, track_len:
     return x_ref - n * np.sin(psi_at), y_ref + n * np.cos(psi_at)
 
 
+def track_bounds_xy(waypoints: np.ndarray, track_len: float):
+    """The left and right track edges as closed (x, y) polylines.
+
+    `frenet_to_xy` puts +n to the left of the raceline, which is the same sign the
+    constraints use, so the right edge takes -d_right.
+    """
+    s_wp = waypoints[:, WP.S]
+    lx, ly = frenet_to_xy(waypoints, s_wp, waypoints[:, WP.D_LEFT], track_len)
+    rx, ry = frenet_to_xy(waypoints, s_wp, -waypoints[:, WP.D_RIGHT], track_len)
+    close = lambda a: np.append(a, a[0])
+    return (close(lx), close(ly)), (close(rx), close(ry))
+
+
 def run(algo: str, scn: Scenario, args) -> dict:
     ctrl = build(algo, scn, args)
     # The control period is the controller's own, not a harness choice: KMPC's plant
@@ -83,13 +97,13 @@ def run(algo: str, scn: Scenario, args) -> dict:
 
     qdict = weights_from_config(ctrl.mpc)
 
-    live = None
-    if args.live:
-        from forzaeth_mpc.sim.plotting.live import LiveView
-        live = LiveView(scn.waypoints, scn.track_len,
-                        f"{algo.upper()} — {args.track} / {args.racecar_version} — live")
-        if not live.ok:
-            live = None
+    video = None
+    if args.video:
+        from forzaeth_mpc.sim.plotting.video import SimVideo
+        os.makedirs(args.out, exist_ok=True)
+        video = SimVideo(scn.waypoints, scn.track_len,
+                         f"{algo.upper()} — {args.track} / {args.racecar_version}",
+                         os.path.join(args.out, f"{algo}_run"), fps=args.video_fps)
 
     xs, us, costs, stats, solve_ms = [], [], [], [], []
     laps_done, target_s = 0, None
@@ -116,15 +130,14 @@ def run(algo: str, scn: Scenario, args) -> dict:
             target_s = X[0, S]
         laps_done = int(np.floor((unwrap_s(X[:, S], scn.track_len)[-1] - target_s)
                                  / scn.track_len))
-        if live is not None and k % args.live_every == 0:
-            live.update(X, sd, dt, laps=laps_done)
+        if video is not None and k % args.video_every == 0:
+            video.add(X, sd, dt, laps=laps_done)
 
         if laps_done >= args.laps:
             break
 
-    if live is not None:
-        # the interactive figure must go before plot() switches the backend to Agg
-        live.close()
+    if video is not None:
+        video.close()
 
     X = np.asarray(xs)
     return summarize(algo, args, scn, ctrl, dt, X, np.asarray(us),
@@ -214,6 +227,9 @@ def plot(res: dict, out_dir: str, waypoints: np.ndarray, track_len: float):
 
     xy_x, xy_y = frenet_to_xy(waypoints, X[:, S], X[:, N], track_len)
     sc = ax[0, 0].scatter(xy_x, xy_y, c=X[:, VX], s=3, cmap="viridis")
+    (lx, ly), (rx, ry) = track_bounds_xy(waypoints, track_len)
+    ax[0, 0].plot(lx, ly, "-", color="0.35", lw=1.1, label="track bounds")
+    ax[0, 0].plot(rx, ry, "-", color="0.35", lw=1.1)
     ax[0, 0].plot(waypoints[:, 0], waypoints[:, 1], "k--", lw=0.6, label="raceline")
     ax[0, 0].set_aspect("equal"), ax[0, 0].legend(loc="best", fontsize=8)
     ax[0, 0].set_title("driven path, coloured by $v_x$")
@@ -271,11 +287,12 @@ def main():
     ap.add_argument("--lbmpc_path", default="/tmp/lbmpc_sim")
     ap.add_argument("--out", default="/tmp/mpc_laps")
     ap.add_argument("--plot", action="store_true")
-    ap.add_argument("--live", action="store_true",
-                    help="show the driven path, the predicted horizon and the speed while "
-                         "the simulation runs. Needs an interactive matplotlib backend.")
-    ap.add_argument("--live_every", type=int, default=5,
-                    help="redraw the live view every N control steps (default 5)")
+    ap.add_argument("--video", action="store_true",
+                    help="record the run to <out>/<algo>_run.mp4 (gif without ffmpeg)")
+    ap.add_argument("--video_every", type=int, default=1,
+                    help="one frame every N control steps (default 1)")
+    ap.add_argument("--video_fps", type=int, default=20,
+                    help="frames per second (default 20: real time at 20 Hz control)")
     ap.add_argument("--dump_states", action="store_true",
                     help="save the closed-loop state and input trajectories as .npy, for "
                          "before/after comparison across a refactor")
