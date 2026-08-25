@@ -7,7 +7,8 @@ from forzaeth_mpc.config import (CarConfig, PacejkaTireConfig, STMPCConfig,
 from scipy.integrate import solve_ivp
 from forzaeth_mpc.stmpc.acados_settings import acados_settings
 from forzaeth_mpc.stmpc.online_params import MU_IDX, build_online_params
-from forzaeth_mpc.utils.indices import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import (InputIndex, StateIndex,
+                                         single_track_x0)
 from forzaeth_mpc.utils.splinify import (SplineTrack,
                                          track_coords_from_waypoints)
 
@@ -173,10 +174,9 @@ class STMPC:
         self.fre_d = self.position_in_map_frenet[1]
         self.fre_alpha = alpha_center
 
-        x0 = np.array([
-            self.fre_s, self.fre_d, self.fre_alpha,
-            speed_now, self.vel_y, self.measured_steer, self.yaw_rate, self.measured_acc
-        ], dtype=np.float64)
+        x0 = single_track_x0(s=self.fre_s, n=self.fre_d, theta=self.fre_alpha,
+                                v_x=speed_now, v_y=self.vel_y, yaw_rate=self.yaw_rate,
+                                delta=self.measured_steer, accel=self.measured_acc)
 
         # Delay compensation
         self.t_delay = 0.0
@@ -349,3 +349,38 @@ class STMPC:
             self.model_params.p = DM(p)
         else:
             self.model_params.p = p
+
+
+if __name__ == "__main__":
+    # Call main_loop the way controller_manager does. The simulator never takes this path:
+    # its harness pins the state by index, while main_loop assembles it from named
+    # measurements, which is where yaw_rate and delta were once swapped.
+    from forzaeth_mpc.sim.core.scenario import Scenario
+
+    scn = Scenario(track="THETRACK", racecar_version="NUC5", floor="dubi")
+    mpc = scn.make_mpc(s0=20.0, n0=0.0, psi0=0.0, dt=1.0 / scn.stmpc_config.MPC_freq)
+    wp = scn.waypoints
+    V_Y, YAW_RATE, ACCEL, DELTA = -0.11, 0.77, 1.9, 0.13   # no two of them equal
+    out = mpc.main_loop(
+        state="GB_TRACK",
+        position_in_map=np.array([[wp[200, 0], wp[200, 1], 0.0]]),
+        waypoint_array_in_map=wp,
+        speed_now=3.3,
+        opponent=None,
+        position_in_map_frenet=np.array([wp[200, 4], 0.05, 0.0, 3.3]),
+        alpha=0.0,
+        single_track_state=np.array([V_Y, YAW_RATE, ACCEL, DELTA]),
+        track_length=scn.track_len,
+        compute_time=0.0,
+        in_start_bool=False,
+    )
+    status = out[5]
+    x0 = mpc.acados_solver.get(0, "x")
+    assert abs(x0[StateIndex.VELOCITY_V_Y] - V_Y) < 1e-12, x0
+    assert abs(x0[StateIndex.YAW_RATE] - YAW_RATE) < 1e-12, (
+        f"the yaw_rate slot holds {x0[StateIndex.YAW_RATE]}, measured {YAW_RATE}")
+    # using_gokart is False here, so the steering angle comes from the buffer, which
+    # starts at zero, and not from the measurement
+    assert abs(x0[StateIndex.STEERING_ANGLE_DELTA]) < 1e-12, x0
+    assert status in (0, 2), status
+    print("OK: main_loop puts each measurement in its own slot")

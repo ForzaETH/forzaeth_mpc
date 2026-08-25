@@ -14,6 +14,7 @@ from forzaeth_mpc.lbmpc.residual_model import (initialize_residual_model,
 from forzaeth_mpc.lbmpc.solver_artifacts import build_solver_build_config
 from forzaeth_mpc.lbmpc.offline_viz_logger import OfflineMPCLogger
 from forzaeth_mpc.utils.indices import InputIndex, StateIndex
+from forzaeth_mpc.utils.indices import single_track_x0
 from forzaeth_mpc.config import (CarConfig, LBMPCConfig, PacejkaTireConfig,
                         TrailingConfig)
 from scipy.integrate import solve_ivp
@@ -402,10 +403,9 @@ class LBMPC:
         self.fre_d = self.position_in_map_frenet[1]
         self.fre_alpha = alpha_center
 
-        x0 = np.array([
-            self.fre_s, self.fre_d, self.fre_alpha,
-            speed_now, self.vel_y, self.yaw_rate, self.measured_steer, self.measured_acc
-        ], dtype=np.float64)
+        x0 = single_track_x0(s=self.fre_s, n=self.fre_d, theta=self.fre_alpha,
+                                v_x=speed_now, v_y=self.vel_y, yaw_rate=self.yaw_rate,
+                                delta=self.measured_steer, accel=self.measured_acc)
 
         _t1 = time.perf_counter()
         init_time = _t1 - _t0
