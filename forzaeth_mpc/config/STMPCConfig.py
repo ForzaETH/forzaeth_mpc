@@ -18,6 +18,18 @@ class STMPCConfig(BaseModel):
     """Delay in seconds accounted for propagation before the MPC is applied"""
     steps_delay: int
     """Delays for the steering angle"""
+    use_steering_servo: bool
+    """Model the steering servo as a first order lag of ``car_config.tau_steer``, which
+    makes the first input a commanded steering *angle* instead of a steering rate.
+
+    False keeps the historical model, where the input is a rate and the servo is assumed
+    instantaneous; the delay is then compensated by publishing the angle of the state
+    ``steps_delay + 1`` nodes ahead, which only holds at one ``MPC_freq`` and has to
+    absorb the servo lag as well as the transport delay. True sends the commanded angle
+    the solver decided on, and leaves ``steps_delay`` covering the transport delay
+    alone. The cost weights are not interchangeable between the two: ``q_ddelta``
+    penalises the steering rate in both cases, but the reachable rates differ, so a
+    weight set tuned for one wants retuning for the other."""
     MPC_freq: int
     """Frequency of the MPC controller"""
     track_safety_margin: float
