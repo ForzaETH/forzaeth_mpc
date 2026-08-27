@@ -87,6 +87,10 @@ python3 -m pip install -e ".[sim,lbmpc]"
 `naefjo/linear_operator`. The exo backend of l4acados needs them. The script replaces any
 copy from PyPI. LB-MPC does not work with the released `gpytorch`.
 
+It installs the CPU build of `torch` by default, so pip does not pull ~2.5 GB of CUDA
+wheels on a machine without a GPU. On a GPU machine, set the index first:
+`TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 ./install/install_l4acados.sh`.
+
 ## Configuration
 
 Pydantic validates every configuration file. A missing key or an extra key stops the load.
@@ -149,8 +153,5 @@ python3 -m pip install -e "forzaeth_mpc[sim,lbmpc]"
 - **`research/residual_validation/` is frozen.** It keeps its own copy of the single-track
   model, at the earlier state order and the 14-entry parameter vector. The published GP
   numbers come from that copy. Do not change it to use the shared model.
-- **`install/install_l4acados.sh` writes a `.pth` file that points to
-  `external/l4acados/external`.** The current l4acados commit has no such directory. Python
-  ignores the path, so the file has no effect.
 - **A built wheel does not contain `config/` or `tracks/`.** Both directories are outside the
   importable package. Install the package from a clone.
