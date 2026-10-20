@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import Tuple, TYPE_CHECKING
 
-import yaml
 from forzaeth_mpc.config import LBMPCConfig, load_LBMPC_config_ros
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
-from .paths import config_root, strict_safe_load
+from .paths import config_root, load_model
 
 if TYPE_CHECKING:
     from dynamic_reconfigure.parameter_generator_catkin import ParameterGenerator
@@ -74,23 +73,7 @@ def create_LBMPC_dynamic_parameters(gen: ParameterGenerator):
         racecar_version=default_car)  # using the default_car version by default
 
     # load the dynamic reconfigure parameters
-    config_path = str(config_root() / default_car / 'lb_mpc_dyn_params.yaml')
-    with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = strict_safe_load(file)
-    try:
-        config = LBMPCConfigDyn(**cfg_dict)
-    except ValidationError as e:
-        for error in e.errors():
-            if error["type"] == "missing":
-                for missing_key in error["loc"]:
-                    raise ValueError(f"Missing key <{missing_key}> in {config_path} file. Please add it.") from e
-            elif error["type"] == "extra_forbidden":
-                for extra_key in error["loc"]:
-                    raise ValueError(f"Extra key <{extra_key}> in {config_path} file. Please remove it.") from e
-            else:
-                raise ValueError(
-                    f"Error loading the {config_path} file. Please contact support (edo) with this traceback.") from e
-        return None
+    config = load_model(LBMPCConfigDyn, config_root() / default_car / 'lb_mpc_dyn_params.yaml')
 
     # check dyn parameters are available in the normal config
     for key in config.model_dump().keys():

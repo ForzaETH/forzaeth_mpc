@@ -1,8 +1,7 @@
-import yaml
 import logging
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
-from .paths import config_root, strict_safe_load
+from .paths import config_root, load_model
 
 class KMPCConfig(BaseModel):
     """Kinematic MPC configuration class"""
@@ -81,22 +80,4 @@ def load_KMPC_config_ros(racecar_version: str) -> KMPCConfig:
         racecar_version (str): a car name
     """
 
-    config_path = str(config_root() / racecar_version / 'kinematic_mpc_params.yaml')
-    with open(config_path, 'r') as file:
-        cfg_dict = strict_safe_load(file)
-        try:
-            config = KMPCConfig(**cfg_dict)
-        except ValidationError as e:
-            for error in e.errors():
-                if error["type"] == "missing":
-                    for missing_key in error["loc"]:
-                        print(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
-                elif error["type"] == "extra_forbidden":
-                    for extra_key in error["loc"]:
-                        print(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
-                else:
-                    print(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
-                    raise e
-            return None
-
-    return config
+    return load_model(KMPCConfig, config_root() / racecar_version / 'kinematic_mpc_params.yaml')
