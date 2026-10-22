@@ -74,7 +74,7 @@ Pip cannot resolve acados or the GP libraries. Use the two shell scripts.
 git clone --recurse-submodules <this repo>
 cd forzaeth_mpc
 
-./install/install_acados.sh ~/acados        # acados v0.4.4 + acados_template
+./install/install_acados.sh ~/acados        # acados v0.4.4 + acados_template + tera renderer
 export ACADOS_SOURCE_DIR=~/acados
 export LD_LIBRARY_PATH=$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH
 
