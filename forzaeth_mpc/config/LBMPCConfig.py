@@ -1,11 +1,10 @@
 
 from typing import Dict, List, Optional, Union
 
-import yaml
-from pydantic import (BaseModel, ConfigDict, ValidationError, field_validator,
+from pydantic import (BaseModel, ConfigDict, field_validator,
                       model_validator)
 
-from .paths import config_root, strict_safe_load
+from .paths import config_root, load_model
 
 NestedFloats = Union[List[float], List[List[float]]]
 
@@ -183,7 +182,7 @@ class LBMPCConfig(BaseModel):
     """Parameters for the GP residual model"""
 
 
-def load_LBMPC_config_ros(racecar_version: str) -> Union[LBMPCConfig, None]:
+def load_LBMPC_config_ros(racecar_version: str) -> LBMPCConfig:
     """Loads the MPC config from the yaml file
 
     Args:
@@ -193,22 +192,4 @@ def load_LBMPC_config_ros(racecar_version: str) -> Union[LBMPCConfig, None]:
         LBMPCConfig: the MPC configuration object
     """
 
-    config_path = str(config_root() / racecar_version / 'lb_mpc_params.yaml')
-    with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = strict_safe_load(file)
-        try:
-            config = LBMPCConfig(**cfg_dict)
-        except ValidationError as e:
-            for error in e.errors():
-                if error["type"] == "missing":
-                    for missing_key in error["loc"]:
-                        print(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
-                elif error["type"] == "extra_forbidden":
-                    for extra_key in error["loc"]:
-                        print(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
-                else:
-                    print(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
-                    raise e
-            return None
-
-    return config
+    return load_model(LBMPCConfig, config_root() / racecar_version / 'lb_mpc_params.yaml')

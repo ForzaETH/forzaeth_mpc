@@ -71,7 +71,7 @@ Every command takes `--track`. The name resolves against `tracks/` in the reposi
 So the maps of race_stack need no copy and no rename:
 
 ```bash
-export FORZAETH_MPC_TRACKS=$(rospack find stack_master)/maps
+export FORZAETH_MPC_TRACKS=<race_stack>/stack_master/maps
 python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
 ```
 

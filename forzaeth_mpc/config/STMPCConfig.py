@@ -1,10 +1,8 @@
 
-from typing import Union
 
-import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
-from .paths import config_root, strict_safe_load
+from .paths import config_root, load_model
 
 
 class STMPCConfig(BaseModel):
@@ -121,7 +119,7 @@ class STMPCConfig(BaseModel):
     terminal_multiplier: float
 
 
-def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
+def load_STMPC_config_ros(racecar_version: str) -> STMPCConfig:
     """Loads the MPC config from the yaml file
 
     Args:
@@ -131,22 +129,4 @@ def load_STMPC_config_ros(racecar_version: str) -> Union[STMPCConfig, None]:
         STMPCConfig: the MPC configuration object
     """
 
-    config_path = str(config_root() / racecar_version / 'single_track_mpc_params.yaml')
-    with open(config_path, 'r', encoding='utf-8') as file:
-        cfg_dict = strict_safe_load(file)
-        try:
-            config = STMPCConfig(**cfg_dict)
-        except ValidationError as e:
-            for error in e.errors():
-                if error["type"] == "missing":
-                    for missing_key in error["loc"]:
-                        print(f"Missing key <{missing_key}> in {config_path} file. Please add it.")
-                elif error["type"] == "extra_forbidden":
-                    for extra_key in error["loc"]:
-                        print(f"Extra key <{extra_key}> in {config_path} file. Please remove it.")
-                else:
-                    print(f"Error loading the {config_path} file. Please contact support (edo) with this traceback.")
-                    raise e
-            return None
-
-    return config
+    return load_model(STMPCConfig, config_root() / racecar_version / 'single_track_mpc_params.yaml')

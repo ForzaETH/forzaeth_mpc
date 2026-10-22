@@ -74,10 +74,11 @@ Pip cannot resolve acados or the GP libraries. Use the two shell scripts.
 git clone --recurse-submodules <this repo>
 cd forzaeth_mpc
 
-./install/install_acados.sh ~/acados        # acados v0.4.4 + acados_template
+./install/install_acados.sh ~/acados        # acados v0.4.4 + acados_template + tera renderer
 export ACADOS_SOURCE_DIR=~/acados
 export LD_LIBRARY_PATH=$ACADOS_SOURCE_DIR/lib:$LD_LIBRARY_PATH
 
+python3 -m pip install git+https://github.com/ForzaETH/forza_config.git   # config schemas
 python3 -m pip install -e ".[sim]"                     # controllers + simulator
 ./install/install_l4acados.sh               # only for LB-MPC
 python3 -m pip install -e ".[sim,lbmpc]"
@@ -93,35 +94,32 @@ wheels on a machine without a GPU. On a GPU machine, set the index first:
 
 ## Configuration
 
-Pydantic validates every configuration file. A missing key or an extra key stops the load.
-No value falls back to a default without a message.
+Pydantic validates every configuration file. A missing key or an extra key stops the load,
+and so does a key declared twice in the same file. No value falls back to a default.
 
-The schemas are in `forzaeth_mpc/config/`. The values are in `config/<CAR>/*.yaml`.
+The MPC schemas are in `forzaeth_mpc/config/`. The car, tire and trailing schemas come from
+[`forza_config`](https://github.com/ForzaETH/forza_config), so both packages read the same
+files the same way. This package carries no yaml: the values live in race_stack, in
+`stack_master/config/<CAR>/`. Its ROS nodes read them with `forza_config_ros`.
+
+The simulator and the module self-tests read a car by name from `FORZAETH_MPC_CONFIG`:
+
+```bash
+export FORZAETH_MPC_CONFIG=<race_stack>/stack_master/config
+```
 
 ```python
 from forzaeth_mpc.config import load_STMPC_config_ros, load_car_config_ros
 cfg = load_STMPC_config_ros("NUC5")
 ```
 
-The loaders reject a file that declares the same key twice. Plain `yaml.safe_load` keeps the
-last value and reports nothing. That behaviour hid a wrong tire constraint on two cars.
+Car `NUC5` with floor `dubi` is the combination that the simulator uses by default.
 
-The `config/` directory holds test fixtures. It is large enough to run the simulator. It is
-not the source of truth for a car. On a car, point the loaders at race_stack:
-
-```bash
-export FORZAETH_MPC_CONFIG=$(rospack find stack_master)/config
-```
-
-The fixtures do not repeat the tuning values of the cars. Car `NUC5` with floor `dubi` is
-the combination that the simulator uses by default, and the only complete one.
-
-`tracks/*.json` are `global_waypoints.json` files from the global planner of race_stack.
-`--track` takes the name of a file in that directory, or a path to any such file. To read the
-maps of race_stack where they already are:
+`--track` takes the name of a `global_waypoints.json` from the global planner of race_stack, or
+a path to any such file. Point it at the maps of race_stack:
 
 ```bash
-export FORZAETH_MPC_TRACKS=$(rospack find stack_master)/maps
+export FORZAETH_MPC_TRACKS=<race_stack>/stack_master/maps
 python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
 ```
 
@@ -131,13 +129,10 @@ Use `--refline` to pick the raceline in the file. Every map of race_stack holds 
 
 ## Use from race_stack
 
-Clone the package beside the other external repositories, then install it. The ROS nodes of
-race_stack import from it, and `pbl_config` re-exports the configuration schemas.
-
-```bash
-cd ~/catkin_ws/src/external && git clone --recurse-submodules <this repo> forzaeth_mpc
-python3 -m pip install -e "forzaeth_mpc[sim,lbmpc]"
-```
+race_stack has this package as a submodule at `controller/forzaeth_mpc` and builds it with
+colcon (`package.xml` only lets colcon and rosdep find it; the metadata is in `setup.py`
+because the ROS humble images pin setuptools 58, which ignores pyproject's `[project]`).
+Its ROS nodes import the controllers from here.
 
 ## Limitations
 
@@ -153,5 +148,3 @@ python3 -m pip install -e "forzaeth_mpc[sim,lbmpc]"
 - **`research/residual_validation/` is frozen.** It keeps its own copy of the single-track
   model, at the earlier state order and the 14-entry parameter vector. The published GP
   numbers come from that copy. Do not change it to use the shared model.
-- **A built wheel does not contain `config/` or `tracks/`.** Both directories are outside the
-  importable package. Install the package from a clone.

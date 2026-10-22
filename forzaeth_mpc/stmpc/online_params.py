@@ -101,10 +101,8 @@ def default_parameter_values(config: Union[STMPCConfig, LBMPCConfig],
 
 
 if __name__ == "__main__":
-    from forzaeth_mpc.config.PacejkaTireConfig import \
-        load_pacejka_tire_config_ros
-    from forzaeth_mpc.config.LBMPCConfig import load_LBMPC_config_ros
-    from forzaeth_mpc.config.STMPCConfig import load_STMPC_config_ros
+    from forzaeth_mpc.config import (load_LBMPC_config_ros, load_pacejka_tire_config_ros,
+                                     load_STMPC_config_ros)
 
     tire_config = load_pacejka_tire_config_ros("NUC5", "dubi")
     PACEJKA = (tire_config.Bf, tire_config.Cf, tire_config.Df, tire_config.Ef,
