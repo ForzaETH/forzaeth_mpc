@@ -155,7 +155,9 @@ class Kinematic_MPC_Controller:
         track_length = self.spline.track_length - 0.1  # Needed as values are not exact
         center_car_s = self.position_in_map_frenet[0] + self.car_config.lr * np.cos(self.alpha)
         deriv_center = self.spline.get_derivative(center_car_s)
-        alpha_center = self.position_in_map[0, 2] - np.arctan2(deriv_center[1], deriv_center[0])
+        # alpha is relative to the track at the car's s: shift it by the track's turn up to the center of mass
+        deriv_s = self.spline.get_derivative(self.position_in_map_frenet[0])
+        alpha_center = self.alpha + np.arctan2(deriv_s[1], deriv_s[0]) - np.arctan2(deriv_center[1], deriv_center[0])
         # make aplha_center between -pi and pi
         alpha_center = alpha_center % (2 * np.pi)
         if alpha_center > np.pi:
