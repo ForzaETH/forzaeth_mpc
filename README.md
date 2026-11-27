@@ -119,7 +119,7 @@ Car `NUC5` with floor `dubi` is the combination that the simulator uses by defau
 a path to any such file. Point it at the maps of race_stack:
 
 ```bash
-export FORZAETH_MPC_TRACKS=<race_stack>/stack_master/maps
+export FORZAETH_MPC_TRACKS=$MAPS_DIR
 python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
 ```
 

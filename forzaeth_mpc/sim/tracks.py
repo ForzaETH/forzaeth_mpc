@@ -28,7 +28,7 @@ def _resolve_path(track: str) -> Path:
     if p.is_file():
         return p
     tracks_dir = Path(os.environ.get("FORZAETH_MPC_TRACKS", _REPO_ROOT / "tracks"))
-    # the second form is the layout of stack_master/maps, so pointing
+    # the second form is the layout of $MAPS_DIR, so pointing
     # FORZAETH_MPC_TRACKS at it needs no copy and no rename
     for candidate in (tracks_dir / f"{track}.json",
                       tracks_dir / track / "global_waypoints.json"):
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         assert jump < 0.05, f"projection tears at s=0 for n={n_q}: {jump:.3f} m"
     print("OK: projection continuous across the start line")
 
-    # the stack_master/maps layout, <name>/global_waypoints.json, must resolve without a
+    # the $MAPS_DIR layout, <name>/global_waypoints.json, must resolve without a
     # copy and without a rename
     import shutil
     import tempfile

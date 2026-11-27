@@ -65,13 +65,13 @@ Every command takes `--track`. The name resolves against `tracks/` in the reposi
 
 ```
 <dir>/<name>.json                      # the repository uses this one
-<dir>/<name>/global_waypoints.json     # stack_master/maps uses this one
+<dir>/<name>/global_waypoints.json     # $MAPS_DIR (race_stack/maps) uses this one
 ```
 
 So the maps of race_stack need no copy and no rename:
 
 ```bash
-export FORZAETH_MPC_TRACKS=<race_stack>/stack_master/maps
+export FORZAETH_MPC_TRACKS=$MAPS_DIR
 python3 -m forzaeth_mpc.sim.cli.run_laps --algo stmpc --track the_grand_tour --laps 2
 ```
 
